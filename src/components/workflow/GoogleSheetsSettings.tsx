@@ -75,7 +75,7 @@ export default function GoogleSheetsSettings({ config, onConfigChange }: GoogleS
       // Get Google OAuth client ID from environment or use Supabase's
       const redirectUrl = `${window.location.origin}/auth/google/callback`;
 
-      // Initiate OAuth flow
+      // Initiate OAuth flow with all required Google API scopes
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
@@ -83,7 +83,7 @@ export default function GoogleSheetsSettings({ config, onConfigChange }: GoogleS
           queryParams: {
             access_type: 'offline',
             prompt: 'consent',
-            scope: 'https://www.googleapis.com/auth/spreadsheets email profile',
+            scope: 'https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/documents https://www.googleapis.com/auth/drive https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/bigquery https://www.googleapis.com/auth/tasks https://www.googleapis.com/auth/contacts email profile',
           },
         },
       });
@@ -96,7 +96,7 @@ export default function GoogleSheetsSettings({ config, onConfigChange }: GoogleS
       // The callback handler will store the token
       toast({
         title: 'Redirecting to Google...',
-        description: 'Please authorize access to Google Sheets',
+        description: 'Please authorize access to Google services',
       });
     } catch (error) {
       console.error('Google OAuth error:', error);
