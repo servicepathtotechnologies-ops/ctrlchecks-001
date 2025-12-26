@@ -976,7 +976,26 @@ export async function executeGoogleBigQueryOperation(
       throw new Error('Google OAuth token not found. Please authenticate with Google first.');
     }
 
-    const projectId = sanitizeString(config.projectId, 'Project ID');
+    // Validate projectId
+    const rawProjectId = config.projectId;
+    if (!rawProjectId || typeof rawProjectId !== 'string' || rawProjectId.trim() === '') {
+      throw new Error('Project ID is required. Please provide your Google Cloud Project ID in the node configuration.');
+    }
+
+    const projectId = rawProjectId.trim();
+    
+    // Check for placeholder values
+    const placeholderPatterns = ['my-project-id', 'your-project-id', 'project-id', 'example-project'];
+    if (placeholderPatterns.some(pattern => projectId.toLowerCase() === pattern.toLowerCase())) {
+      throw new Error(`Invalid Project ID: "${projectId}" appears to be a placeholder. Please replace it with your actual Google Cloud Project ID. You can find your Project ID in the Google Cloud Console: https://console.cloud.google.com/home/dashboard`);
+    }
+
+    // Basic validation: Google Cloud project IDs contain only lowercase letters, numbers, and hyphens
+    const projectIdPattern = /^[a-z0-9-]+$/;
+    if (!projectIdPattern.test(projectId)) {
+      throw new Error(`Invalid Project ID format: "${projectId}". Google Cloud Project IDs must contain only lowercase letters, numbers, and hyphens.`);
+    }
+
     const query = sanitizeString(config.query, 'Query', 100000);
     const useLegacySql = (config.useLegacySql as boolean) || false;
     const datasetId = config.datasetId as string | undefined;
@@ -997,7 +1016,82 @@ export async function executeGoogleBigQueryOperation(
 
     if (!queryResponse.ok) {
       const errorText = await queryResponse.text();
-      const errorMessage = parseGoogleApiError(queryResponse, errorText);
+      let errorMessage = parseGoogleApiError(queryResponse, errorText);
+      
+      // Check if this is a permission error - might need token refresh
+      const isPermissionError = errorMessage.includes('bigquery.jobs.create') || 
+                                errorMessage.includes('does not have') || 
+                                errorMessage.includes('permission') ||
+                                errorMessage.includes('Access Denied');
+      
+      // If permission error and we haven't tried refreshing yet, try refreshing token
+      if (isPermissionError && queryResponse.status === 403) {
+        console.log('[BigQuery] Permission error detected, attempting token refresh...');
+        try {
+          // Force token refresh by getting a new token
+          const refreshedToken = await getGoogleAccessToken(supabase, userId);
+          if (refreshedToken && refreshedToken !== accessToken) {
+            console.log('[BigQuery] Token refreshed, retrying with new token...');
+            // Retry the request with refreshed token
+            const retryResponse = await fetchWithRetry(queryUrl, {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${refreshedToken}`,
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                query,
+                useLegacySql,
+                defaultDataset: datasetId ? { datasetId, projectId } : undefined,
+              }),
+            });
+            
+            if (retryResponse.ok) {
+              const result = await retryResponse.json();
+              const rows = result.rows || [];
+              const schema = result.schema?.fields || [];
+              const formattedRows = rows.map((row: any) => {
+                const obj: Record<string, unknown> = {};
+                schema.forEach((field: any, index: number) => {
+                  const value = row.f[index]?.v;
+                  if (field.type === 'INTEGER' || field.type === 'INT64') {
+                    obj[field.name] = value ? parseInt(value, 10) : null;
+                  } else if (field.type === 'FLOAT' || field.type === 'FLOAT64') {
+                    obj[field.name] = value ? parseFloat(value) : null;
+                  } else if (field.type === 'BOOLEAN' || field.type === 'BOOL') {
+                    obj[field.name] = value === 'true' || value === true;
+                  } else {
+                    obj[field.name] = value;
+                  }
+                });
+                return obj;
+              });
+              
+              return {
+                success: true,
+                data: {
+                  rows: formattedRows,
+                  totalRows: parseInt(result.totalRows || '0', 10),
+                  jobComplete: result.jobComplete || false,
+                  schema: schema.map((f: any) => ({ name: f.name, type: f.type })),
+                },
+              };
+            }
+          }
+        } catch (refreshError) {
+          console.error('[BigQuery] Token refresh failed:', refreshError);
+        }
+      }
+      
+      // Provide helpful guidance for common BigQuery errors
+      if (errorMessage.includes('has not enabled BigQuery') || errorMessage.includes('BigQuery API')) {
+        errorMessage += `\n\nTo fix this:\n1. Go to Google Cloud Console: https://console.cloud.google.com/apis/library/bigquery.googleapis.com?project=${projectId}\n2. Click "Enable" to enable the BigQuery API for your project\n3. Wait a few minutes for the API to be enabled\n4. Try running your workflow again`;
+      } else if (isPermissionError) {
+        errorMessage += `\n\n⚠️ PERMISSION ERROR - IMPORTANT STEPS:\n\n1. VERIFY WHICH GOOGLE ACCOUNT IS AUTHENTICATED:\n   - Go to your workflow settings\n   - Disconnect and reconnect your Google account\n   - Make sure you're using the SAME Google account that has BigQuery permissions\n\n2. VERIFY PERMISSIONS IN GOOGLE CLOUD:\n   - Go to: https://console.cloud.google.com/iam-admin/iam?project=${projectId}\n   - Find the Google account email you used to authenticate\n   - Verify it has "BigQuery Job User" role (or "BigQuery User")\n   - If missing, add the role and wait 2-3 minutes\n\n3. RE-AUTHENTICATE TO REFRESH TOKEN:\n   - The OAuth token might be from before permissions were granted\n   - Disconnect your Google account in workflow settings\n   - Reconnect to get a fresh token with updated permissions\n   - This ensures the token reflects your current permissions\n\n4. CHECK ACCOUNT MATCH:\n   - The account you authenticated with MUST match the account in IAM\n   - If you have multiple Google accounts, use the one with permissions\n\nAfter re-authenticating, try running the workflow again.`;
+      } else if (errorMessage.includes('not found') || errorMessage.includes('does not exist')) {
+        errorMessage += `\n\nPlease verify:\n1. The Project ID "${projectId}" is correct\n2. The project exists in your Google Cloud account\n3. You have access to this project`;
+      }
+      
       throw new Error(errorMessage);
     }
 
