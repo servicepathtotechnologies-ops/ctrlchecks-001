@@ -5991,6 +5991,1694 @@ async function executeNode(
       throw new Error('TimescaleDB: TimescaleDB node requires PostgreSQL driver. For production use, please configure PostgreSQL connection driver or use HTTP-based database API.');
     }
 
+    // ============================================
+    // DEVOPS NODES
+    // ============================================
+
+    case "github": {
+      const token = getStringProperty(config, 'token', '');
+      const operation = getStringProperty(config, 'operation', 'get_repo');
+      const owner = getStringProperty(config, 'owner', '');
+      const repo = getStringProperty(config, 'repo', '');
+      
+      if (!token) {
+        throw new Error('GitHub: Token is required');
+      }
+
+      const headers: Record<string, string> = {
+        'Authorization': `Bearer ${token}`,
+        'Accept': 'application/vnd.github.v3+json',
+        'User-Agent': 'CtrlChecks-Workflow',
+      };
+
+      try {
+        let url = '';
+        let method = 'GET';
+        let body: unknown = undefined;
+
+        switch (operation) {
+          case 'get_repo':
+            if (!owner || !repo) throw new Error('GitHub: Owner and Repo are required for get_repo');
+            url = `https://api.github.com/repos/${owner}/${repo}`;
+            break;
+          case 'list_repos':
+            url = owner ? `https://api.github.com/users/${owner}/repos` : 'https://api.github.com/user/repos';
+            break;
+          case 'create_issue':
+            if (!owner || !repo) throw new Error('GitHub: Owner and Repo are required for create_issue');
+            url = `https://api.github.com/repos/${owner}/${repo}/issues`;
+            method = 'POST';
+            body = {
+              title: replaceTemplates(getStringProperty(config, 'title', ''), input),
+              body: replaceTemplates(getStringProperty(config, 'body', ''), input),
+            };
+            break;
+          case 'update_issue':
+            if (!owner || !repo) throw new Error('GitHub: Owner and Repo are required for update_issue');
+            const issueNumber = getNumberProperty(config, 'issueNumber', 0);
+            if (!issueNumber) throw new Error('GitHub: Issue Number is required for update_issue');
+            url = `https://api.github.com/repos/${owner}/${repo}/issues/${issueNumber}`;
+            method = 'PATCH';
+            body = {
+              title: replaceTemplates(getStringProperty(config, 'title', ''), input),
+              body: replaceTemplates(getStringProperty(config, 'body', ''), input),
+              state: replaceTemplates(getStringProperty(config, 'state', 'open'), input),
+            };
+            break;
+          case 'close_issue':
+            if (!owner || !repo) throw new Error('GitHub: Owner and Repo are required for close_issue');
+            const closeIssueNumber = getNumberProperty(config, 'issueNumber', 0);
+            if (!closeIssueNumber) throw new Error('GitHub: Issue Number is required for close_issue');
+            url = `https://api.github.com/repos/${owner}/${repo}/issues/${closeIssueNumber}`;
+            method = 'PATCH';
+            body = { state: 'closed' };
+            break;
+          case 'list_issues':
+            if (!owner || !repo) throw new Error('GitHub: Owner and Repo are required for list_issues');
+            url = `https://api.github.com/repos/${owner}/${repo}/issues`;
+            break;
+          case 'get_issue':
+            if (!owner || !repo) throw new Error('GitHub: Owner and Repo are required for get_issue');
+            const getIssueNumber = getNumberProperty(config, 'issueNumber', 0);
+            if (!getIssueNumber) throw new Error('GitHub: Issue Number is required for get_issue');
+            url = `https://api.github.com/repos/${owner}/${repo}/issues/${getIssueNumber}`;
+            break;
+          case 'add_issue_comment':
+            if (!owner || !repo) throw new Error('GitHub: Owner and Repo are required for add_issue_comment');
+            const commentIssueNumber = getNumberProperty(config, 'issueNumber', 0);
+            if (!commentIssueNumber) throw new Error('GitHub: Issue Number is required for add_issue_comment');
+            const comment = replaceTemplates(getStringProperty(config, 'comment', ''), input);
+            if (!comment) throw new Error('GitHub: Comment is required for add_issue_comment');
+            url = `https://api.github.com/repos/${owner}/${repo}/issues/${commentIssueNumber}/comments`;
+            method = 'POST';
+            body = { body: comment };
+            break;
+          case 'create_pr':
+            if (!owner || !repo) throw new Error('GitHub: Owner and Repo are required for create_pr');
+            url = `https://api.github.com/repos/${owner}/${repo}/pulls`;
+            method = 'POST';
+            body = {
+              title: replaceTemplates(getStringProperty(config, 'title', ''), input),
+              body: replaceTemplates(getStringProperty(config, 'body', ''), input),
+              head: replaceTemplates(getStringProperty(config, 'sourceBranch', 'feature-branch'), input),
+              base: replaceTemplates(getStringProperty(config, 'targetBranch', 'main'), input),
+            };
+            break;
+          case 'update_pr':
+            if (!owner || !repo) throw new Error('GitHub: Owner and Repo are required for update_pr');
+            const prNumber = getNumberProperty(config, 'prNumber', 0);
+            if (!prNumber) throw new Error('GitHub: PR Number is required for update_pr');
+            url = `https://api.github.com/repos/${owner}/${repo}/pulls/${prNumber}`;
+            method = 'PATCH';
+            body = {
+              title: replaceTemplates(getStringProperty(config, 'title', ''), input),
+              body: replaceTemplates(getStringProperty(config, 'body', ''), input),
+            };
+            break;
+          case 'merge_pr':
+            if (!owner || !repo) throw new Error('GitHub: Owner and Repo are required for merge_pr');
+            const mergePrNumber = getNumberProperty(config, 'prNumber', 0);
+            if (!mergePrNumber) throw new Error('GitHub: PR Number is required for merge_pr');
+            url = `https://api.github.com/repos/${owner}/${repo}/pulls/${mergePrNumber}/merge`;
+            method = 'PUT';
+            body = {
+              merge_method: replaceTemplates(getStringProperty(config, 'mergeMethod', 'merge'), input),
+            };
+            break;
+          case 'list_prs':
+            if (!owner || !repo) throw new Error('GitHub: Owner and Repo are required for list_prs');
+            url = `https://api.github.com/repos/${owner}/${repo}/pulls`;
+            break;
+          case 'get_pr':
+            if (!owner || !repo) throw new Error('GitHub: Owner and Repo are required for get_pr');
+            const getPrNumber = getNumberProperty(config, 'prNumber', 0);
+            if (!getPrNumber) throw new Error('GitHub: PR Number is required for get_pr');
+            url = `https://api.github.com/repos/${owner}/${repo}/pulls/${getPrNumber}`;
+            break;
+          case 'add_pr_comment':
+            if (!owner || !repo) throw new Error('GitHub: Owner and Repo are required for add_pr_comment');
+            const prCommentNumber = getNumberProperty(config, 'prNumber', 0);
+            if (!prCommentNumber) throw new Error('GitHub: PR Number is required for add_pr_comment');
+            const prComment = replaceTemplates(getStringProperty(config, 'comment', ''), input);
+            if (!prComment) throw new Error('GitHub: Comment is required for add_pr_comment');
+            url = `https://api.github.com/repos/${owner}/${repo}/issues/${prCommentNumber}/comments`;
+            method = 'POST';
+            body = { body: prComment };
+            break;
+          case 'create_branch':
+            if (!owner || !repo) throw new Error('GitHub: Owner and Repo are required for create_branch');
+            const branchName = replaceTemplates(getStringProperty(config, 'branchName', ''), input);
+            const sha = replaceTemplates(getStringProperty(config, 'sha', ''), input);
+            if (!branchName) throw new Error('GitHub: Branch Name is required for create_branch');
+            if (!sha) throw new Error('GitHub: SHA is required for create_branch');
+            url = `https://api.github.com/repos/${owner}/${repo}/git/refs`;
+            method = 'POST';
+            body = {
+              ref: `refs/heads/${branchName}`,
+              sha,
+            };
+            break;
+          case 'list_branches':
+            if (!owner || !repo) throw new Error('GitHub: Owner and Repo are required for list_branches');
+            url = `https://api.github.com/repos/${owner}/${repo}/branches`;
+            break;
+          case 'get_branch':
+            if (!owner || !repo) throw new Error('GitHub: Owner and Repo are required for get_branch');
+            const getBranchName = replaceTemplates(getStringProperty(config, 'branchName', ''), input);
+            if (!getBranchName) throw new Error('GitHub: Branch Name is required for get_branch');
+            url = `https://api.github.com/repos/${owner}/${repo}/branches/${getBranchName}`;
+            break;
+          case 'delete_branch':
+            if (!owner || !repo) throw new Error('GitHub: Owner and Repo are required for delete_branch');
+            const deleteBranchName = replaceTemplates(getStringProperty(config, 'branchName', ''), input);
+            if (!deleteBranchName) throw new Error('GitHub: Branch Name is required for delete_branch');
+            url = `https://api.github.com/repos/${owner}/${repo}/git/refs/heads/${deleteBranchName}`;
+            method = 'DELETE';
+            break;
+          case 'create_commit':
+            if (!owner || !repo) throw new Error('GitHub: Owner and Repo are required for create_commit');
+            const commitMessage = replaceTemplates(getStringProperty(config, 'commitMessage', ''), input);
+            const filePath = replaceTemplates(getStringProperty(config, 'filePath', ''), input);
+            const fileContent = replaceTemplates(getStringProperty(config, 'fileContent', ''), input);
+            const commitRef = replaceTemplates(getStringProperty(config, 'ref', 'main'), input);
+            if (!commitMessage || !filePath || !fileContent) {
+              throw new Error('GitHub: Commit Message, File Path, and File Content are required for create_commit');
+            }
+            url = `https://api.github.com/repos/${owner}/${repo}/contents/${filePath}`;
+            method = 'PUT';
+            body = {
+              message: commitMessage,
+              content: btoa(fileContent),
+              branch: commitRef,
+            };
+            break;
+          case 'list_commits':
+            if (!owner || !repo) throw new Error('GitHub: Owner and Repo are required for list_commits');
+            const commitSha = replaceTemplates(getStringProperty(config, 'commitSha', ''), input);
+            url = commitSha 
+              ? `https://api.github.com/repos/${owner}/${repo}/commits/${commitSha}`
+              : `https://api.github.com/repos/${owner}/${repo}/commits`;
+            break;
+          case 'get_commit':
+            if (!owner || !repo) throw new Error('GitHub: Owner and Repo are required for get_commit');
+            const getCommitSha = replaceTemplates(getStringProperty(config, 'commitSha', ''), input);
+            if (!getCommitSha) throw new Error('GitHub: Commit SHA is required for get_commit');
+            url = `https://api.github.com/repos/${owner}/${repo}/commits/${getCommitSha}`;
+            break;
+          case 'create_release':
+            if (!owner || !repo) throw new Error('GitHub: Owner and Repo are required for create_release');
+            const tagName = replaceTemplates(getStringProperty(config, 'tagName', ''), input);
+            const releaseName = replaceTemplates(getStringProperty(config, 'releaseName', ''), input);
+            const releaseBody = replaceTemplates(getStringProperty(config, 'releaseBody', ''), input);
+            if (!tagName) throw new Error('GitHub: Tag Name is required for create_release');
+            url = `https://api.github.com/repos/${owner}/${repo}/releases`;
+            method = 'POST';
+            body = {
+              tag_name: tagName,
+              name: releaseName || tagName,
+              body: releaseBody || '',
+            };
+            break;
+          case 'list_releases':
+            if (!owner || !repo) throw new Error('GitHub: Owner and Repo are required for list_releases');
+            url = `https://api.github.com/repos/${owner}/${repo}/releases`;
+            break;
+          case 'get_release':
+            if (!owner || !repo) throw new Error('GitHub: Owner and Repo are required for get_release');
+            const releaseId = getNumberProperty(config, 'releaseId', 0);
+            if (!releaseId) throw new Error('GitHub: Release ID is required for get_release');
+            url = `https://api.github.com/repos/${owner}/${repo}/releases/${releaseId}`;
+            break;
+          case 'get_workflow_runs':
+            if (!owner || !repo) throw new Error('GitHub: Owner and Repo are required for get_workflow_runs');
+            url = `https://api.github.com/repos/${owner}/${repo}/actions/runs`;
+            break;
+          case 'trigger_workflow':
+            if (!owner || !repo) throw new Error('GitHub: Owner and Repo are required for trigger_workflow');
+            const workflowId = getStringProperty(config, 'workflowId', '');
+            const workflowRef = replaceTemplates(getStringProperty(config, 'ref', 'main'), input);
+            if (!workflowId) throw new Error('GitHub: Workflow ID is required for trigger_workflow');
+            url = `https://api.github.com/repos/${owner}/${repo}/actions/workflows/${workflowId}/dispatches`;
+            method = 'POST';
+            body = { ref: workflowRef };
+            break;
+          case 'list_contributors':
+            if (!owner || !repo) throw new Error('GitHub: Owner and Repo are required for list_contributors');
+            url = `https://api.github.com/repos/${owner}/${repo}/contributors`;
+            break;
+          default:
+            throw new Error(`GitHub: Unknown operation "${operation}"`);
+        }
+
+        const response = await fetch(url, {
+          method,
+          headers,
+          body: body ? JSON.stringify(body) : undefined,
+        });
+
+        if (!response.ok) {
+          let errorText = '';
+          try {
+            errorText = await response.text();
+            const errorJson = JSON.parse(errorText);
+            if (errorJson.message) {
+              throw new Error(`GitHub API error: ${response.status} - ${errorJson.message}`);
+            }
+          } catch {
+            // If parsing fails, use raw text
+          }
+          throw new Error(`GitHub API error: ${response.status} - ${errorText || response.statusText}`);
+        }
+
+        // Handle empty responses (e.g., 204 No Content)
+        if (response.status === 204 || response.headers.get('content-length') === '0') {
+          return { success: true, message: 'Operation completed successfully' };
+        }
+
+        const text = await response.text();
+        if (!text) {
+          return { success: true, message: 'Operation completed successfully' };
+        }
+
+        try {
+          const data = JSON.parse(text);
+          return data;
+        } catch {
+          return { text, status: response.status };
+        }
+      } catch (error) {
+        throw new Error(`GitHub: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+
+    case "gitlab": {
+      const token = getStringProperty(config, 'token', '');
+      const baseUrl = getStringProperty(config, 'baseUrl', 'https://gitlab.com');
+      const operation = getStringProperty(config, 'operation', 'get_project');
+      const projectId = getStringProperty(config, 'projectId', '');
+      
+      if (!token) {
+        throw new Error('GitLab: Token is required');
+      }
+
+      const headers: Record<string, string> = {
+        'PRIVATE-TOKEN': token,
+        'Content-Type': 'application/json',
+      };
+
+      try {
+        let url = '';
+        let method = 'GET';
+        let body: unknown = undefined;
+
+        switch (operation) {
+          case 'get_project':
+            if (!projectId) throw new Error('GitLab: Project ID is required for get_project');
+            url = `${baseUrl}/api/v4/projects/${encodeURIComponent(projectId)}`;
+            break;
+          case 'list_projects':
+            url = `${baseUrl}/api/v4/projects`;
+            break;
+          case 'create_issue':
+            if (!projectId) throw new Error('GitLab: Project ID is required for create_issue');
+            url = `${baseUrl}/api/v4/projects/${encodeURIComponent(projectId)}/issues`;
+            method = 'POST';
+            body = {
+              title: replaceTemplates(getStringProperty(config, 'title', ''), input),
+              description: replaceTemplates(getStringProperty(config, 'description', ''), input),
+            };
+            break;
+          case 'update_issue':
+            if (!projectId) throw new Error('GitLab: Project ID is required for update_issue');
+            const issueIid = getNumberProperty(config, 'issueIid', 0);
+            if (!issueIid) throw new Error('GitLab: Issue IID is required for update_issue');
+            url = `${baseUrl}/api/v4/projects/${encodeURIComponent(projectId)}/issues/${issueIid}`;
+            method = 'PUT';
+            body = {
+              title: replaceTemplates(getStringProperty(config, 'title', ''), input),
+              description: replaceTemplates(getStringProperty(config, 'description', ''), input),
+              state_event: replaceTemplates(getStringProperty(config, 'stateEvent', 'close'), input),
+            };
+            break;
+          case 'close_issue':
+            if (!projectId) throw new Error('GitLab: Project ID is required for close_issue');
+            const closeIssueIid = getNumberProperty(config, 'issueIid', 0);
+            if (!closeIssueIid) throw new Error('GitLab: Issue IID is required for close_issue');
+            url = `${baseUrl}/api/v4/projects/${encodeURIComponent(projectId)}/issues/${closeIssueIid}`;
+            method = 'PUT';
+            body = { state_event: 'close' };
+            break;
+          case 'list_issues':
+            if (!projectId) throw new Error('GitLab: Project ID is required for list_issues');
+            url = `${baseUrl}/api/v4/projects/${encodeURIComponent(projectId)}/issues`;
+            break;
+          case 'get_issue':
+            if (!projectId) throw new Error('GitLab: Project ID is required for get_issue');
+            const getIssueIid = getNumberProperty(config, 'issueIid', 0);
+            if (!getIssueIid) throw new Error('GitLab: Issue IID is required for get_issue');
+            url = `${baseUrl}/api/v4/projects/${encodeURIComponent(projectId)}/issues/${getIssueIid}`;
+            break;
+          case 'create_mr':
+            if (!projectId) throw new Error('GitLab: Project ID is required for create_mr');
+            url = `${baseUrl}/api/v4/projects/${encodeURIComponent(projectId)}/merge_requests`;
+            method = 'POST';
+            body = {
+              title: replaceTemplates(getStringProperty(config, 'title', ''), input),
+              description: replaceTemplates(getStringProperty(config, 'description', ''), input),
+              source_branch: replaceTemplates(getStringProperty(config, 'sourceBranch', ''), input),
+              target_branch: replaceTemplates(getStringProperty(config, 'targetBranch', 'main'), input),
+            };
+            break;
+          case 'update_mr':
+            if (!projectId) throw new Error('GitLab: Project ID is required for update_mr');
+            const mrIid = getNumberProperty(config, 'mrIid', 0);
+            if (!mrIid) throw new Error('GitLab: MR IID is required for update_mr');
+            url = `${baseUrl}/api/v4/projects/${encodeURIComponent(projectId)}/merge_requests/${mrIid}`;
+            method = 'PUT';
+            body = {
+              title: replaceTemplates(getStringProperty(config, 'title', ''), input),
+              description: replaceTemplates(getStringProperty(config, 'description', ''), input),
+              state_event: replaceTemplates(getStringProperty(config, 'stateEvent', 'close'), input),
+            };
+            break;
+          case 'approve_mr':
+            if (!projectId) throw new Error('GitLab: Project ID is required for approve_mr');
+            const approveMrIid = getNumberProperty(config, 'mrIid', 0);
+            if (!approveMrIid) throw new Error('GitLab: MR IID is required for approve_mr');
+            url = `${baseUrl}/api/v4/projects/${encodeURIComponent(projectId)}/merge_requests/${approveMrIid}/approve`;
+            method = 'POST';
+            break;
+          case 'merge_mr':
+            if (!projectId) throw new Error('GitLab: Project ID is required for merge_mr');
+            const mergeMrIid = getNumberProperty(config, 'mrIid', 0);
+            if (!mergeMrIid) throw new Error('GitLab: MR IID is required for merge_mr');
+            url = `${baseUrl}/api/v4/projects/${encodeURIComponent(projectId)}/merge_requests/${mergeMrIid}/merge`;
+            method = 'PUT';
+            body = {
+              merge_commit_message: replaceTemplates(getStringProperty(config, 'mergeCommitMessage', ''), input),
+            };
+            break;
+          case 'list_mrs':
+            if (!projectId) throw new Error('GitLab: Project ID is required for list_mrs');
+            url = `${baseUrl}/api/v4/projects/${encodeURIComponent(projectId)}/merge_requests`;
+            break;
+          case 'get_mr':
+            if (!projectId) throw new Error('GitLab: Project ID is required for get_mr');
+            const getMrIid = getNumberProperty(config, 'mrIid', 0);
+            if (!getMrIid) throw new Error('GitLab: MR IID is required for get_mr');
+            url = `${baseUrl}/api/v4/projects/${encodeURIComponent(projectId)}/merge_requests/${getMrIid}`;
+            break;
+          case 'trigger_pipeline':
+            if (!projectId) throw new Error('GitLab: Project ID is required for trigger_pipeline');
+            const triggerToken = getStringProperty(config, 'triggerToken', '');
+            if (!triggerToken) throw new Error('GitLab: Trigger Token is required for trigger_pipeline');
+            url = `${baseUrl}/api/v4/projects/${encodeURIComponent(projectId)}/trigger/pipeline`;
+            method = 'POST';
+            body = {
+              token: triggerToken,
+              ref: replaceTemplates(getStringProperty(config, 'ref', 'main'), input),
+            };
+            break;
+          case 'get_pipeline':
+            if (!projectId) throw new Error('GitLab: Project ID is required for get_pipeline');
+            const pipelineId = getStringProperty(config, 'pipelineId', '');
+            if (!pipelineId) throw new Error('GitLab: Pipeline ID is required for get_pipeline');
+            url = `${baseUrl}/api/v4/projects/${encodeURIComponent(projectId)}/pipelines/${pipelineId}`;
+            break;
+          case 'list_pipelines':
+            if (!projectId) throw new Error('GitLab: Project ID is required for list_pipelines');
+            url = `${baseUrl}/api/v4/projects/${encodeURIComponent(projectId)}/pipelines`;
+            break;
+          case 'get_pipeline_jobs':
+            if (!projectId) throw new Error('GitLab: Project ID is required for get_pipeline_jobs');
+            const jobsPipelineId = getStringProperty(config, 'pipelineId', '');
+            if (!jobsPipelineId) throw new Error('GitLab: Pipeline ID is required for get_pipeline_jobs');
+            url = `${baseUrl}/api/v4/projects/${encodeURIComponent(projectId)}/pipelines/${jobsPipelineId}/jobs`;
+            break;
+          case 'get_job_log':
+            if (!projectId) throw new Error('GitLab: Project ID is required for get_job_log');
+            const jobId = getNumberProperty(config, 'jobId', 0);
+            if (!jobId) throw new Error('GitLab: Job ID is required for get_job_log');
+            url = `${baseUrl}/api/v4/projects/${encodeURIComponent(projectId)}/jobs/${jobId}/trace`;
+            break;
+          case 'create_branch':
+            if (!projectId) throw new Error('GitLab: Project ID is required for create_branch');
+            const branchName = replaceTemplates(getStringProperty(config, 'branchName', ''), input);
+            const ref = replaceTemplates(getStringProperty(config, 'ref', 'main'), input);
+            if (!branchName) throw new Error('GitLab: Branch Name is required for create_branch');
+            url = `${baseUrl}/api/v4/projects/${encodeURIComponent(projectId)}/repository/branches`;
+            method = 'POST';
+            body = {
+              branch: branchName,
+              ref,
+            };
+            break;
+          case 'list_branches':
+            if (!projectId) throw new Error('GitLab: Project ID is required for list_branches');
+            url = `${baseUrl}/api/v4/projects/${encodeURIComponent(projectId)}/repository/branches`;
+            break;
+          case 'delete_branch':
+            if (!projectId) throw new Error('GitLab: Project ID is required for delete_branch');
+            const deleteBranchName = replaceTemplates(getStringProperty(config, 'branchName', ''), input);
+            if (!deleteBranchName) throw new Error('GitLab: Branch Name is required for delete_branch');
+            url = `${baseUrl}/api/v4/projects/${encodeURIComponent(projectId)}/repository/branches/${deleteBranchName}`;
+            method = 'DELETE';
+            break;
+          case 'get_file':
+            if (!projectId) throw new Error('GitLab: Project ID is required for get_file');
+            const getFilePath = replaceTemplates(getStringProperty(config, 'filePath', ''), input);
+            const getFileRef = replaceTemplates(getStringProperty(config, 'ref', 'main'), input);
+            if (!getFilePath) throw new Error('GitLab: File Path is required for get_file');
+            url = `${baseUrl}/api/v4/projects/${encodeURIComponent(projectId)}/repository/files/${encodeURIComponent(getFilePath)}?ref=${getFileRef}`;
+            break;
+          case 'create_file':
+            if (!projectId) throw new Error('GitLab: Project ID is required for create_file');
+            const createFilePath = replaceTemplates(getStringProperty(config, 'filePath', ''), input);
+            const createFileContent = replaceTemplates(getStringProperty(config, 'fileContent', ''), input);
+            const createFileRef = replaceTemplates(getStringProperty(config, 'ref', 'main'), input);
+            const createCommitMessage = replaceTemplates(getStringProperty(config, 'commitMessage', ''), input);
+            if (!createFilePath || !createFileContent || !createCommitMessage) {
+              throw new Error('GitLab: File Path, File Content, and Commit Message are required for create_file');
+            }
+            url = `${baseUrl}/api/v4/projects/${encodeURIComponent(projectId)}/repository/files/${encodeURIComponent(createFilePath)}`;
+            method = 'POST';
+            body = {
+              branch: createFileRef,
+              content: btoa(createFileContent),
+              commit_message: createCommitMessage,
+            };
+            break;
+          case 'update_file':
+            if (!projectId) throw new Error('GitLab: Project ID is required for update_file');
+            const updateFilePath = replaceTemplates(getStringProperty(config, 'filePath', ''), input);
+            const updateFileContent = replaceTemplates(getStringProperty(config, 'fileContent', ''), input);
+            const updateFileRef = replaceTemplates(getStringProperty(config, 'ref', 'main'), input);
+            const updateCommitMessage = replaceTemplates(getStringProperty(config, 'commitMessage', ''), input);
+            if (!updateFilePath || !updateFileContent || !updateCommitMessage) {
+              throw new Error('GitLab: File Path, File Content, and Commit Message are required for update_file');
+            }
+            url = `${baseUrl}/api/v4/projects/${encodeURIComponent(projectId)}/repository/files/${encodeURIComponent(updateFilePath)}`;
+            method = 'PUT';
+            body = {
+              branch: updateFileRef,
+              content: btoa(updateFileContent),
+              commit_message: updateCommitMessage,
+            };
+            break;
+          case 'delete_file':
+            if (!projectId) throw new Error('GitLab: Project ID is required for delete_file');
+            const deleteFilePath = replaceTemplates(getStringProperty(config, 'filePath', ''), input);
+            const deleteFileRef = replaceTemplates(getStringProperty(config, 'ref', 'main'), input);
+            const deleteCommitMessage = replaceTemplates(getStringProperty(config, 'commitMessage', ''), input);
+            if (!deleteFilePath || !deleteCommitMessage) {
+              throw new Error('GitLab: File Path and Commit Message are required for delete_file');
+            }
+            url = `${baseUrl}/api/v4/projects/${encodeURIComponent(projectId)}/repository/files/${encodeURIComponent(deleteFilePath)}`;
+            method = 'DELETE';
+            body = {
+              branch: deleteFileRef,
+              commit_message: deleteCommitMessage,
+            };
+            break;
+          default:
+            throw new Error(`GitLab: Unknown operation "${operation}"`);
+        }
+
+        const response = await fetch(url, {
+          method,
+          headers,
+          body: body ? JSON.stringify(body) : undefined,
+        });
+
+        if (!response.ok) {
+          let errorText = '';
+          try {
+            errorText = await response.text();
+            const errorJson = JSON.parse(errorText);
+            if (errorJson.message) {
+              throw new Error(`GitLab API error: ${response.status} - ${errorJson.message}`);
+            }
+          } catch {
+            // If parsing fails, use raw text
+          }
+          throw new Error(`GitLab API error: ${response.status} - ${errorText || response.statusText}`);
+        }
+
+        // Handle empty responses
+        if (response.status === 204 || response.headers.get('content-length') === '0') {
+          return { success: true, message: 'Operation completed successfully' };
+        }
+
+        const text = await response.text();
+        if (!text) {
+          return { success: true, message: 'Operation completed successfully' };
+        }
+
+        try {
+          const data = JSON.parse(text);
+          return data;
+        } catch {
+          return { text, status: response.status };
+        }
+      } catch (error) {
+        throw new Error(`GitLab: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+
+    case "bitbucket": {
+      const username = getStringProperty(config, 'username', '');
+      const appPassword = getStringProperty(config, 'appPassword', '');
+      const operation = getStringProperty(config, 'operation', 'get_repo');
+      const workspace = getStringProperty(config, 'workspace', '');
+      const repo = getStringProperty(config, 'repo', '');
+      
+      if (!username || !appPassword) {
+        throw new Error('Bitbucket: Username and App Password are required');
+      }
+
+      const auth = btoa(`${username}:${appPassword}`);
+      const headers: Record<string, string> = {
+        'Authorization': `Basic ${auth}`,
+        'Content-Type': 'application/json',
+      };
+
+      try {
+        let url = '';
+        let method = 'GET';
+        let body: unknown = undefined;
+
+        switch (operation) {
+          case 'get_repo':
+            if (!workspace || !repo) throw new Error('Bitbucket: Workspace and Repo are required for get_repo');
+            url = `https://api.bitbucket.org/2.0/repositories/${workspace}/${repo}`;
+            break;
+          case 'list_repos':
+            if (!workspace) throw new Error('Bitbucket: Workspace is required for list_repos');
+            url = `https://api.bitbucket.org/2.0/repositories/${workspace}`;
+            break;
+          case 'create_pr':
+            if (!workspace || !repo) throw new Error('Bitbucket: Workspace and Repo are required for create_pr');
+            url = `https://api.bitbucket.org/2.0/repositories/${workspace}/${repo}/pullrequests`;
+            method = 'POST';
+            body = {
+              title: replaceTemplates(getStringProperty(config, 'title', ''), input),
+              description: replaceTemplates(getStringProperty(config, 'description', ''), input),
+              source: {
+                branch: { name: replaceTemplates(getStringProperty(config, 'sourceBranch', ''), input) },
+              },
+              destination: {
+                branch: { name: replaceTemplates(getStringProperty(config, 'destinationBranch', 'main'), input) },
+              },
+            };
+            break;
+          case 'update_pr':
+            if (!workspace || !repo) throw new Error('Bitbucket: Workspace and Repo are required for update_pr');
+            const prId = getNumberProperty(config, 'prId', 0);
+            if (!prId) throw new Error('Bitbucket: PR ID is required for update_pr');
+            url = `https://api.bitbucket.org/2.0/repositories/${workspace}/${repo}/pullrequests/${prId}`;
+            method = 'PUT';
+            body = {
+              title: replaceTemplates(getStringProperty(config, 'title', ''), input),
+              description: replaceTemplates(getStringProperty(config, 'description', ''), input),
+            };
+            break;
+          case 'merge_pr':
+            if (!workspace || !repo) throw new Error('Bitbucket: Workspace and Repo are required for merge_pr');
+            const mergePrId = getNumberProperty(config, 'prId', 0);
+            if (!mergePrId) throw new Error('Bitbucket: PR ID is required for merge_pr');
+            url = `https://api.bitbucket.org/2.0/repositories/${workspace}/${repo}/pullrequests/${mergePrId}/merge`;
+            method = 'POST';
+            body = {
+              merge_strategy: replaceTemplates(getStringProperty(config, 'mergeStrategy', 'merge_commit'), input),
+            };
+            break;
+          case 'list_prs':
+            if (!workspace || !repo) throw new Error('Bitbucket: Workspace and Repo are required for list_prs');
+            url = `https://api.bitbucket.org/2.0/repositories/${workspace}/${repo}/pullrequests`;
+            break;
+          case 'get_pr':
+            if (!workspace || !repo) throw new Error('Bitbucket: Workspace and Repo are required for get_pr');
+            const getPrId = getNumberProperty(config, 'prId', 0);
+            if (!getPrId) throw new Error('Bitbucket: PR ID is required for get_pr');
+            url = `https://api.bitbucket.org/2.0/repositories/${workspace}/${repo}/pullrequests/${getPrId}`;
+            break;
+          case 'add_pr_comment':
+            if (!workspace || !repo) throw new Error('Bitbucket: Workspace and Repo are required for add_pr_comment');
+            const commentPrId = getNumberProperty(config, 'prId', 0);
+            if (!commentPrId) throw new Error('Bitbucket: PR ID is required for add_pr_comment');
+            const prComment = replaceTemplates(getStringProperty(config, 'comment', ''), input);
+            if (!prComment) throw new Error('Bitbucket: Comment is required for add_pr_comment');
+            url = `https://api.bitbucket.org/2.0/repositories/${workspace}/${repo}/pullrequests/${commentPrId}/comments`;
+            method = 'POST';
+            body = { content: { raw: prComment } };
+            break;
+          case 'list_pr_comments':
+            if (!workspace || !repo) throw new Error('Bitbucket: Workspace and Repo are required for list_pr_comments');
+            const listCommentsPrId = getNumberProperty(config, 'prId', 0);
+            if (!listCommentsPrId) throw new Error('Bitbucket: PR ID is required for list_pr_comments');
+            url = `https://api.bitbucket.org/2.0/repositories/${workspace}/${repo}/pullrequests/${listCommentsPrId}/comments`;
+            break;
+          case 'create_branch':
+            if (!workspace || !repo) throw new Error('Bitbucket: Workspace and Repo are required for create_branch');
+            const branchName = replaceTemplates(getStringProperty(config, 'branchName', ''), input);
+            const targetBranch = replaceTemplates(getStringProperty(config, 'targetBranch', 'main'), input);
+            if (!branchName) throw new Error('Bitbucket: Branch Name is required for create_branch');
+            url = `https://api.bitbucket.org/2.0/repositories/${workspace}/${repo}/refs/branches`;
+            method = 'POST';
+            body = {
+              name: branchName,
+              target: { hash: targetBranch },
+            };
+            break;
+          case 'list_branches':
+            if (!workspace || !repo) throw new Error('Bitbucket: Workspace and Repo are required for list_branches');
+            url = `https://api.bitbucket.org/2.0/repositories/${workspace}/${repo}/refs/branches`;
+            break;
+          case 'get_branch':
+            if (!workspace || !repo) throw new Error('Bitbucket: Workspace and Repo are required for get_branch');
+            const getBranchName = replaceTemplates(getStringProperty(config, 'branchName', ''), input);
+            if (!getBranchName) throw new Error('Bitbucket: Branch Name is required for get_branch');
+            url = `https://api.bitbucket.org/2.0/repositories/${workspace}/${repo}/refs/branches/${getBranchName}`;
+            break;
+          case 'delete_branch':
+            if (!workspace || !repo) throw new Error('Bitbucket: Workspace and Repo are required for delete_branch');
+            const deleteBranchName = replaceTemplates(getStringProperty(config, 'branchName', ''), input);
+            if (!deleteBranchName) throw new Error('Bitbucket: Branch Name is required for delete_branch');
+            url = `https://api.bitbucket.org/2.0/repositories/${workspace}/${repo}/refs/branches/${deleteBranchName}`;
+            method = 'DELETE';
+            break;
+          case 'list_commits':
+            if (!workspace || !repo) throw new Error('Bitbucket: Workspace and Repo are required for list_commits');
+            url = `https://api.bitbucket.org/2.0/repositories/${workspace}/${repo}/commits`;
+            break;
+          case 'get_commit':
+            if (!workspace || !repo) throw new Error('Bitbucket: Workspace and Repo are required for get_commit');
+            const commitSha = replaceTemplates(getStringProperty(config, 'commitSha', ''), input);
+            if (!commitSha) throw new Error('Bitbucket: Commit SHA is required for get_commit');
+            url = `https://api.bitbucket.org/2.0/repositories/${workspace}/${repo}/commit/${commitSha}`;
+            break;
+          case 'get_commit_status':
+            if (!workspace || !repo) throw new Error('Bitbucket: Workspace and Repo are required for get_commit_status');
+            const statusCommitSha = replaceTemplates(getStringProperty(config, 'commitSha', ''), input);
+            if (!statusCommitSha) throw new Error('Bitbucket: Commit SHA is required for get_commit_status');
+            url = `https://api.bitbucket.org/2.0/repositories/${workspace}/${repo}/commit/${statusCommitSha}/statuses`;
+            break;
+          case 'get_pipeline':
+            if (!workspace || !repo) throw new Error('Bitbucket: Workspace and Repo are required for get_pipeline');
+            const pipelineUuid = getStringProperty(config, 'pipelineUuid', '');
+            if (!pipelineUuid) throw new Error('Bitbucket: Pipeline UUID is required for get_pipeline');
+            url = `https://api.bitbucket.org/2.0/repositories/${workspace}/${repo}/pipelines/${pipelineUuid}`;
+            break;
+          case 'list_pipelines':
+            if (!workspace || !repo) throw new Error('Bitbucket: Workspace and Repo are required for list_pipelines');
+            url = `https://api.bitbucket.org/2.0/repositories/${workspace}/${repo}/pipelines`;
+            break;
+          default:
+            throw new Error(`Bitbucket: Unknown operation "${operation}"`);
+        }
+
+        const response = await fetch(url, {
+          method,
+          headers,
+          body: body ? JSON.stringify(body) : undefined,
+        });
+
+        if (!response.ok) {
+          let errorText = '';
+          try {
+            errorText = await response.text();
+            const errorJson = JSON.parse(errorText);
+            if (errorJson.error && errorJson.error.message) {
+              throw new Error(`Bitbucket API error: ${response.status} - ${errorJson.error.message}`);
+            }
+          } catch {
+            // If parsing fails, use raw text
+          }
+          throw new Error(`Bitbucket API error: ${response.status} - ${errorText || response.statusText}`);
+        }
+
+        // Handle empty responses
+        if (response.status === 204 || response.headers.get('content-length') === '0') {
+          return { success: true, message: 'Operation completed successfully' };
+        }
+
+        const text = await response.text();
+        if (!text) {
+          return { success: true, message: 'Operation completed successfully' };
+        }
+
+        try {
+          const data = JSON.parse(text);
+          return data;
+        } catch {
+          return { text, status: response.status };
+        }
+      } catch (error) {
+        throw new Error(`Bitbucket: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+
+    case "jenkins": {
+      const baseUrl = getStringProperty(config, 'baseUrl', '');
+      const username = getStringProperty(config, 'username', '');
+      const token = getStringProperty(config, 'token', '');
+      const operation = getStringProperty(config, 'operation', 'get_job');
+      const jobName = getStringProperty(config, 'jobName', '');
+      
+      if (!baseUrl || !username || !token) {
+        throw new Error('Jenkins: Base URL, Username, and Token are required');
+      }
+
+      const auth = btoa(`${username}:${token}`);
+      const headers: Record<string, string> = {
+        'Authorization': `Basic ${auth}`,
+        'Content-Type': 'application/json',
+      };
+
+      try {
+        let url = '';
+        let method = 'GET';
+        let body: unknown = undefined;
+
+        switch (operation) {
+          case 'get_job':
+            if (!jobName) throw new Error('Jenkins: Job Name is required for get_job');
+            url = `${baseUrl}/job/${encodeURIComponent(jobName)}/api/json`;
+            break;
+          case 'list_jobs':
+            url = `${baseUrl}/api/json?tree=jobs[name,url]`;
+            break;
+          case 'build_job':
+            if (!jobName) throw new Error('Jenkins: Job Name is required for build_job');
+            const parameters = getStringProperty(config, 'parameters', '');
+            if (parameters && parameters.trim()) {
+              try {
+                const params = parseJSONSafe(replaceTemplates(parameters, input), 'parameters') as Record<string, unknown>;
+                if (params && Object.keys(params).length > 0) {
+                  // Jenkins buildWithParameters expects form data or query params
+                  const queryParams = new URLSearchParams();
+                  Object.entries(params).forEach(([key, value]) => {
+                    queryParams.append(key, String(value));
+                  });
+                  url = `${baseUrl}/job/${encodeURIComponent(jobName)}/buildWithParameters?${queryParams.toString()}`;
+                  method = 'POST';
+                  body = undefined; // No body for query params
+                } else {
+                  url = `${baseUrl}/job/${encodeURIComponent(jobName)}/build`;
+                  method = 'POST';
+                }
+              } catch {
+                // If parameters is not valid JSON, build without parameters
+                url = `${baseUrl}/job/${encodeURIComponent(jobName)}/build`;
+                method = 'POST';
+              }
+            } else {
+              url = `${baseUrl}/job/${encodeURIComponent(jobName)}/build`;
+              method = 'POST';
+            }
+            break;
+          case 'get_build':
+            if (!jobName) throw new Error('Jenkins: Job Name is required for get_build');
+            const buildNumber = getNumberProperty(config, 'buildNumber', 0);
+            if (!buildNumber) throw new Error('Jenkins: Build Number is required for get_build');
+            url = `${baseUrl}/job/${encodeURIComponent(jobName)}/${buildNumber}/api/json`;
+            break;
+          case 'get_build_log':
+            if (!jobName) throw new Error('Jenkins: Job Name is required for get_build_log');
+            const buildNum = getNumberProperty(config, 'buildNumber', 0);
+            if (!buildNum) throw new Error('Jenkins: Build Number is required for get_build_log');
+            url = `${baseUrl}/job/${encodeURIComponent(jobName)}/${buildNum}/consoleText`;
+            break;
+          case 'stop_build':
+            if (!jobName) throw new Error('Jenkins: Job Name is required for stop_build');
+            const stopBuildNum = getNumberProperty(config, 'buildNumber', 0);
+            if (!stopBuildNum) throw new Error('Jenkins: Build Number is required for stop_build');
+            url = `${baseUrl}/job/${encodeURIComponent(jobName)}/${stopBuildNum}/stop`;
+            method = 'POST';
+            break;
+          case 'get_build_status':
+            if (!jobName) throw new Error('Jenkins: Job Name is required for get_build_status');
+            const statusBuildNum = getNumberProperty(config, 'buildNumber', 0);
+            if (!statusBuildNum) throw new Error('Jenkins: Build Number is required for get_build_status');
+            url = `${baseUrl}/job/${encodeURIComponent(jobName)}/${statusBuildNum}/api/json?tree=result,building`;
+            break;
+          case 'poll_build_status':
+            if (!jobName) throw new Error('Jenkins: Job Name is required for poll_build_status');
+            const pollBuildNum = getNumberProperty(config, 'buildNumber', 0);
+            const pollInterval = getNumberProperty(config, 'pollInterval', 5);
+            const maxPollAttempts = getNumberProperty(config, 'maxPollAttempts', 60);
+            if (!pollBuildNum) throw new Error('Jenkins: Build Number is required for poll_build_status');
+            // Poll for build status
+            let attempts = 0;
+            while (attempts < maxPollAttempts) {
+              const pollUrl = `${baseUrl}/job/${encodeURIComponent(jobName)}/${pollBuildNum}/api/json?tree=result,building`;
+              const pollResponse = await fetch(pollUrl, { headers });
+              if (pollResponse.ok) {
+                const pollData = await pollResponse.json();
+                if (!pollData.building && pollData.result) {
+                  return { 
+                    success: true, 
+                    buildNumber: pollBuildNum,
+                    result: pollData.result,
+                    building: false,
+                    message: `Build ${pollBuildNum} completed with status: ${pollData.result}`
+                  };
+                }
+              }
+              attempts++;
+              if (attempts < maxPollAttempts) {
+                await new Promise(resolve => setTimeout(resolve, pollInterval * 1000));
+              }
+            }
+            throw new Error(`Jenkins: Build ${pollBuildNum} did not complete within ${maxPollAttempts * pollInterval} seconds`);
+          default:
+            throw new Error(`Jenkins: Unknown operation "${operation}"`);
+        }
+
+        const response = await fetch(url, {
+          method,
+          headers,
+          body: body ? JSON.stringify(body) : undefined,
+        });
+
+        // Jenkins returns 201 for successful builds, 200 for other operations
+        if (!response.ok && response.status !== 201) {
+          const errorText = await response.text();
+          throw new Error(`Jenkins API error: ${response.status} - ${errorText || response.statusText}`);
+        }
+
+        if (operation === 'get_build_log') {
+          const text = await response.text();
+          return { log: text };
+        }
+
+        // Handle build operations (201 Created)
+        if (operation === 'build_job' && response.status === 201) {
+          const location = response.headers.get('Location');
+          return { 
+            success: true, 
+            message: 'Build triggered successfully',
+            queueUrl: location || `${baseUrl}/queue/item/${response.headers.get('X-Queue-Id') || 'unknown'}/`
+          };
+        }
+
+        // Handle empty responses
+        if (response.status === 204 || response.headers.get('content-length') === '0') {
+          return { success: true, message: 'Operation completed successfully' };
+        }
+
+        const text = await response.text();
+        if (!text) {
+          return { success: true, message: 'Operation completed successfully' };
+        }
+
+        try {
+          const data = JSON.parse(text);
+          return data;
+        } catch {
+          return { text, status: response.status };
+        }
+      } catch (error) {
+        throw new Error(`Jenkins: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+
+    case "docker": {
+      const host = getStringProperty(config, 'host', 'localhost');
+      const port = getNumberProperty(config, 'port', 2375);
+      const operation = getStringProperty(config, 'operation', 'list_containers');
+      const containerId = getStringProperty(config, 'containerId', '');
+      
+      // Docker API requires connection to Docker daemon
+      // Handle both HTTP URLs and host:port format
+      let baseUrl = '';
+      if (host.startsWith('http://') || host.startsWith('https://')) {
+        baseUrl = host;
+      } else if (host.startsWith('unix://')) {
+        throw new Error('Docker: Unix socket connections are not supported. Use HTTP/HTTPS URL to Docker daemon (e.g., http://localhost:2375)');
+      } else {
+        baseUrl = `http://${host}:${port}`;
+      }
+      
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+      
+      try {
+        let url = '';
+        let method = 'GET';
+
+        switch (operation) {
+          case 'list_containers':
+            url = `${baseUrl}/v1.42/containers/json?all=true`;
+            break;
+          case 'list_images':
+            url = `${baseUrl}/v1.42/images/json`;
+            break;
+          case 'build_image':
+            url = `${baseUrl}/v1.42/build`;
+            method = 'POST';
+            const dockerfilePath = replaceTemplates(getStringProperty(config, 'dockerfilePath', './Dockerfile'), input);
+            const buildContext = replaceTemplates(getStringProperty(config, 'buildContext', '.'), input);
+            // Note: Docker build API requires tar archive of build context, which is complex
+            // This is a placeholder - in production, you'd need to create a tar archive
+            throw new Error('Docker: build_image operation requires tar archive of build context. This is not fully implemented in this environment.');
+          case 'tag_image':
+            const imageName = replaceTemplates(getStringProperty(config, 'imageName', ''), input);
+            const tag = replaceTemplates(getStringProperty(config, 'tag', ''), input);
+            const sourceTag = replaceTemplates(getStringProperty(config, 'sourceTag', ''), input);
+            if (!imageName || !tag || !sourceTag) {
+              throw new Error('Docker: Image Name, Tag, and Source Tag are required for tag_image');
+            }
+            url = `${baseUrl}/v1.42/images/${imageName}:${sourceTag}/tag?repo=${imageName}&tag=${tag}`;
+            method = 'POST';
+            break;
+          case 'push_image':
+            const pushImageName = replaceTemplates(getStringProperty(config, 'imageName', ''), input);
+            const pushTag = replaceTemplates(getStringProperty(config, 'tag', ''), input);
+            const registry = replaceTemplates(getStringProperty(config, 'registry', 'docker.io'), input);
+            const registryUsername = getStringProperty(config, 'registryUsername', '');
+            const registryPassword = getStringProperty(config, 'registryPassword', '');
+            if (!pushImageName || !pushTag) {
+              throw new Error('Docker: Image Name and Tag are required for push_image');
+            }
+            url = `${baseUrl}/v1.42/images/${registry}/${pushImageName}:${pushTag}/push`;
+            method = 'POST';
+            if (registryUsername && registryPassword) {
+              headers['X-Registry-Auth'] = btoa(JSON.stringify({
+                username: registryUsername,
+                password: registryPassword,
+              }));
+            }
+            break;
+          case 'pull_image':
+            const pullImageName = replaceTemplates(getStringProperty(config, 'imageName', ''), input);
+            const pullTag = replaceTemplates(getStringProperty(config, 'tag', ''), input);
+            const pullRegistry = replaceTemplates(getStringProperty(config, 'registry', 'docker.io'), input);
+            const pullUsername = getStringProperty(config, 'registryUsername', '');
+            const pullPassword = getStringProperty(config, 'registryPassword', '');
+            if (!pullImageName || !pullTag) {
+              throw new Error('Docker: Image Name and Tag are required for pull_image');
+            }
+            url = `${baseUrl}/v1.42/images/create?fromImage=${pullRegistry}/${pullImageName}&tag=${pullTag}`;
+            method = 'POST';
+            if (pullUsername && pullPassword) {
+              headers['X-Registry-Auth'] = btoa(JSON.stringify({
+                username: pullUsername,
+                password: pullPassword,
+              }));
+            }
+            break;
+          case 'remove_image':
+            const removeImageName = replaceTemplates(getStringProperty(config, 'imageName', ''), input);
+            if (!removeImageName) throw new Error('Docker: Image Name is required for remove_image');
+            url = `${baseUrl}/v1.42/images/${removeImageName}`;
+            method = 'DELETE';
+            break;
+          case 'start_container':
+            if (!containerId) throw new Error('Docker: Container ID is required for start_container');
+            url = `${baseUrl}/v1.42/containers/${containerId}/start`;
+            method = 'POST';
+            break;
+          case 'stop_container':
+            if (!containerId) throw new Error('Docker: Container ID is required for stop_container');
+            url = `${baseUrl}/v1.42/containers/${containerId}/stop`;
+            method = 'POST';
+            break;
+          case 'get_logs':
+            if (!containerId) throw new Error('Docker: Container ID is required for get_logs');
+            url = `${baseUrl}/v1.42/containers/${containerId}/logs?stdout=true&stderr=true`;
+            break;
+          case 'inspect_container':
+            if (!containerId) throw new Error('Docker: Container ID is required for inspect_container');
+            url = `${baseUrl}/v1.42/containers/${containerId}/json`;
+            break;
+          default:
+            throw new Error(`Docker: Unknown operation "${operation}"`);
+        }
+
+        const response = await fetch(url, { 
+          method,
+          headers,
+        });
+
+        if (!response.ok) {
+          let errorText = '';
+          try {
+            errorText = await response.text();
+            const errorJson = JSON.parse(errorText);
+            if (errorJson.message) {
+              throw new Error(`Docker API error: ${response.status} - ${errorJson.message}`);
+            }
+          } catch {
+            // If parsing fails, use raw text
+          }
+          
+          if (response.status === 404) {
+            throw new Error(`Docker: Resource not found (${containerId || 'resource'}). Check if the container/image exists.`);
+          } else if (response.status === 500) {
+            throw new Error(`Docker: Server error. The Docker daemon may be unavailable or misconfigured.`);
+          }
+          
+          throw new Error(`Docker API error: ${response.status} - ${errorText || response.statusText}`);
+        }
+
+        // Handle empty responses (e.g., start/stop operations)
+        if (response.status === 204 || response.headers.get('content-length') === '0') {
+          return { success: true, message: 'Operation completed successfully' };
+        }
+
+        if (operation === 'get_logs') {
+          const text = await response.text();
+          return { logs: text };
+        }
+
+        const text = await response.text();
+        if (!text) {
+          return { success: true, message: 'Operation completed successfully' };
+        }
+
+        try {
+          const data = JSON.parse(text);
+          return data;
+        } catch {
+          return { text, status: response.status };
+        }
+      } catch (error) {
+        if (error instanceof Error && error.message.includes('Docker')) {
+          throw error;
+        }
+        // Handle network errors
+        if (error instanceof Error && (error.message.includes('fetch') || error.message.includes('network'))) {
+          throw new Error(`Docker: Cannot connect to Docker daemon at ${baseUrl}. Make sure Docker is running and the API is accessible. For remote access, configure Docker to expose the API or use a Docker socket proxy.`);
+        }
+        throw new Error(`Docker: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+
+    case "kubernetes": {
+      const apiServer = getStringProperty(config, 'apiServer', '');
+      const token = getStringProperty(config, 'token', '');
+      const operation = getStringProperty(config, 'operation', 'list_pods');
+      const namespace = getStringProperty(config, 'namespace', 'default');
+      const resourceName = getStringProperty(config, 'resourceName', '');
+      
+      if (!apiServer) {
+        throw new Error('Kubernetes: API Server URL is required. Format: https://your-cluster.example.com:6443');
+      }
+
+      // Validate API server URL
+      try {
+        new URL(apiServer);
+      } catch {
+        throw new Error('Kubernetes: Invalid API Server URL format. Must be a valid URL (e.g., https://your-cluster.example.com:6443)');
+      }
+
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+
+      // Add authentication token if provided
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+
+      try {
+        let url = '';
+        let method = 'GET';
+
+        let body: unknown = undefined;
+        switch (operation) {
+          case 'list_pods':
+            url = `${apiServer}/api/v1/namespaces/${namespace}/pods`;
+            break;
+          case 'get_pod':
+            if (!resourceName) throw new Error('Kubernetes: Resource Name is required for get_pod');
+            url = `${apiServer}/api/v1/namespaces/${namespace}/pods/${resourceName}`;
+            break;
+          case 'list_deployments':
+            url = `${apiServer}/apis/apps/v1/namespaces/${namespace}/deployments`;
+            break;
+          case 'get_deployment':
+            if (!resourceName) throw new Error('Kubernetes: Resource Name is required for get_deployment');
+            url = `${apiServer}/apis/apps/v1/namespaces/${namespace}/deployments/${resourceName}`;
+            break;
+          case 'create_deployment':
+            if (!resourceName) throw new Error('Kubernetes: Resource Name is required for create_deployment');
+            const deploymentManifest = getStringProperty(config, 'deploymentManifest', '');
+            if (!deploymentManifest) throw new Error('Kubernetes: Deployment Manifest is required for create_deployment');
+            url = `${apiServer}/apis/apps/v1/namespaces/${namespace}/deployments`;
+            method = 'POST';
+            try {
+              body = parseJSONSafe(replaceTemplates(deploymentManifest, input), 'deploymentManifest');
+            } catch {
+              throw new Error('Kubernetes: Invalid Deployment Manifest JSON');
+            }
+            break;
+          case 'update_deployment':
+            if (!resourceName) throw new Error('Kubernetes: Resource Name is required for update_deployment');
+            const updateManifest = getStringProperty(config, 'deploymentManifest', '');
+            if (!updateManifest) throw new Error('Kubernetes: Deployment Manifest is required for update_deployment');
+            url = `${apiServer}/apis/apps/v1/namespaces/${namespace}/deployments/${resourceName}`;
+            method = 'PUT';
+            try {
+              body = parseJSONSafe(replaceTemplates(updateManifest, input), 'deploymentManifest');
+            } catch {
+              throw new Error('Kubernetes: Invalid Deployment Manifest JSON');
+            }
+            break;
+          case 'scale_deployment':
+            if (!resourceName) throw new Error('Kubernetes: Resource Name is required for scale_deployment');
+            const replicas = getNumberProperty(config, 'replicas', 0);
+            if (!replicas || replicas < 0) throw new Error('Kubernetes: Valid Replicas count is required for scale_deployment');
+            url = `${apiServer}/apis/apps/v1/namespaces/${namespace}/deployments/${resourceName}/scale`;
+            method = 'PUT';
+            body = { spec: { replicas } };
+            break;
+          case 'restart_deployment':
+            if (!resourceName) throw new Error('Kubernetes: Resource Name is required for restart_deployment');
+            url = `${apiServer}/apis/apps/v1/namespaces/${namespace}/deployments/${resourceName}`;
+            method = 'PATCH';
+            body = {
+              spec: {
+                template: {
+                  metadata: {
+                    annotations: {
+                      'kubectl.kubernetes.io/restartedAt': new Date().toISOString(),
+                    },
+                  },
+                },
+              },
+            };
+            break;
+          case 'list_services':
+            url = `${apiServer}/api/v1/namespaces/${namespace}/services`;
+            break;
+          case 'get_service':
+            if (!resourceName) throw new Error('Kubernetes: Resource Name is required for get_service');
+            url = `${apiServer}/api/v1/namespaces/${namespace}/services/${resourceName}`;
+            break;
+          case 'get_logs':
+            if (!resourceName) throw new Error('Kubernetes: Resource Name is required for get_logs');
+            url = `${apiServer}/api/v1/namespaces/${namespace}/pods/${resourceName}/log`;
+            break;
+          default:
+            throw new Error(`Kubernetes: Unknown operation "${operation}"`);
+        }
+
+        const response = await fetch(url, {
+          method,
+          headers,
+          body: body ? JSON.stringify(body) : undefined,
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          if (response.status === 401) {
+            throw new Error('Kubernetes: Authentication failed. Please check your token or credentials.');
+          } else if (response.status === 403) {
+            throw new Error('Kubernetes: Access forbidden. Please check your RBAC permissions.');
+          }
+          throw new Error(`Kubernetes API error: ${response.status} - ${errorText}`);
+        }
+
+        if (operation === 'get_logs') {
+          const text = await response.text();
+          return { logs: text };
+        }
+
+        const data = await response.json();
+        return data;
+      } catch (error) {
+        if (error instanceof Error && error.message.includes('Kubernetes')) {
+          throw error;
+        }
+        throw new Error(`Kubernetes: ${error instanceof Error ? error.message : String(error)}. Make sure the API server is accessible and your token has the required permissions.`);
+      }
+    }
+
+    case "pagerduty": {
+      const apiKey = getStringProperty(config, 'apiKey', '');
+      const operation = getStringProperty(config, 'operation', 'list_incidents');
+      const incidentId = getStringProperty(config, 'incidentId', '');
+      
+      if (!apiKey) {
+        throw new Error('PagerDuty: API Key is required');
+      }
+
+      const headers: Record<string, string> = {
+        'Authorization': `Token token=${apiKey}`,
+        'Accept': 'application/vnd.pagerduty+json;version=2',
+        'Content-Type': 'application/json',
+      };
+
+      try {
+        let url = '';
+        let method = 'GET';
+        let body: unknown = undefined;
+
+        switch (operation) {
+          case 'list_incidents':
+            url = 'https://api.pagerduty.com/incidents';
+            break;
+          case 'get_incident':
+            if (!incidentId) throw new Error('PagerDuty: Incident ID is required for get_incident');
+            url = `https://api.pagerduty.com/incidents/${incidentId}`;
+            break;
+          case 'create_incident':
+            url = 'https://api.pagerduty.com/incidents';
+            method = 'POST';
+            const serviceId = getStringProperty(config, 'serviceId', '');
+            const title = getStringProperty(config, 'title', '');
+            const urgency = getStringProperty(config, 'urgency', 'high');
+            const escalationPolicyId = getStringProperty(config, 'escalationPolicyId', '');
+            if (!serviceId || !title) throw new Error('PagerDuty: Service ID and Title are required for create_incident');
+            body = {
+              incident: {
+                type: 'incident',
+                title,
+                service: { id: serviceId, type: 'service_reference' },
+                urgency: { type: 'constant', value: urgency },
+                ...(escalationPolicyId ? { escalation_policy: { id: escalationPolicyId, type: 'escalation_policy_reference' } } : {}),
+              },
+            };
+            break;
+          case 'update_incident':
+            if (!incidentId) throw new Error('PagerDuty: Incident ID is required for update_incident');
+            url = `https://api.pagerduty.com/incidents/${incidentId}`;
+            method = 'PUT';
+            const status = getStringProperty(config, 'status', 'triggered');
+            const assigneeId = getStringProperty(config, 'assigneeId', '');
+            body = {
+              incident: {
+                type: 'incident',
+                status,
+                ...(assigneeId ? { assignees: [{ id: assigneeId, type: 'user_reference' }] } : {}),
+              },
+            };
+            break;
+          case 'acknowledge_incident':
+            if (!incidentId) throw new Error('PagerDuty: Incident ID is required for acknowledge_incident');
+            url = `https://api.pagerduty.com/incidents/${incidentId}`;
+            method = 'PUT';
+            const note = getStringProperty(config, 'note', '');
+            body = {
+              incident: {
+                type: 'incident',
+                status: 'acknowledged',
+                ...(note ? { body: { type: 'incident_body', details: note } } : {}),
+              },
+            };
+            break;
+          case 'resolve_incident':
+            if (!incidentId) throw new Error('PagerDuty: Incident ID is required for resolve_incident');
+            url = `https://api.pagerduty.com/incidents/${incidentId}`;
+            method = 'PUT';
+            const resolveNote = getStringProperty(config, 'note', '');
+            body = {
+              incident: {
+                type: 'incident',
+                status: 'resolved',
+                ...(resolveNote ? { body: { type: 'incident_body', details: resolveNote } } : {}),
+              },
+            };
+            break;
+          case 'list_oncalls':
+            url = 'https://api.pagerduty.com/oncalls';
+            break;
+          case 'get_oncall':
+            const scheduleId = getStringProperty(config, 'scheduleId', '');
+            if (!scheduleId) throw new Error('PagerDuty: Schedule ID is required for get_oncall');
+            url = `https://api.pagerduty.com/oncalls?schedule_ids[]=${scheduleId}`;
+            break;
+          case 'list_schedules':
+            url = 'https://api.pagerduty.com/schedules';
+            break;
+          case 'get_schedule':
+            const getScheduleId = getStringProperty(config, 'scheduleId', '');
+            if (!getScheduleId) throw new Error('PagerDuty: Schedule ID is required for get_schedule');
+            url = `https://api.pagerduty.com/schedules/${getScheduleId}`;
+            break;
+          default:
+            throw new Error(`PagerDuty: Unknown operation "${operation}"`);
+        }
+
+        const response = await fetch(url, {
+          method,
+          headers,
+          body: body ? JSON.stringify(body) : undefined,
+        });
+
+        if (!response.ok) {
+          let errorText = '';
+          try {
+            errorText = await response.text();
+            const errorJson = JSON.parse(errorText);
+            if (errorJson.error && errorJson.error.message) {
+              throw new Error(`PagerDuty API error: ${response.status} - ${errorJson.error.message}`);
+            }
+          } catch {
+            // If parsing fails, use raw text
+          }
+          throw new Error(`PagerDuty API error: ${response.status} - ${errorText || response.statusText}`);
+        }
+
+        // Handle empty responses
+        if (response.status === 204 || response.headers.get('content-length') === '0') {
+          return { success: true, message: 'Operation completed successfully' };
+        }
+
+        const text = await response.text();
+        if (!text) {
+          return { success: true, message: 'Operation completed successfully' };
+        }
+
+        try {
+          const data = JSON.parse(text);
+          return data;
+        } catch {
+          return { text, status: response.status };
+        }
+      } catch (error) {
+        throw new Error(`PagerDuty: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+
+    case "datadog": {
+      const apiKey = getStringProperty(config, 'apiKey', '');
+      const appKey = getStringProperty(config, 'appKey', '');
+      const site = getStringProperty(config, 'site', 'datadoghq.com');
+      const operation = getStringProperty(config, 'operation', 'query_metrics');
+      
+      if (!apiKey || !appKey) {
+        throw new Error('Datadog: API Key and Application Key are required');
+      }
+
+      const baseUrl = `https://api.${site}`;
+      const headers: Record<string, string> = {
+        'DD-API-KEY': apiKey,
+        'DD-APPLICATION-KEY': appKey,
+        'Content-Type': 'application/json',
+      };
+
+      try {
+        let url = '';
+        let method = 'GET';
+        let body: unknown = undefined;
+
+        switch (operation) {
+          case 'query_metrics':
+            const query = getStringProperty(config, 'query', '');
+            const from = getNumberProperty(config, 'from', Math.floor(Date.now() / 1000) - 3600);
+            const to = getNumberProperty(config, 'to', Math.floor(Date.now() / 1000));
+            if (!query) throw new Error('Datadog: Query is required for query_metrics');
+            url = `${baseUrl}/api/v1/query?query=${encodeURIComponent(query)}&from=${from}&to=${to}`;
+            break;
+          case 'send_metric':
+            url = `${baseUrl}/api/v1/series`;
+            method = 'POST';
+            const metricName = replaceTemplates(getStringProperty(config, 'metricName', ''), input);
+            const metricValue = getNumberProperty(config, 'metricValue', 0);
+            const metricTags = getStringProperty(config, 'metricTags', '[]');
+            if (!metricName || metricValue === undefined) {
+              throw new Error('Datadog: Metric Name and Metric Value are required for send_metric');
+            }
+            let tags: string[] = [];
+            try {
+              tags = parseJSONSafe(replaceTemplates(metricTags, input), 'metricTags') as string[];
+            } catch {
+              // If parsing fails, use empty array
+            }
+            body = {
+              series: [{
+                metric: metricName,
+                points: [[Math.floor(Date.now() / 1000), metricValue]],
+                tags: tags || [],
+              }],
+            };
+            break;
+          case 'post_event':
+            url = `${baseUrl}/api/v1/events`;
+            method = 'POST';
+            const title = getStringProperty(config, 'title', '');
+            const text = getStringProperty(config, 'text', '');
+            if (!title || !text) throw new Error('Datadog: Title and Text are required for post_event');
+            body = {
+              title: replaceTemplates(title, input),
+              text: replaceTemplates(text, input),
+            };
+            break;
+          case 'list_monitors':
+            url = `${baseUrl}/api/v1/monitor`;
+            break;
+          case 'get_monitor':
+            const monitorId = getNumberProperty(config, 'monitorId', 0);
+            if (!monitorId) throw new Error('Datadog: Monitor ID is required for get_monitor');
+            url = `${baseUrl}/api/v1/monitor/${monitorId}`;
+            break;
+          case 'create_monitor':
+            url = `${baseUrl}/api/v1/monitor`;
+            method = 'POST';
+            const monitorType = replaceTemplates(getStringProperty(config, 'monitorType', 'metric_alert'), input);
+            const monitorQuery = replaceTemplates(getStringProperty(config, 'monitorQuery', ''), input);
+            const monitorMessage = replaceTemplates(getStringProperty(config, 'monitorMessage', ''), input);
+            if (!monitorQuery || !monitorMessage) {
+              throw new Error('Datadog: Monitor Query and Monitor Message are required for create_monitor');
+            }
+            body = {
+              type: monitorType,
+              query: monitorQuery,
+              message: monitorMessage,
+            };
+            break;
+          case 'update_monitor':
+            const updateMonitorId = getNumberProperty(config, 'monitorId', 0);
+            if (!updateMonitorId) throw new Error('Datadog: Monitor ID is required for update_monitor');
+            url = `${baseUrl}/api/v1/monitor/${updateMonitorId}`;
+            method = 'PUT';
+            const updateMonitorQuery = replaceTemplates(getStringProperty(config, 'monitorQuery', ''), input);
+            const updateMonitorMessage = replaceTemplates(getStringProperty(config, 'monitorMessage', ''), input);
+            body = {
+              ...(updateMonitorQuery ? { query: updateMonitorQuery } : {}),
+              ...(updateMonitorMessage ? { message: updateMonitorMessage } : {}),
+            };
+            break;
+          case 'mute_monitor':
+            const muteMonitorId = getNumberProperty(config, 'monitorId', 0);
+            if (!muteMonitorId) throw new Error('Datadog: Monitor ID is required for mute_monitor');
+            url = `${baseUrl}/api/v1/monitor/${muteMonitorId}/mute`;
+            method = 'POST';
+            break;
+          case 'unmute_monitor':
+            const unmuteMonitorId = getNumberProperty(config, 'monitorId', 0);
+            if (!unmuteMonitorId) throw new Error('Datadog: Monitor ID is required for unmute_monitor');
+            url = `${baseUrl}/api/v1/monitor/${unmuteMonitorId}/unmute`;
+            method = 'POST';
+            break;
+          case 'trigger_alert':
+            url = `${baseUrl}/api/v1/events`;
+            method = 'POST';
+            const alertTitle = replaceTemplates(getStringProperty(config, 'monitorMessage', ''), input);
+            const alertThreshold = getNumberProperty(config, 'alertThreshold', 0);
+            if (!alertTitle) throw new Error('Datadog: Alert Message is required for trigger_alert');
+            body = {
+              title: alertTitle,
+              text: `Alert threshold: ${alertThreshold}`,
+              alert_type: 'error',
+            };
+            break;
+          default:
+            throw new Error(`Datadog: Unknown operation "${operation}"`);
+        }
+
+        const response = await fetch(url, {
+          method,
+          headers,
+          body: body ? JSON.stringify(body) : undefined,
+        });
+
+        if (!response.ok) {
+          let errorText = '';
+          try {
+            errorText = await response.text();
+            const errorJson = JSON.parse(errorText);
+            if (errorJson.errors && Array.isArray(errorJson.errors) && errorJson.errors.length > 0) {
+              const errorMessages = errorJson.errors.map((e: unknown) => 
+                typeof e === 'object' && e !== null && 'detail' in e ? String(e.detail) : String(e)
+              ).join(', ');
+              throw new Error(`Datadog API error: ${response.status} - ${errorMessages}`);
+            }
+          } catch {
+            // If parsing fails, use raw text
+          }
+          throw new Error(`Datadog API error: ${response.status} - ${errorText || response.statusText}`);
+        }
+
+        // Handle empty responses
+        if (response.status === 204 || response.headers.get('content-length') === '0') {
+          return { success: true, message: 'Operation completed successfully' };
+        }
+
+        const text = await response.text();
+        if (!text) {
+          return { success: true, message: 'Operation completed successfully' };
+        }
+
+        try {
+          const data = JSON.parse(text);
+          return data;
+        } catch {
+          return { text, status: response.status };
+        }
+      } catch (error) {
+        throw new Error(`Datadog: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+
+    case "sentry": {
+      const token = getStringProperty(config, 'token', '');
+      const organization = getStringProperty(config, 'organization', '');
+      const project = getStringProperty(config, 'project', '');
+      const operation = getStringProperty(config, 'operation', 'list_issues');
+      
+      if (!token || !organization) {
+        throw new Error('Sentry: Token and Organization are required');
+      }
+
+      const headers: Record<string, string> = {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      };
+
+      try {
+        let url = '';
+        let method = 'GET';
+        let body: unknown = undefined;
+
+        switch (operation) {
+          case 'list_issues':
+            if (!project) throw new Error('Sentry: Project is required for list_issues');
+            url = `https://sentry.io/api/0/projects/${organization}/${project}/issues/`;
+            break;
+          case 'get_issue':
+            if (!project) throw new Error('Sentry: Project is required for get_issue');
+            const issueId = getStringProperty(config, 'issueId', '');
+            if (!issueId) throw new Error('Sentry: Issue ID is required for get_issue');
+            url = `https://sentry.io/api/0/issues/${issueId}/`;
+            break;
+          case 'update_issue':
+            const updateIssueId = getStringProperty(config, 'issueId', '');
+            if (!updateIssueId) throw new Error('Sentry: Issue ID is required for update_issue');
+            const status = replaceTemplates(getStringProperty(config, 'status', 'resolved'), input);
+            url = `https://sentry.io/api/0/issues/${updateIssueId}/`;
+            method = 'PUT';
+            body = { status };
+            break;
+          case 'resolve_issue':
+            if (!project) throw new Error('Sentry: Project is required for resolve_issue');
+            const resolveIssueId = getStringProperty(config, 'issueId', '');
+            if (!resolveIssueId) throw new Error('Sentry: Issue ID is required for resolve_issue');
+            url = `https://sentry.io/api/0/issues/${resolveIssueId}/`;
+            method = 'PUT';
+            body = { status: 'resolved' };
+            break;
+          case 'ignore_issue':
+            const ignoreIssueId = getStringProperty(config, 'issueId', '');
+            if (!ignoreIssueId) throw new Error('Sentry: Issue ID is required for ignore_issue');
+            url = `https://sentry.io/api/0/issues/${ignoreIssueId}/`;
+            method = 'PUT';
+            body = { status: 'ignored' };
+            break;
+          case 'assign_issue':
+            const assignIssueId = getStringProperty(config, 'issueId', '');
+            const assignee = replaceTemplates(getStringProperty(config, 'assignee', ''), input);
+            if (!assignIssueId) throw new Error('Sentry: Issue ID is required for assign_issue');
+            if (!assignee) throw new Error('Sentry: Assignee is required for assign_issue');
+            url = `https://sentry.io/api/0/issues/${assignIssueId}/`;
+            method = 'PUT';
+            body = { assignedTo: assignee };
+            break;
+          case 'list_events':
+            if (!project) throw new Error('Sentry: Project is required for list_events');
+            url = `https://sentry.io/api/0/projects/${organization}/${project}/events/`;
+            break;
+          case 'get_event':
+            if (!project) throw new Error('Sentry: Project is required for get_event');
+            const eventId = getStringProperty(config, 'eventId', '');
+            if (!eventId) throw new Error('Sentry: Event ID is required for get_event');
+            url = `https://sentry.io/api/0/projects/${organization}/${project}/events/${eventId}/`;
+            break;
+          case 'list_releases':
+            if (!project) throw new Error('Sentry: Project is required for list_releases');
+            url = `https://sentry.io/api/0/projects/${organization}/${project}/releases/`;
+            break;
+          case 'get_release':
+            if (!project) throw new Error('Sentry: Project is required for get_release');
+            const releaseId = getStringProperty(config, 'releaseId', '');
+            const releaseVersion = replaceTemplates(getStringProperty(config, 'version', ''), input);
+            if (!releaseId && !releaseVersion) {
+              throw new Error('Sentry: Release ID or Version is required for get_release');
+            }
+            url = releaseId 
+              ? `https://sentry.io/api/0/organizations/${organization}/releases/${releaseId}/`
+              : `https://sentry.io/api/0/organizations/${organization}/releases/${releaseVersion}/`;
+            break;
+          case 'create_release':
+            if (!project) throw new Error('Sentry: Project is required for create_release');
+            const version = getStringProperty(config, 'version', '');
+            if (!version) throw new Error('Sentry: Version is required for create_release');
+            url = `https://sentry.io/api/0/organizations/${organization}/releases/`;
+            method = 'POST';
+            body = {
+              version: replaceTemplates(version, input),
+              projects: [project],
+            };
+            break;
+          default:
+            throw new Error(`Sentry: Unknown operation "${operation}"`);
+        }
+
+        const response = await fetch(url, {
+          method,
+          headers,
+          body: body ? JSON.stringify(body) : undefined,
+        });
+
+        if (!response.ok) {
+          let errorText = '';
+          try {
+            errorText = await response.text();
+            const errorJson = JSON.parse(errorText);
+            if (errorJson.detail) {
+              throw new Error(`Sentry API error: ${response.status} - ${errorJson.detail}`);
+            }
+          } catch {
+            // If parsing fails, use raw text
+          }
+          throw new Error(`Sentry API error: ${response.status} - ${errorText || response.statusText}`);
+        }
+
+        // Handle empty responses
+        if (response.status === 204 || response.headers.get('content-length') === '0') {
+          return { success: true, message: 'Operation completed successfully' };
+        }
+
+        const text = await response.text();
+        if (!text) {
+          return { success: true, message: 'Operation completed successfully' };
+        }
+
+        try {
+          const data = JSON.parse(text);
+          return data;
+        } catch {
+          return { text, status: response.status };
+        }
+      } catch (error) {
+        throw new Error(`Sentry: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+
     default:
       console.log(`Node type ${type} executed with passthrough`);
       return input;
