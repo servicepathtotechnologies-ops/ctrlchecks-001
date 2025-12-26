@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Webhook Trigger - Workflow 12</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <div class="card">
+            <div class="header">
+                <h1>🚀 Webhook Trigger</h1>
+                <p class="subtitle">Trigger Workflow 12</p>
+            </div>
+
+            <div class="webhook-info">
+                <label>Webhook URL:</label>
+                <div class="url-display">
+                    <code id="webhookUrl">https://nvrrqvlqnnvlihtlgmzn.supabase.co/functions/v1/webhook-trigger/7b82ee69-5c91-4fcc-bdf0-d3d00ac5b65e</code>
+                    <button class="copy-btn" onclick="copyToClipboard()" title="Copy URL">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+
+            <div class="form-section">
+                <h2>Request Configuration</h2>
+                
+                <div class="form-group">
+                    <label for="method">HTTP Method:</label>
+                    <select id="method">
+                        <option value="GET">GET</option>
+                        <option value="POST" selected>POST</option>
+                        <option value="PUT">PUT</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="body">Request Body (JSON):</label>
+                    <textarea id="body" placeholder='{"key": "value"}' rows="6">{
+  "message": "Hello from Webhook Trigger!",
+  "timestamp": "{{timestamp}}"
+}</textarea>
+                </div>
+
+                <div class="form-group">
+                    <label for="headers">Custom Headers (JSON):</label>
+                    <textarea id="headers" placeholder='{"Content-Type": "application/json"}' rows="4">{
+  "Content-Type": "application/json"
+}</textarea>
+                </div>
+            </div>
+
+            <div class="action-section">
+                <button class="trigger-btn" onclick="triggerWebhook()" id="triggerBtn">
+                    <span class="btn-icon">⚡</span>
+                    <span>Trigger Webhook</span>
+                </button>
+            </div>
+
+            <div class="response-section" id="responseSection" style="display: none;">
+                <h2>Response</h2>
+                <div class="status-info">
+                    <span class="status-badge" id="statusBadge">Success</span>
+                    <span class="status-time" id="statusTime"></span>
+                </div>
+                <div class="response-content">
+                    <pre id="responseContent"></pre>
+                </div>
+                <button class="clear-btn" onclick="clearResponse()">Clear Response</button>
+            </div>
+        </div>
+
+        <div class="footer">
+            <p>Flow Genius AI - Webhook Trigger Tool</p>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
+

@@ -1,0 +1,26 @@
+{
+	"folders": [
+		{
+			"path": "."
+		},
+		{
+			"path": "../cloning/CTRL/.git"
+		},
+		{
+			"path": "../cloning/CTRL/node_modules"
+		},
+		{
+			"path": "../cloning/CTRL/public"
+		},
+		{
+			"path": "../cloning/CTRL/src"
+		},
+		{
+			"path": "../cloning/CTRL/supabase"
+		},
+		{
+			"path": "../cloning/CTRL/test-chatbot"
+		}
+	],
+	"settings": {}
+}
