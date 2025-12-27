@@ -283,8 +283,8 @@ export default function PropertiesPanel() {
 
       <ScrollArea className="flex-1">
         <div className="p-4 space-y-6">
-          {/* Usage Guide Card */}
-          {NODE_USAGE_GUIDES[selectedNode.data.type] && (
+          {/* Usage Guide Card - Only for Core Logic Nodes */}
+          {nodeDefinition?.category === 'logic' && NODE_USAGE_GUIDES[selectedNode.data.type] && (
             <NodeUsageCard
               guide={NODE_USAGE_GUIDES[selectedNode.data.type]}
               nodeLabel={selectedNode.data.label}
@@ -365,12 +365,6 @@ export default function PropertiesPanel() {
               ) : null}
             </>
           )}
-
-          {/* Node ID */}
-          <div>
-            <Label className="text-xs text-muted-foreground">Node ID</Label>
-            <p className="text-xs font-mono text-muted-foreground">{selectedNode.id}</p>
-          </div>
         </div>
       </ScrollArea>
 
