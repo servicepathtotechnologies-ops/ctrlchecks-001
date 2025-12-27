@@ -753,4 +753,491 @@ Output: {
       'Max results limit applies to list operation',
     ],
   },
+
+  // ============================================
+  // AUTHENTICATION & IDENTITY NODES
+  // ============================================
+  oauth2: {
+    overview: 'OAuth2 authentication and token management. Get access tokens, refresh tokens, validate tokens, and revoke access.',
+    inputs: ['clientId', 'clientSecret', 'tokenUrl', 'code (for authorization_code)', 'refreshToken (for refresh)'],
+    outputs: ['access_token', 'refresh_token', 'expires_in', 'token_type'],
+    example: `Operation: Get Access Token
+Grant Type: Authorization Code
+Client ID: your-client-id
+Client Secret: your-client-secret
+Token URL: https://api.example.com/oauth/token
+Code: authorization-code-from-callback
+
+Output: {
+  access_token: "eyJhbGci...",
+  refresh_token: "def502...",
+  expires_in: 3600,
+  token_type: "Bearer"
+}`,
+    tips: [
+      'Use authorization_code for user authorization flows',
+      'Use client_credentials for server-to-server',
+      'Store refresh tokens securely for token renewal',
+      'Token URL is usually: https://provider.com/oauth/token',
+    ],
+  },
+
+  jwt: {
+    overview: 'Generate, verify, and decode JSON Web Tokens. Sign tokens with HMAC or RSA algorithms, verify signatures, and decode token payloads.',
+    inputs: ['secret/key', 'payload (for sign)', 'token (for verify/decode)', 'algorithm'],
+    outputs: ['token (sign)', 'valid, header, payload (verify)', 'header, payload (decode)'],
+    example: `Operation: Sign Token
+Algorithm: HS256
+Secret: your-secret-key
+Payload: {"sub": "user123", "exp": 1735689600}
+
+Output: {
+  token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ1c2VyMTIzIn0...",
+  header: {alg: "HS256", typ: "JWT"},
+  payload: {sub: "user123", exp: 1735689600}
+}`,
+    tips: [
+      'HS256/HS384/HS512 use symmetric keys (secret)',
+      'RS256/RS384/RS512 use asymmetric keys (private/public)',
+      'Include "exp" claim for expiration',
+      'Token format: header.payload.signature',
+    ],
+  },
+
+  okta: {
+    overview: 'Okta SSO and identity management. Manage users, authenticate, and perform directory operations.',
+    inputs: ['domain', 'apiToken', 'userId (for get/update/delete)', 'userData (for create/update)'],
+    outputs: ['user object', 'users array (list)', 'success status'],
+    example: `Operation: Get User
+Domain: dev-123456.okta.com
+API Token: your-api-token
+User ID: 00u1abc123
+
+Output: {
+  id: "00u1abc123",
+  profile: {
+    firstName: "John",
+    lastName: "Doe",
+    email: "john@example.com"
+  },
+  status: "ACTIVE"
+}`,
+    tips: [
+      'Get API token from Okta Admin → Security → API → Tokens',
+      'Domain format: your-domain.okta.com',
+      'Use filter queries for list_users (e.g., status eq "ACTIVE")',
+      'User IDs are returned in create/list operations',
+    ],
+  },
+
+  auth0: {
+    overview: 'Auth0 identity and access management. Manage users, get tokens, and perform identity operations.',
+    inputs: ['domain', 'clientId', 'clientSecret', 'userId (for user ops)', 'userData (for create/update)'],
+    outputs: ['user object', 'users array', 'access_token (get_token)', 'success status'],
+    example: `Operation: Get User
+Domain: dev-abc123.us.auth0.com
+Client ID: your-client-id
+Client Secret: your-client-secret
+User ID: auth0|123456
+
+Output: {
+  user_id: "auth0|123456",
+  email: "user@example.com",
+  name: "John Doe",
+  created_at: "2024-01-15T10:00:00Z"
+}`,
+    tips: [
+      'Get credentials from Auth0 Dashboard → Applications',
+      'User ID format: "auth0|123456" or "google-oauth2|123456"',
+      'Use Management API for user operations',
+      'Get token operation uses client credentials grant',
+    ],
+  },
+
+  keycloak: {
+    overview: 'Keycloak identity and access management. Get tokens, manage users, and perform SSO operations.',
+    inputs: ['serverUrl', 'realm', 'clientId', 'clientSecret', 'username/password (for get_token)'],
+    outputs: ['access_token', 'refresh_token', 'user object', 'users array'],
+    example: `Operation: Get Token
+Server URL: https://keycloak.example.com
+Realm: master
+Client ID: your-client-id
+Client Secret: your-client-secret
+Username: user@example.com
+Password: password
+
+Output: {
+  access_token: "eyJhbGci...",
+  refresh_token: "def502...",
+  expires_in: 300,
+  token_type: "Bearer"
+}`,
+    tips: [
+      'Realm is usually "master" for admin operations',
+      'Use password grant for user authentication',
+      'Use client credentials for admin API access',
+      'Token endpoint: /realms/{realm}/protocol/openid-connect/token',
+    ],
+  },
+
+  // ============================================
+  // PAYMENT & FINANCE NODES
+  // ============================================
+  stripe: {
+    overview: 'Stripe payment processing. Create payments, manage customers, handle subscriptions, and process refunds.',
+    inputs: ['apiKey', 'amount', 'currency', 'paymentMethodId', 'customerId'],
+    outputs: ['payment_intent', 'payment', 'customer', 'subscription', 'refund'],
+    example: `Operation: Create Payment Intent
+API Key: sk_test_...
+Amount: 1000 (cents)
+Currency: usd
+
+Output: {
+  id: "pi_1234567890",
+  amount: 1000,
+  currency: "usd",
+  status: "requires_payment_method",
+  client_secret: "pi_1234567890_secret_..."
+}`,
+    tips: [
+      'Amount is in smallest currency unit (cents for USD)',
+      'Use test keys (sk_test_) for development',
+      'Payment Intent is required for modern payment flows',
+      'Customer ID format: cus_...',
+    ],
+  },
+
+  razorpay: {
+    overview: 'Razorpay payment gateway. Create orders, process payments, handle refunds, and manage customers.',
+    inputs: ['keyId', 'keySecret', 'amount', 'currency', 'orderId', 'paymentId'],
+    outputs: ['order', 'payment', 'refund', 'customer'],
+    example: `Operation: Create Order
+Key ID: rzp_test_...
+Key Secret: your-key-secret
+Amount: 10000 (paise)
+Currency: INR
+
+Output: {
+  id: "order_1234567890",
+  amount: 10000,
+  currency: "INR",
+  status: "created",
+  created_at: 1642234567
+}`,
+    tips: [
+      'Amount is in smallest currency unit (paise for INR)',
+      'Use test keys (rzp_test_) for development',
+      'Order must be created before payment',
+      'Payment ID format: pay_...',
+    ],
+  },
+
+  paypal: {
+    overview: 'PayPal payment processing. Create orders, capture payments, process refunds, and manage transactions.',
+    inputs: ['clientId', 'clientSecret', 'environment', 'amount', 'currency', 'orderId'],
+    outputs: ['order', 'access_token', 'capture', 'refund'],
+    example: `Operation: Create Order
+Client ID: your-client-id
+Client Secret: your-client-secret
+Environment: sandbox
+Amount: 10.00
+Currency: USD
+
+Output: {
+  id: "5O190127TN364715T",
+  status: "CREATED",
+  links: [{
+    href: "https://api.sandbox.paypal.com/v2/checkout/orders/5O190127TN364715T",
+    rel: "self"
+  }]
+}`,
+    tips: [
+      'Use sandbox for testing, production for live',
+      'Amount is decimal string (e.g., "10.00")',
+      'Order must be captured after creation',
+      'Access token auto-generated for API calls',
+    ],
+  },
+
+  quickbooks: {
+    overview: 'QuickBooks accounting operations. Manage invoices, customers, payments, and financial data.',
+    inputs: ['accessToken', 'realmId', 'environment', 'invoiceId', 'customerId', 'invoiceData'],
+    outputs: ['invoice', 'invoices array', 'customer', 'payment'],
+    example: `Operation: Get Invoice
+Access Token: your-access-token
+Realm ID: 123456789
+Environment: sandbox
+Invoice ID: 1
+
+Output: {
+  Invoice: {
+    Id: "1",
+    DocNumber: "1001",
+    TotalAmt: 100.00,
+    Balance: 0.00,
+    CustomerRef: {
+      value: "1",
+      name: "Customer Name"
+    }
+  }
+}`,
+    tips: [
+      'Use OAuth2 to get access token',
+      'Realm ID is your Company ID',
+      'Use sandbox for testing',
+      'Invoice ID is numeric',
+    ],
+  },
+
+  xero: {
+    overview: 'Xero accounting operations. Manage invoices, contacts, payments, and financial records.',
+    inputs: ['accessToken', 'tenantId', 'invoiceId', 'contactId', 'invoiceData'],
+    outputs: ['invoice', 'invoices array', 'contact', 'payment'],
+    example: `Operation: Get Invoice
+Access Token: your-access-token
+Tenant ID: your-tenant-id
+Invoice ID: invoice-id
+
+Output: {
+  Invoices: [{
+    InvoiceID: "invoice-id",
+    Type: "ACCREC",
+    Contact: {
+      Name: "Customer Name"
+    },
+    Total: 100.00,
+    Status: "AUTHORISED"
+  }]
+}`,
+    tips: [
+      'Get access token via OAuth2 flow',
+      'Tenant ID from OAuth connection',
+      'Invoice Type: ACCREC (Accounts Receivable) or ACCPAY (Accounts Payable)',
+      'Contact ID required for creating invoices',
+    ],
+  },
+
+  // ============================================
+  // E-COMMERCE NODES
+  // ============================================
+  shopify: {
+    overview: 'Shopify e-commerce operations. Manage products, orders, customers, and inventory.',
+    inputs: ['shopDomain', 'accessToken', 'productId', 'orderId', 'customerId'],
+    outputs: ['product', 'products array', 'order', 'orders array', 'customer', 'customers array'],
+    example: `Operation: Get Product
+Shop Domain: mystore.myshopify.com
+Access Token: shpat_...
+Product ID: 123456789
+
+Output: {
+  product: {
+    id: 123456789,
+    title: "Product Name",
+    vendor: "Vendor Name",
+    product_type: "Type",
+    variants: [...],
+    images: [...]
+  }
+}`,
+    tips: [
+      'Get access token from Shopify Admin → Settings → Apps → Develop apps',
+      'Shop domain format: your-shop.myshopify.com',
+      'Product ID is numeric',
+      'Use Admin API version 2024-01 or later',
+    ],
+  },
+
+  woocommerce: {
+    overview: 'WooCommerce store operations. Manage products, orders, customers, and store data.',
+    inputs: ['storeUrl', 'consumerKey', 'consumerSecret', 'productId', 'orderId', 'customerId'],
+    outputs: ['product', 'products array', 'order', 'orders array', 'customer'],
+    example: `Operation: Get Product
+Store URL: https://yourstore.com
+Consumer Key: ck_...
+Consumer Secret: cs_...
+Product ID: 123
+
+Output: {
+  id: 123,
+  name: "Product Name",
+  sku: "PRODUCT-SKU",
+  price: "29.99",
+  stock_status: "instock"
+}`,
+    tips: [
+      'Get API keys from WooCommerce → Settings → Advanced → REST API',
+      'Store URL without trailing slash',
+      'Consumer key starts with ck_, secret with cs_',
+      'Product/Order IDs are numeric',
+    ],
+  },
+
+  magento: {
+    overview: 'Magento e-commerce operations. Manage products, orders, and store data via REST API.',
+    inputs: ['storeUrl', 'accessToken', 'productId (SKU)', 'orderId', 'searchCriteria'],
+    outputs: ['product', 'products array', 'order', 'orders array'],
+    example: `Operation: Get Product
+Store URL: https://yourstore.com
+Access Token: your-access-token
+Product ID (SKU): PRODUCT-SKU
+
+Output: {
+  sku: "PRODUCT-SKU",
+  name: "Product Name",
+  price: 29.99,
+  status: 1,
+  type_id: "simple"
+}`,
+    tips: [
+      'Get access token from Magento Admin → System → Integrations',
+      'Product ID is the SKU (string)',
+      'Order ID is numeric',
+      'Use searchCriteria for filtering list operations',
+    ],
+  },
+
+  bigcommerce: {
+    overview: 'BigCommerce store operations. Manage products, orders, customers, and store data.',
+    inputs: ['storeHash', 'accessToken', 'productId', 'orderId', 'customerId'],
+    outputs: ['product', 'products array', 'order', 'orders array', 'customer'],
+    example: `Operation: Get Product
+Store Hash: your-store-hash
+Access Token: your-access-token
+Product ID: 123
+
+Output: {
+  data: {
+    id: 123,
+    name: "Product Name",
+    sku: "PRODUCT-SKU",
+    price: "29.99",
+    inventory_level: 100
+  }
+}`,
+    tips: [
+      'Get credentials from BigCommerce → Advanced Settings → API Accounts',
+      'Store hash is in API URL: /stores/{storeHash}/v3',
+      'Product/Order IDs are numeric',
+      'API uses v3 endpoint',
+    ],
+  },
+
+  // ============================================
+  // ANALYTICS & DATA TOOLS NODES
+  // ============================================
+  google_analytics: {
+    overview: 'Google Analytics data and reporting. Get reports, track events, and analyze user behavior.',
+    inputs: ['accessToken', 'propertyId', 'dateRanges', 'dimensions', 'metrics', 'eventName'],
+    outputs: ['report data', 'properties array', 'success status'],
+    example: `Operation: Get Report
+Access Token: your-access-token
+Property ID: properties/123456789
+Date Ranges: [{"startDate": "2024-01-01", "endDate": "2024-01-31"}]
+Dimensions: ["date", "country"]
+Metrics: ["activeUsers", "sessions"]
+
+Output: {
+  rows: [{
+    dimensionValues: [{value: "20240101"}, {value: "US"}],
+    metricValues: [{value: "1000"}, {value: "1500"}]
+  }]
+}`,
+    tips: [
+      'Get access token via OAuth2 or Service Account',
+      'Property ID format: properties/123456789',
+      'Use GA4 Data API for reports',
+      'Measurement Protocol for event tracking',
+    ],
+  },
+
+  mixpanel: {
+    overview: 'Mixpanel analytics and event tracking. Track events, identify users, and query insights.',
+    inputs: ['projectToken', 'apiSecret (for queries)', 'eventName', 'distinctId', 'properties'],
+    outputs: ['success status', 'insights data'],
+    example: `Operation: Track Event
+Project Token: your-project-token
+Event Name: Button Clicked
+Distinct ID: user-123
+Properties: {"button": "signup", "page": "home"}
+
+Output: {
+  status: 1,
+  error: null
+}`,
+    tips: [
+      'Get project token from Mixpanel → Project Settings',
+      'API secret needed for query operations',
+      'Distinct ID identifies the user',
+      'Properties are custom event data',
+    ],
+  },
+
+  segment: {
+    overview: 'Segment analytics and data routing. Track events, identify users, track page views, and group users.',
+    inputs: ['writeKey', 'userId', 'event', 'properties', 'traits'],
+    outputs: ['success status'],
+    example: `Operation: Track
+Write Key: your-write-key
+User ID: user-123
+Event: Button Clicked
+Properties: {"button": "signup", "page": "home"}
+
+Output: {
+  success: true
+}`,
+    tips: [
+      'Get write key from Segment → Settings → API Keys',
+      'User ID identifies the user across events',
+      'Traits are user properties (for identify)',
+      'Segment routes data to your connected destinations',
+    ],
+  },
+
+  amplitude: {
+    overview: 'Amplitude product analytics. Track events, identify users, and analyze product usage.',
+    inputs: ['apiKey', 'secretKey (for get_event)', 'userId', 'eventType', 'eventProperties'],
+    outputs: ['success status', 'event data'],
+    example: `Operation: Track Event
+API Key: your-api-key
+User ID: user-123
+Event Type: Button Clicked
+Event Properties: {"button": "signup", "page": "home"}
+
+Output: {
+  code: 200,
+  events_ingested: 1
+}`,
+    tips: [
+      'Get API key from Amplitude → Settings → Projects',
+      'Secret key needed for get_event operation',
+      'Event type is the event name',
+      'Event properties are custom data',
+    ],
+  },
+
+  elasticsearch: {
+    overview: 'Elasticsearch search and analytics. Search documents, index data, update records, and perform bulk operations.',
+    inputs: ['nodeUrl', 'username/password (optional)', 'index', 'query', 'documentId', 'document'],
+    outputs: ['search results', 'document', 'success status'],
+    example: `Operation: Search
+Node URL: https://localhost:9200
+Index: my-index
+Query: {"query": {"match": {"field": "value"}}}
+
+Output: {
+  hits: {
+    total: {value: 10},
+    hits: [{
+      _id: "1",
+      _source: {field: "value"}
+    }]
+  }
+}`,
+    tips: [
+      'Node URL is your Elasticsearch cluster URL',
+      'Index is the index name',
+      'Query uses Elasticsearch Query DSL',
+      'Bulk operations use NDJSON format',
+    ],
+  },
 };
