@@ -11,7 +11,7 @@ import {
   Filter, Variable, Hash, MessageCircle, DatabaseZap, FileOutput,
   Calendar, CheckCircle, Users,
   XCircle, Layers, Edit, Edit3, Tag, Code2, ListChecks, ArrowUpDown, List, Terminal,
-  Calculator, Lock, Rss, Bell, Activity, AlertCircle, Image
+  Calculator, Lock, Rss, Bell, Activity, AlertCircle, Image, Target
 } from 'lucide-react';
 
 const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
@@ -21,7 +21,7 @@ const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
   Filter, Variable, Hash, MessageCircle, DatabaseZap, FileOutput,
   Calendar, CheckCircle, Users,
   XCircle, Layers, Edit, Edit3, Tag, Code2, ListChecks, ArrowUpDown, List, Terminal,
-  Calculator, Lock, Rss, Bell, Activity, AlertCircle, Image
+  Calculator, Lock, Rss, Bell, Activity, AlertCircle, Image, Target
 };
 
 interface NodeLibraryProps {

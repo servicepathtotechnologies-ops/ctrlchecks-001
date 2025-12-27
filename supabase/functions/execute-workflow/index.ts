@@ -10053,6 +10053,1234 @@ async function executeNode(
       }
     }
 
+    case "notion": {
+      const apiKey = getStringProperty(config, 'apiKey', '');
+      const operation = getStringProperty(config, 'operation', 'create_page');
+      
+      if (!apiKey || !apiKey.trim()) {
+        throw new Error('Notion: API Key is required. Please add your Notion API key in the node properties.');
+      }
+
+      try {
+        const baseUrl = 'https://api.notion.com/v1';
+        const headers: Record<string, string> = {
+          'Authorization': `Bearer ${apiKey}`,
+          'Notion-Version': '2022-06-28',
+          'Content-Type': 'application/json',
+        };
+
+        let url = '';
+        let method = 'GET';
+        let body: unknown = undefined;
+
+        switch (operation) {
+          case 'create_page': {
+            const parentPageId = replaceTemplates(getStringProperty(config, 'parentPageId', ''), input);
+            const title = replaceTemplates(getStringProperty(config, 'title', ''), input);
+            const contentStr = getStringProperty(config, 'content', '');
+            
+            if (!parentPageId) throw new Error('Notion: Parent Page ID is required for create_page');
+            if (!title) throw new Error('Notion: Title is required for create_page');
+            
+            let content = [];
+            if (contentStr && contentStr.trim()) {
+              try {
+                content = parseJSONSafe(replaceTemplates(contentStr, input), 'content') as unknown[];
+              } catch {
+                // If content is not valid JSON, create a paragraph block
+                content = [{
+                  type: 'paragraph',
+                  paragraph: {
+                    rich_text: [{ type: 'text', text: { content: replaceTemplates(contentStr, input) } }]
+                  }
+                }];
+              }
+            }
+            
+            url = `${baseUrl}/pages`;
+            method = 'POST';
+            body = {
+              parent: { page_id: parentPageId },
+              properties: {
+                title: {
+                  title: [{ type: 'text', text: { content: title } }]
+                }
+              },
+              children: content
+            };
+            break;
+          }
+          case 'update_page': {
+            const pageId = replaceTemplates(getStringProperty(config, 'pageId', ''), input);
+            if (!pageId) throw new Error('Notion: Page ID is required for update_page');
+            
+            url = `${baseUrl}/pages/${pageId}`;
+            method = 'PATCH';
+            const propertiesStr = getStringProperty(config, 'properties', '');
+            if (propertiesStr) {
+              body = { properties: parseJSONSafe(replaceTemplates(propertiesStr, input), 'properties') };
+            }
+            break;
+          }
+          case 'read_page': {
+            const pageId = replaceTemplates(getStringProperty(config, 'pageId', ''), input);
+            if (!pageId) throw new Error('Notion: Page ID is required for read_page');
+            
+            url = `${baseUrl}/pages/${pageId}`;
+            break;
+          }
+          case 'delete_page': {
+            const pageId = replaceTemplates(getStringProperty(config, 'pageId', ''), input);
+            if (!pageId) throw new Error('Notion: Page ID is required for delete_page');
+            
+            url = `${baseUrl}/pages/${pageId}`;
+            method = 'PATCH';
+            body = { archived: true };
+            break;
+          }
+          case 'query_database': {
+            const databaseId = replaceTemplates(getStringProperty(config, 'databaseId', ''), input);
+            if (!databaseId) throw new Error('Notion: Database ID is required for query_database');
+            
+            url = `${baseUrl}/databases/${databaseId}/query`;
+            method = 'POST';
+            const filterStr = getStringProperty(config, 'filter', '');
+            const sortsStr = getStringProperty(config, 'sorts', '');
+            const pageSize = getNumberProperty(config, 'pageSize', 100);
+            
+            body = { page_size: Math.min(pageSize, 100) };
+            if (filterStr) {
+              (body as Record<string, unknown>).filter = parseJSONSafe(replaceTemplates(filterStr, input), 'filter');
+            }
+            if (sortsStr) {
+              (body as Record<string, unknown>).sorts = parseJSONSafe(replaceTemplates(sortsStr, input), 'sorts');
+            }
+            break;
+          }
+          case 'create_database_entry':
+          case 'update_database_entry': {
+            const databaseId = replaceTemplates(getStringProperty(config, 'databaseId', ''), input);
+            const propertiesStr = getStringProperty(config, 'properties', '');
+            
+            if (!databaseId) throw new Error(`Notion: Database ID is required for ${operation}`);
+            if (!propertiesStr) throw new Error(`Notion: Properties are required for ${operation}`);
+            
+            if (operation === 'create_database_entry') {
+              url = `${baseUrl}/pages`;
+              method = 'POST';
+              body = {
+                parent: { database_id: databaseId },
+                properties: parseJSONSafe(replaceTemplates(propertiesStr, input), 'properties')
+              };
+            } else {
+              const pageId = replaceTemplates(getStringProperty(config, 'pageId', ''), input);
+              if (!pageId) throw new Error('Notion: Page ID is required for update_database_entry');
+              
+              url = `${baseUrl}/pages/${pageId}`;
+              method = 'PATCH';
+              body = { properties: parseJSONSafe(replaceTemplates(propertiesStr, input), 'properties') };
+            }
+            break;
+          }
+          default:
+            throw new Error(`Notion: Unknown operation "${operation}"`);
+        }
+
+        const response = await fetch(url, {
+          method,
+          headers,
+          body: body ? JSON.stringify(body) : undefined,
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`Notion API error: ${response.status} - ${errorText || response.statusText}`);
+        }
+
+        return await response.json();
+      } catch (error) {
+        throw new Error(`Notion: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+
+    case "airtable": {
+      const apiKey = getStringProperty(config, 'apiKey', '');
+      const baseId = replaceTemplates(getStringProperty(config, 'baseId', ''), input);
+      const tableId = replaceTemplates(getStringProperty(config, 'tableId', ''), input);
+      const operation = getStringProperty(config, 'operation', 'create_record');
+      
+      if (!apiKey || !apiKey.trim()) {
+        throw new Error('Airtable: API Key is required. Please add your Airtable API key in the node properties.');
+      }
+      if (!baseId) throw new Error('Airtable: Base ID is required');
+      if (!tableId) throw new Error('Airtable: Table Name/ID is required');
+
+      try {
+        const baseUrl = `https://api.airtable.com/v0/${baseId}/${encodeURIComponent(tableId)}`;
+        const headers: Record<string, string> = {
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        };
+
+        let url = '';
+        let method = 'GET';
+        let body: unknown = undefined;
+
+        switch (operation) {
+          case 'create_record': {
+            const fieldsStr = getStringProperty(config, 'fields', '');
+            if (!fieldsStr) throw new Error('Airtable: Fields are required for create_record');
+            
+            url = baseUrl;
+            method = 'POST';
+            body = { fields: parseJSONSafe(replaceTemplates(fieldsStr, input), 'fields') };
+            break;
+          }
+          case 'update_record': {
+            const recordId = replaceTemplates(getStringProperty(config, 'recordId', ''), input);
+            const fieldsStr = getStringProperty(config, 'fields', '');
+            
+            if (!recordId) throw new Error('Airtable: Record ID is required for update_record');
+            if (!fieldsStr) throw new Error('Airtable: Fields are required for update_record');
+            
+            url = `${baseUrl}/${recordId}`;
+            method = 'PATCH';
+            body = { fields: parseJSONSafe(replaceTemplates(fieldsStr, input), 'fields') };
+            break;
+          }
+          case 'delete_record': {
+            const recordId = replaceTemplates(getStringProperty(config, 'recordId', ''), input);
+            if (!recordId) throw new Error('Airtable: Record ID is required for delete_record');
+            
+            url = `${baseUrl}/${recordId}`;
+            method = 'DELETE';
+            break;
+          }
+          case 'get_record': {
+            const recordId = replaceTemplates(getStringProperty(config, 'recordId', ''), input);
+            if (!recordId) throw new Error('Airtable: Record ID is required for get_record');
+            
+            url = `${baseUrl}/${recordId}`;
+            break;
+          }
+          case 'list_records': {
+            url = baseUrl;
+            const filterByFormula = replaceTemplates(getStringProperty(config, 'filterByFormula', ''), input);
+            const view = replaceTemplates(getStringProperty(config, 'view', ''), input);
+            const maxRecords = getNumberProperty(config, 'maxRecords', 100);
+            const pageSize = getNumberProperty(config, 'pageSize', 100);
+            const offset = replaceTemplates(getStringProperty(config, 'offset', ''), input);
+            
+            const params = new URLSearchParams();
+            if (filterByFormula) params.append('filterByFormula', filterByFormula);
+            if (view) params.append('view', view);
+            params.append('maxRecords', String(Math.min(maxRecords, 100)));
+            params.append('pageSize', String(Math.min(pageSize, 100)));
+            if (offset) params.append('offset', offset);
+            
+            url = `${baseUrl}?${params.toString()}`;
+            break;
+          }
+          case 'batch_create':
+          case 'batch_update':
+          case 'batch_delete': {
+            const recordsStr = getStringProperty(config, 'fields', ''); // Reusing fields for batch data
+            if (!recordsStr) throw new Error(`Airtable: Records data is required for ${operation}`);
+            
+            if (operation === 'batch_delete') {
+              const recordIds = parseJSONSafe(replaceTemplates(recordsStr, input), 'records') as string[];
+              url = `${baseUrl}?${recordIds.map(id => `records[]=${id}`).join('&')}`;
+              method = 'DELETE';
+            } else {
+              url = baseUrl;
+              method = operation === 'batch_create' ? 'POST' : 'PATCH';
+              body = { records: parseJSONSafe(replaceTemplates(recordsStr, input), 'records') };
+            }
+            break;
+          }
+          default:
+            throw new Error(`Airtable: Unknown operation "${operation}"`);
+        }
+
+        const response = await fetch(url, {
+          method,
+          headers,
+          body: body ? JSON.stringify(body) : undefined,
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`Airtable API error: ${response.status} - ${errorText || response.statusText}`);
+        }
+
+        return await response.json();
+      } catch (error) {
+        throw new Error(`Airtable: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+
+    case "clickup": {
+      const apiKey = getStringProperty(config, 'apiKey', '');
+      const operation = getStringProperty(config, 'operation', 'create_task');
+      
+      if (!apiKey || !apiKey.trim()) {
+        throw new Error('ClickUp: API Key is required. Please add your ClickUp API key in the node properties.');
+      }
+
+      try {
+        const baseUrl = 'https://api.clickup.com/api/v2';
+        const headers: Record<string, string> = {
+          'Authorization': apiKey,
+          'Content-Type': 'application/json',
+        };
+
+        let url = '';
+        let method = 'GET';
+        let body: unknown = undefined;
+
+        switch (operation) {
+          case 'create_task': {
+            const listId = replaceTemplates(getStringProperty(config, 'listId', ''), input);
+            const name = replaceTemplates(getStringProperty(config, 'name', ''), input);
+            
+            if (!listId) throw new Error('ClickUp: List ID is required for create_task');
+            if (!name) throw new Error('ClickUp: Task Name is required for create_task');
+            
+            url = `${baseUrl}/list/${listId}/task`;
+            method = 'POST';
+            body = {
+              name,
+              description: replaceTemplates(getStringProperty(config, 'description', ''), input),
+              status: replaceTemplates(getStringProperty(config, 'status', ''), input),
+              priority: getNumberProperty(config, 'priority', 2),
+              assignees: config.assignees ? parseJSONSafe(replaceTemplates(getStringProperty(config, 'assignees', ''), input), 'assignees') : undefined,
+              due_date: getNumberProperty(config, 'dueDate', 0) || undefined,
+            };
+            // Remove undefined fields
+            Object.keys(body as Record<string, unknown>).forEach(key => {
+              if ((body as Record<string, unknown>)[key] === undefined) {
+                delete (body as Record<string, unknown>)[key];
+              }
+            });
+            break;
+          }
+          case 'update_task': {
+            const taskId = replaceTemplates(getStringProperty(config, 'taskId', ''), input);
+            if (!taskId) throw new Error('ClickUp: Task ID is required for update_task');
+            
+            url = `${baseUrl}/task/${taskId}`;
+            method = 'PUT';
+            body = {
+              name: replaceTemplates(getStringProperty(config, 'name', ''), input),
+              description: replaceTemplates(getStringProperty(config, 'description', ''), input),
+              status: replaceTemplates(getStringProperty(config, 'status', ''), input),
+              priority: getNumberProperty(config, 'priority', 2),
+              assignees: config.assignees ? parseJSONSafe(replaceTemplates(getStringProperty(config, 'assignees', ''), input), 'assignees') : undefined,
+              due_date: getNumberProperty(config, 'dueDate', 0) || undefined,
+            };
+            Object.keys(body as Record<string, unknown>).forEach(key => {
+              if ((body as Record<string, unknown>)[key] === undefined) {
+                delete (body as Record<string, unknown>)[key];
+              }
+            });
+            break;
+          }
+          case 'get_task': {
+            const taskId = replaceTemplates(getStringProperty(config, 'taskId', ''), input);
+            if (!taskId) throw new Error('ClickUp: Task ID is required for get_task');
+            
+            url = `${baseUrl}/task/${taskId}`;
+            break;
+          }
+          case 'delete_task': {
+            const taskId = replaceTemplates(getStringProperty(config, 'taskId', ''), input);
+            if (!taskId) throw new Error('ClickUp: Task ID is required for delete_task');
+            
+            url = `${baseUrl}/task/${taskId}`;
+            method = 'DELETE';
+            break;
+          }
+          case 'list_tasks': {
+            const listId = replaceTemplates(getStringProperty(config, 'listId', ''), input);
+            if (!listId) throw new Error('ClickUp: List ID is required for list_tasks');
+            
+            const includeClosed = getBooleanProperty(config, 'includeClosed', false);
+            url = `${baseUrl}/list/${listId}/task?archived=${includeClosed}`;
+            break;
+          }
+          case 'add_comment': {
+            const taskId = replaceTemplates(getStringProperty(config, 'taskId', ''), input);
+            const commentText = replaceTemplates(getStringProperty(config, 'commentText', ''), input);
+            
+            if (!taskId) throw new Error('ClickUp: Task ID is required for add_comment');
+            if (!commentText) throw new Error('ClickUp: Comment Text is required for add_comment');
+            
+            url = `${baseUrl}/task/${taskId}/comment`;
+            method = 'POST';
+            body = { comment_text: commentText };
+            break;
+          }
+          case 'update_status': {
+            const taskId = replaceTemplates(getStringProperty(config, 'taskId', ''), input);
+            const status = replaceTemplates(getStringProperty(config, 'status', ''), input);
+            
+            if (!taskId) throw new Error('ClickUp: Task ID is required for update_status');
+            if (!status) throw new Error('ClickUp: Status is required for update_status');
+            
+            url = `${baseUrl}/task/${taskId}`;
+            method = 'PUT';
+            body = { status };
+            break;
+          }
+          case 'get_teams': {
+            url = `${baseUrl}/team`;
+            break;
+          }
+          case 'get_spaces': {
+            const workspaceId = replaceTemplates(getStringProperty(config, 'workspaceId', ''), input);
+            if (!workspaceId) throw new Error('ClickUp: Workspace ID is required for get_spaces');
+            
+            url = `${baseUrl}/team/${workspaceId}/space`;
+            break;
+          }
+          case 'get_folders': {
+            const spaceId = replaceTemplates(getStringProperty(config, 'spaceId', ''), input);
+            if (!spaceId) throw new Error('ClickUp: Space ID is required for get_folders');
+            
+            url = `${baseUrl}/space/${spaceId}/folder`;
+            break;
+          }
+          case 'get_lists': {
+            const folderId = replaceTemplates(getStringProperty(config, 'folderId', ''), input);
+            const listId = replaceTemplates(getStringProperty(config, 'listId', ''), input);
+            
+            if (folderId) {
+              url = `${baseUrl}/folder/${folderId}/list`;
+            } else if (listId) {
+              url = `${baseUrl}/list/${listId}`;
+            } else {
+              throw new Error('ClickUp: Folder ID or List ID is required for get_lists');
+            }
+            break;
+          }
+          default:
+            throw new Error(`ClickUp: Unknown operation "${operation}"`);
+        }
+
+        const response = await fetch(url, {
+          method,
+          headers,
+          body: body ? JSON.stringify(body) : undefined,
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`ClickUp API error: ${response.status} - ${errorText || response.statusText}`);
+        }
+
+        return await response.json();
+      } catch (error) {
+        throw new Error(`ClickUp: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+
+    case "trello": {
+      const apiKey = getStringProperty(config, 'apiKey', '');
+      const token = getStringProperty(config, 'token', '');
+      const operation = getStringProperty(config, 'operation', 'create_card');
+      
+      if (!apiKey || !token) {
+        throw new Error('Trello: API Key and Token are required. Please add them in the node properties.');
+      }
+
+      try {
+        const baseUrl = 'https://api.trello.com/1';
+        const authParams = `key=${apiKey}&token=${token}`;
+
+        let url = '';
+        let method = 'GET';
+        let body: unknown = undefined;
+
+        switch (operation) {
+          case 'create_card': {
+            const listId = replaceTemplates(getStringProperty(config, 'listId', ''), input);
+            const name = replaceTemplates(getStringProperty(config, 'name', ''), input);
+            
+            if (!listId) throw new Error('Trello: List ID is required for create_card');
+            if (!name) throw new Error('Trello: Card Name is required for create_card');
+            
+            url = `${baseUrl}/cards?${authParams}`;
+            method = 'POST';
+            const formData = new URLSearchParams();
+            formData.append('idList', listId);
+            formData.append('name', name);
+            const desc = replaceTemplates(getStringProperty(config, 'desc', ''), input);
+            if (desc) formData.append('desc', desc);
+            const dueDate = replaceTemplates(getStringProperty(config, 'dueDate', ''), input);
+            if (dueDate) formData.append('due', dueDate);
+            const idLabels = replaceTemplates(getStringProperty(config, 'idLabels', ''), input);
+            if (idLabels) formData.append('idLabels', idLabels);
+            const idMembers = replaceTemplates(getStringProperty(config, 'idMembers', ''), input);
+            if (idMembers) formData.append('idMembers', idMembers);
+            
+            body = formData.toString();
+            break;
+          }
+          case 'update_card': {
+            const cardId = replaceTemplates(getStringProperty(config, 'cardId', ''), input);
+            if (!cardId) throw new Error('Trello: Card ID is required for update_card');
+            
+            url = `${baseUrl}/cards/${cardId}?${authParams}`;
+            method = 'PUT';
+            const formData = new URLSearchParams();
+            const name = replaceTemplates(getStringProperty(config, 'name', ''), input);
+            if (name) formData.append('name', name);
+            const desc = replaceTemplates(getStringProperty(config, 'desc', ''), input);
+            if (desc) formData.append('desc', desc);
+            const dueDate = replaceTemplates(getStringProperty(config, 'dueDate', ''), input);
+            if (dueDate) formData.append('due', dueDate);
+            body = formData.toString();
+            break;
+          }
+          case 'get_card': {
+            const cardId = replaceTemplates(getStringProperty(config, 'cardId', ''), input);
+            if (!cardId) throw new Error('Trello: Card ID is required for get_card');
+            
+            url = `${baseUrl}/cards/${cardId}?${authParams}`;
+            break;
+          }
+          case 'delete_card': {
+            const cardId = replaceTemplates(getStringProperty(config, 'cardId', ''), input);
+            if (!cardId) throw new Error('Trello: Card ID is required for delete_card');
+            
+            url = `${baseUrl}/cards/${cardId}?${authParams}`;
+            method = 'DELETE';
+            break;
+          }
+          case 'list_cards': {
+            const listId = replaceTemplates(getStringProperty(config, 'listId', ''), input);
+            if (!listId) throw new Error('Trello: List ID is required for list_cards');
+            
+            url = `${baseUrl}/lists/${listId}/cards?${authParams}`;
+            break;
+          }
+          case 'move_card': {
+            const cardId = replaceTemplates(getStringProperty(config, 'cardId', ''), input);
+            const newListId = replaceTemplates(getStringProperty(config, 'newListId', ''), input);
+            
+            if (!cardId) throw new Error('Trello: Card ID is required for move_card');
+            if (!newListId) throw new Error('Trello: New List ID is required for move_card');
+            
+            url = `${baseUrl}/cards/${cardId}?${authParams}`;
+            method = 'PUT';
+            body = new URLSearchParams({ idList: newListId }).toString();
+            break;
+          }
+          case 'add_label': {
+            const cardId = replaceTemplates(getStringProperty(config, 'cardId', ''), input);
+            const idLabels = replaceTemplates(getStringProperty(config, 'idLabels', ''), input);
+            
+            if (!cardId) throw new Error('Trello: Card ID is required for add_label');
+            if (!idLabels) throw new Error('Trello: Label IDs are required for add_label');
+            
+            url = `${baseUrl}/cards/${cardId}/idLabels?${authParams}`;
+            method = 'POST';
+            body = new URLSearchParams({ value: idLabels }).toString();
+            break;
+          }
+          case 'add_checklist': {
+            const cardId = replaceTemplates(getStringProperty(config, 'cardId', ''), input);
+            const checklistName = replaceTemplates(getStringProperty(config, 'checklistName', ''), input);
+            
+            if (!cardId) throw new Error('Trello: Card ID is required for add_checklist');
+            if (!checklistName) throw new Error('Trello: Checklist Name is required for add_checklist');
+            
+            url = `${baseUrl}/cards/${cardId}/checklists?${authParams}`;
+            method = 'POST';
+            body = new URLSearchParams({ name: checklistName }).toString();
+            break;
+          }
+          case 'get_boards': {
+            url = `${baseUrl}/members/me/boards?${authParams}`;
+            break;
+          }
+          case 'get_lists': {
+            const boardId = replaceTemplates(getStringProperty(config, 'boardId', ''), input);
+            if (!boardId) throw new Error('Trello: Board ID is required for get_lists');
+            
+            url = `${baseUrl}/boards/${boardId}/lists?${authParams}`;
+            break;
+          }
+          default:
+            throw new Error(`Trello: Unknown operation "${operation}"`);
+        }
+
+        const requestHeaders: Record<string, string> = {
+          'Content-Type': method === 'POST' || method === 'PUT' ? 'application/x-www-form-urlencoded' : 'application/json',
+        };
+
+        const response = await fetch(url, {
+          method,
+          headers: requestHeaders,
+          body: typeof body === 'string' ? body : body ? JSON.stringify(body) : undefined,
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`Trello API error: ${response.status} - ${errorText || response.statusText}`);
+        }
+
+        return await response.json();
+      } catch (error) {
+        throw new Error(`Trello: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+
+    case "asana": {
+      const accessToken = getStringProperty(config, 'accessToken', '');
+      const operation = getStringProperty(config, 'operation', 'create_task');
+      
+      if (!accessToken || !accessToken.trim()) {
+        throw new Error('Asana: Access Token is required. Please add your Asana access token in the node properties.');
+      }
+
+      try {
+        const baseUrl = 'https://app.asana.com/api/1.0';
+        const headers: Record<string, string> = {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        };
+
+        let url = '';
+        let method = 'GET';
+        let body: unknown = undefined;
+
+        switch (operation) {
+          case 'create_task': {
+            const name = replaceTemplates(getStringProperty(config, 'name', ''), input);
+            if (!name) throw new Error('Asana: Task Name is required for create_task');
+            
+            url = `${baseUrl}/tasks`;
+            method = 'POST';
+            body = {
+              data: {
+                name,
+                notes: replaceTemplates(getStringProperty(config, 'notes', ''), input),
+                workspace: replaceTemplates(getStringProperty(config, 'workspaceId', ''), input),
+                projects: config.projectId ? [replaceTemplates(getStringProperty(config, 'projectId', ''), input)] : undefined,
+                due_on: replaceTemplates(getStringProperty(config, 'dueOn', ''), input),
+                assignee: replaceTemplates(getStringProperty(config, 'assignee', ''), input),
+                followers: config.followers ? parseJSONSafe(replaceTemplates(getStringProperty(config, 'followers', ''), input), 'followers') : undefined,
+              }
+            };
+            Object.keys((body as Record<string, unknown>).data as Record<string, unknown>).forEach(key => {
+              if (((body as Record<string, unknown>).data as Record<string, unknown>)[key] === undefined || 
+                  ((body as Record<string, unknown>).data as Record<string, unknown>)[key] === '') {
+                delete ((body as Record<string, unknown>).data as Record<string, unknown>)[key];
+              }
+            });
+            break;
+          }
+          case 'update_task': {
+            const taskId = replaceTemplates(getStringProperty(config, 'taskId', ''), input);
+            if (!taskId) throw new Error('Asana: Task ID is required for update_task');
+            
+            url = `${baseUrl}/tasks/${taskId}`;
+            method = 'PUT';
+            body = {
+              data: {
+                name: replaceTemplates(getStringProperty(config, 'name', ''), input),
+                notes: replaceTemplates(getStringProperty(config, 'notes', ''), input),
+                due_on: replaceTemplates(getStringProperty(config, 'dueOn', ''), input),
+                assignee: replaceTemplates(getStringProperty(config, 'assignee', ''), input),
+                completed: getBooleanProperty(config, 'completed', false),
+              }
+            };
+            Object.keys((body as Record<string, unknown>).data as Record<string, unknown>).forEach(key => {
+              if (((body as Record<string, unknown>).data as Record<string, unknown>)[key] === undefined || 
+                  ((body as Record<string, unknown>).data as Record<string, unknown>)[key] === '') {
+                delete ((body as Record<string, unknown>).data as Record<string, unknown>)[key];
+              }
+            });
+            break;
+          }
+          case 'get_task': {
+            const taskId = replaceTemplates(getStringProperty(config, 'taskId', ''), input);
+            if (!taskId) throw new Error('Asana: Task ID is required for get_task');
+            
+            url = `${baseUrl}/tasks/${taskId}`;
+            break;
+          }
+          case 'delete_task': {
+            const taskId = replaceTemplates(getStringProperty(config, 'taskId', ''), input);
+            if (!taskId) throw new Error('Asana: Task ID is required for delete_task');
+            
+            url = `${baseUrl}/tasks/${taskId}`;
+            method = 'DELETE';
+            break;
+          }
+          case 'list_tasks': {
+            const projectId = replaceTemplates(getStringProperty(config, 'projectId', ''), input);
+            if (!projectId) throw new Error('Asana: Project ID is required for list_tasks');
+            
+            url = `${baseUrl}/projects/${projectId}/tasks`;
+            break;
+          }
+          case 'add_subtask': {
+            const taskId = replaceTemplates(getStringProperty(config, 'taskId', ''), input);
+            const name = replaceTemplates(getStringProperty(config, 'name', ''), input);
+            
+            if (!taskId) throw new Error('Asana: Task ID is required for add_subtask');
+            if (!name) throw new Error('Asana: Task Name is required for add_subtask');
+            
+            url = `${baseUrl}/tasks/${taskId}/subtasks`;
+            method = 'POST';
+            body = { data: { name } };
+            break;
+          }
+          case 'add_comment': {
+            const taskId = replaceTemplates(getStringProperty(config, 'taskId', ''), input);
+            const commentText = replaceTemplates(getStringProperty(config, 'commentText', ''), input);
+            
+            if (!taskId) throw new Error('Asana: Task ID is required for add_comment');
+            if (!commentText) throw new Error('Asana: Comment Text is required for add_comment');
+            
+            url = `${baseUrl}/tasks/${taskId}/stories`;
+            method = 'POST';
+            body = { data: { text: commentText } };
+            break;
+          }
+          case 'get_projects': {
+            const workspaceId = replaceTemplates(getStringProperty(config, 'workspaceId', ''), input);
+            if (!workspaceId) throw new Error('Asana: Workspace ID is required for get_projects');
+            
+            url = `${baseUrl}/workspaces/${workspaceId}/projects`;
+            break;
+          }
+          case 'get_sections': {
+            const projectId = replaceTemplates(getStringProperty(config, 'projectId', ''), input);
+            if (!projectId) throw new Error('Asana: Project ID is required for get_sections');
+            
+            url = `${baseUrl}/projects/${projectId}/sections`;
+            break;
+          }
+          default:
+            throw new Error(`Asana: Unknown operation "${operation}"`);
+        }
+
+        const response = await fetch(url, {
+          method,
+          headers,
+          body: body ? JSON.stringify(body) : undefined,
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`Asana API error: ${response.status} - ${errorText || response.statusText}`);
+        }
+
+        return await response.json();
+      } catch (error) {
+        throw new Error(`Asana: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+
+    case "jira": {
+      const apiToken = getStringProperty(config, 'apiToken', '');
+      const email = getStringProperty(config, 'email', '');
+      const domain = replaceTemplates(getStringProperty(config, 'domain', ''), input);
+      const operation = getStringProperty(config, 'operation', 'create_issue');
+      
+      if (!apiToken || !email || !domain) {
+        throw new Error('Jira: API Token, Email, and Domain are required. Please add them in the node properties.');
+      }
+
+      try {
+        const baseUrl = `https://${domain}/rest/api/3`;
+        const auth = btoa(`${email}:${apiToken}`);
+        const headers: Record<string, string> = {
+          'Authorization': `Basic ${auth}`,
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        };
+
+        let url = '';
+        let method = 'GET';
+        let body: unknown = undefined;
+
+        switch (operation) {
+          case 'create_issue': {
+            const projectKey = replaceTemplates(getStringProperty(config, 'projectKey', ''), input);
+            const summary = replaceTemplates(getStringProperty(config, 'summary', ''), input);
+            const issueType = replaceTemplates(getStringProperty(config, 'issueType', 'Task'), input);
+            
+            if (!projectKey) throw new Error('Jira: Project Key is required for create_issue');
+            if (!summary) throw new Error('Jira: Issue Summary is required for create_issue');
+            
+            url = `${baseUrl}/issue`;
+            method = 'POST';
+            const fields: Record<string, unknown> = {
+              project: { key: projectKey },
+              summary,
+              issuetype: { name: issueType },
+            };
+            
+            const description = replaceTemplates(getStringProperty(config, 'description', ''), input);
+            if (description) fields.description = { type: 'doc', version: 1, content: [{ type: 'paragraph', content: [{ type: 'text', text: description }] }] };
+            
+            const assignee = replaceTemplates(getStringProperty(config, 'assignee', ''), input);
+            if (assignee) fields.assignee = { id: assignee };
+            
+            const priority = replaceTemplates(getStringProperty(config, 'priority', 'Medium'), input);
+            fields.priority = { name: priority };
+            
+            const labelsStr = getStringProperty(config, 'labels', '');
+            if (labelsStr) {
+              const labels = parseJSONSafe(replaceTemplates(labelsStr, input), 'labels') as string[];
+              if (Array.isArray(labels)) fields.labels = labels;
+            }
+            
+            body = { fields };
+            break;
+          }
+          case 'update_issue': {
+            const issueKey = replaceTemplates(getStringProperty(config, 'issueKey', ''), input);
+            if (!issueKey) throw new Error('Jira: Issue Key is required for update_issue');
+            
+            url = `${baseUrl}/issue/${issueKey}`;
+            method = 'PUT';
+            const fields: Record<string, unknown> = {};
+            
+            const summary = replaceTemplates(getStringProperty(config, 'summary', ''), input);
+            if (summary) fields.summary = summary;
+            
+            const description = replaceTemplates(getStringProperty(config, 'description', ''), input);
+            if (description) fields.description = { type: 'doc', version: 1, content: [{ type: 'paragraph', content: [{ type: 'text', text: description }] }] };
+            
+            const assignee = replaceTemplates(getStringProperty(config, 'assignee', ''), input);
+            if (assignee) fields.assignee = { id: assignee };
+            
+            const priority = replaceTemplates(getStringProperty(config, 'priority', 'Medium'), input);
+            if (priority) fields.priority = { name: priority };
+            
+            body = { fields };
+            break;
+          }
+          case 'get_issue': {
+            const issueKey = replaceTemplates(getStringProperty(config, 'issueKey', ''), input);
+            if (!issueKey) throw new Error('Jira: Issue Key is required for get_issue');
+            
+            url = `${baseUrl}/issue/${issueKey}`;
+            break;
+          }
+          case 'delete_issue': {
+            const issueKey = replaceTemplates(getStringProperty(config, 'issueKey', ''), input);
+            if (!issueKey) throw new Error('Jira: Issue Key is required for delete_issue');
+            
+            url = `${baseUrl}/issue/${issueKey}`;
+            method = 'DELETE';
+            break;
+          }
+          case 'search_issues': {
+            const jql = replaceTemplates(getStringProperty(config, 'jql', ''), input);
+            const maxResults = getNumberProperty(config, 'maxResults', 50);
+            
+            if (!jql) throw new Error('Jira: JQL Query is required for search_issues');
+            
+            url = `${baseUrl}/search?jql=${encodeURIComponent(jql)}&maxResults=${Math.min(maxResults, 100)}`;
+            break;
+          }
+          case 'transition_issue': {
+            const issueKey = replaceTemplates(getStringProperty(config, 'issueKey', ''), input);
+            const transitionId = replaceTemplates(getStringProperty(config, 'transitionId', ''), input);
+            
+            if (!issueKey) throw new Error('Jira: Issue Key is required for transition_issue');
+            if (!transitionId) throw new Error('Jira: Transition ID is required for transition_issue');
+            
+            url = `${baseUrl}/issue/${issueKey}/transitions`;
+            method = 'POST';
+            body = { transition: { id: transitionId } };
+            break;
+          }
+          case 'add_comment': {
+            const issueKey = replaceTemplates(getStringProperty(config, 'issueKey', ''), input);
+            const commentBody = replaceTemplates(getStringProperty(config, 'commentBody', ''), input);
+            
+            if (!issueKey) throw new Error('Jira: Issue Key is required for add_comment');
+            if (!commentBody) throw new Error('Jira: Comment Body is required for add_comment');
+            
+            url = `${baseUrl}/issue/${issueKey}/comment`;
+            method = 'POST';
+            body = { body: { type: 'doc', version: 1, content: [{ type: 'paragraph', content: [{ type: 'text', text: commentBody }] }] } };
+            break;
+          }
+          case 'get_projects': {
+            url = `${baseUrl}/project`;
+            break;
+          }
+          default:
+            throw new Error(`Jira: Unknown operation "${operation}"`);
+        }
+
+        const response = await fetch(url, {
+          method,
+          headers,
+          body: body ? JSON.stringify(body) : undefined,
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`Jira API error: ${response.status} - ${errorText || response.statusText}`);
+        }
+
+        return await response.json();
+      } catch (error) {
+        throw new Error(`Jira: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+
+    case "monday": {
+      const apiToken = getStringProperty(config, 'apiToken', '');
+      const operation = getStringProperty(config, 'operation', 'create_item');
+      
+      if (!apiToken || !apiToken.trim()) {
+        throw new Error('Monday.com: API Token is required. Please add your Monday.com API token in the node properties.');
+      }
+
+      try {
+        const baseUrl = 'https://api.monday.com/v2';
+        const headers: Record<string, string> = {
+          'Authorization': apiToken,
+          'Content-Type': 'application/json',
+        };
+
+        let query = '';
+        let variables: Record<string, unknown> = {};
+
+        switch (operation) {
+          case 'create_item': {
+            const boardId = replaceTemplates(getStringProperty(config, 'boardId', ''), input);
+            const groupId = replaceTemplates(getStringProperty(config, 'groupId', ''), input);
+            const itemName = replaceTemplates(getStringProperty(config, 'itemName', ''), input);
+            const columnValuesStr = getStringProperty(config, 'columnValues', '');
+            
+            if (!boardId) throw new Error('Monday.com: Board ID is required for create_item');
+            if (!itemName) throw new Error('Monday.com: Item Name is required for create_item');
+            
+            let columnValues = '';
+            if (columnValuesStr) {
+              const parsed = parseJSONSafe(replaceTemplates(columnValuesStr, input), 'columnValues');
+              columnValues = JSON.stringify(parsed);
+            }
+            
+            query = `mutation ($boardId: ID!, $groupId: String!, $itemName: String!, $columnValues: JSON) {
+              create_item (board_id: $boardId, group_id: $groupId, item_name: $itemName, column_values: $columnValues) {
+                id
+              }
+            }`;
+            variables = { boardId, groupId: groupId || 'new_group', itemName, columnValues: columnValues || undefined };
+            break;
+          }
+          case 'update_item': {
+            const itemId = replaceTemplates(getStringProperty(config, 'itemId', ''), input);
+            const columnValuesStr = getStringProperty(config, 'columnValues', '');
+            
+            if (!itemId) throw new Error('Monday.com: Item ID is required for update_item');
+            if (!columnValuesStr) throw new Error('Monday.com: Column Values are required for update_item');
+            
+            const columnValues = JSON.stringify(parseJSONSafe(replaceTemplates(columnValuesStr, input), 'columnValues'));
+            
+            query = `mutation ($itemId: ID!, $columnValues: JSON!) {
+              change_multiple_column_values (item_id: $itemId, column_values: $columnValues) {
+                id
+              }
+            }`;
+            variables = { itemId, columnValues };
+            break;
+          }
+          case 'get_item': {
+            const itemId = replaceTemplates(getStringProperty(config, 'itemId', ''), input);
+            if (!itemId) throw new Error('Monday.com: Item ID is required for get_item');
+            
+            query = `query ($itemId: [ID!]) {
+              items (ids: $itemId) {
+                id
+                name
+                column_values {
+                  id
+                  text
+                  value
+                }
+              }
+            }`;
+            variables = { itemId: [itemId] };
+            break;
+          }
+          case 'delete_item': {
+            const itemId = replaceTemplates(getStringProperty(config, 'itemId', ''), input);
+            if (!itemId) throw new Error('Monday.com: Item ID is required for delete_item');
+            
+            query = `mutation ($itemId: ID!) {
+              delete_item (item_id: $itemId) {
+                id
+              }
+            }`;
+            variables = { itemId };
+            break;
+          }
+          case 'list_items': {
+            const boardId = replaceTemplates(getStringProperty(config, 'boardId', ''), input);
+            const limit = getNumberProperty(config, 'limit', 25);
+            
+            if (!boardId) throw new Error('Monday.com: Board ID is required for list_items');
+            
+            query = `query ($boardId: [ID!], $limit: Int!) {
+              boards (ids: $boardId) {
+                items_page (limit: $limit) {
+                  items {
+                    id
+                    name
+                    column_values {
+                      id
+                      text
+                    }
+                  }
+                }
+              }
+            }`;
+            variables = { boardId: [boardId], limit: Math.min(limit, 100) };
+            break;
+          }
+          case 'update_column': {
+            const itemId = replaceTemplates(getStringProperty(config, 'itemId', ''), input);
+            const columnId = replaceTemplates(getStringProperty(config, 'columnId', ''), input);
+            const columnValuesStr = getStringProperty(config, 'columnValues', '');
+            
+            if (!itemId) throw new Error('Monday.com: Item ID is required for update_column');
+            if (!columnId) throw new Error('Monday.com: Column ID is required for update_column');
+            if (!columnValuesStr) throw new Error('Monday.com: Column Values are required for update_column');
+            
+            const columnValues = JSON.stringify(parseJSONSafe(replaceTemplates(columnValuesStr, input), 'columnValues'));
+            
+            query = `mutation ($itemId: ID!, $columnId: String!, $value: JSON!) {
+              change_column_value (item_id: $itemId, column_id: $columnId, value: $value) {
+                id
+              }
+            }`;
+            variables = { itemId, columnId, value: columnValues };
+            break;
+          }
+          case 'create_subitem': {
+            const itemId = replaceTemplates(getStringProperty(config, 'itemId', ''), input);
+            const subitemName = replaceTemplates(getStringProperty(config, 'subitemName', ''), input);
+            
+            if (!itemId) throw new Error('Monday.com: Item ID is required for create_subitem');
+            if (!subitemName) throw new Error('Monday.com: Subitem Name is required for create_subitem');
+            
+            query = `mutation ($parentItemId: ID!, $itemName: String!) {
+              create_subitem (parent_item_id: $parentItemId, item_name: $itemName) {
+                id
+              }
+            }`;
+            variables = { parentItemId: itemId, itemName: subitemName };
+            break;
+          }
+          case 'get_boards': {
+            query = `query {
+              boards (limit: 50) {
+                id
+                name
+              }
+            }`;
+            variables = {};
+            break;
+          }
+          case 'get_groups': {
+            const boardId = replaceTemplates(getStringProperty(config, 'boardId', ''), input);
+            if (!boardId) throw new Error('Monday.com: Board ID is required for get_groups');
+            
+            query = `query ($boardId: [ID!]) {
+              boards (ids: $boardId) {
+                groups {
+                  id
+                  title
+                }
+              }
+            }`;
+            variables = { boardId: [boardId] };
+            break;
+          }
+          default:
+            throw new Error(`Monday.com: Unknown operation "${operation}"`);
+        }
+
+        const response = await fetch(baseUrl, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ query, variables }),
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`Monday.com API error: ${response.status} - ${errorText || response.statusText}`);
+        }
+
+        const data = await response.json();
+        if (data.errors) {
+          throw new Error(`Monday.com API error: ${JSON.stringify(data.errors)}`);
+        }
+
+        return data.data;
+      } catch (error) {
+        throw new Error(`Monday.com: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+
+    case "todoist": {
+      const apiToken = getStringProperty(config, 'apiToken', '');
+      const operation = getStringProperty(config, 'operation', 'create_task');
+      
+      if (!apiToken || !apiToken.trim()) {
+        throw new Error('Todoist: API Token is required. Please add your Todoist API token in the node properties.');
+      }
+
+      try {
+        const baseUrl = 'https://api.todoist.com/rest/v2';
+        const headers: Record<string, string> = {
+          'Authorization': `Bearer ${apiToken}`,
+          'Content-Type': 'application/json',
+        };
+
+        let url = '';
+        let method = 'GET';
+        let body: unknown = undefined;
+
+        switch (operation) {
+          case 'create_task': {
+            const content = replaceTemplates(getStringProperty(config, 'content', ''), input);
+            if (!content) throw new Error('Todoist: Task Content is required for create_task');
+            
+            url = `${baseUrl}/tasks`;
+            method = 'POST';
+            body = {
+              content,
+              description: replaceTemplates(getStringProperty(config, 'description', ''), input),
+              project_id: replaceTemplates(getStringProperty(config, 'projectId', ''), input),
+              section_id: replaceTemplates(getStringProperty(config, 'sectionId', ''), input),
+              due_string: replaceTemplates(getStringProperty(config, 'dueString', ''), input),
+              priority: getNumberProperty(config, 'priority', 1),
+              labels: config.labels ? parseJSONSafe(replaceTemplates(getStringProperty(config, 'labels', ''), input), 'labels') : undefined,
+            };
+            Object.keys(body as Record<string, unknown>).forEach(key => {
+              if ((body as Record<string, unknown>)[key] === undefined || 
+                  (body as Record<string, unknown>)[key] === '') {
+                delete (body as Record<string, unknown>)[key];
+              }
+            });
+            break;
+          }
+          case 'update_task': {
+            const taskId = replaceTemplates(getStringProperty(config, 'taskId', ''), input);
+            if (!taskId) throw new Error('Todoist: Task ID is required for update_task');
+            
+            url = `${baseUrl}/tasks/${taskId}`;
+            method = 'POST';
+            body = {
+              content: replaceTemplates(getStringProperty(config, 'content', ''), input),
+              description: replaceTemplates(getStringProperty(config, 'description', ''), input),
+              due_string: replaceTemplates(getStringProperty(config, 'dueString', ''), input),
+              priority: getNumberProperty(config, 'priority', 1),
+              labels: config.labels ? parseJSONSafe(replaceTemplates(getStringProperty(config, 'labels', ''), input), 'labels') : undefined,
+            };
+            Object.keys(body as Record<string, unknown>).forEach(key => {
+              if ((body as Record<string, unknown>)[key] === undefined || 
+                  (body as Record<string, unknown>)[key] === '') {
+                delete (body as Record<string, unknown>)[key];
+              }
+            });
+            break;
+          }
+          case 'get_task': {
+            const taskId = replaceTemplates(getStringProperty(config, 'taskId', ''), input);
+            if (!taskId) throw new Error('Todoist: Task ID is required for get_task');
+            
+            url = `${baseUrl}/tasks/${taskId}`;
+            break;
+          }
+          case 'delete_task': {
+            const taskId = replaceTemplates(getStringProperty(config, 'taskId', ''), input);
+            if (!taskId) throw new Error('Todoist: Task ID is required for delete_task');
+            
+            url = `${baseUrl}/tasks/${taskId}`;
+            method = 'DELETE';
+            break;
+          }
+          case 'list_tasks': {
+            url = `${baseUrl}/tasks`;
+            const filter = replaceTemplates(getStringProperty(config, 'filter', ''), input);
+            const projectId = replaceTemplates(getStringProperty(config, 'projectId', ''), input);
+            
+            const params = new URLSearchParams();
+            if (filter) params.append('filter', filter);
+            if (projectId) params.append('project_id', projectId);
+            
+            if (params.toString()) {
+              url = `${url}?${params.toString()}`;
+            }
+            break;
+          }
+          case 'complete_task': {
+            const taskId = replaceTemplates(getStringProperty(config, 'taskId', ''), input);
+            if (!taskId) throw new Error('Todoist: Task ID is required for complete_task');
+            
+            url = `${baseUrl}/tasks/${taskId}/close`;
+            method = 'POST';
+            break;
+          }
+          case 'reopen_task': {
+            const taskId = replaceTemplates(getStringProperty(config, 'taskId', ''), input);
+            if (!taskId) throw new Error('Todoist: Task ID is required for reopen_task');
+            
+            url = `${baseUrl}/tasks/${taskId}/reopen`;
+            method = 'POST';
+            break;
+          }
+          case 'get_projects': {
+            url = `${baseUrl}/projects`;
+            break;
+          }
+          case 'get_sections': {
+            const projectId = replaceTemplates(getStringProperty(config, 'projectId', ''), input);
+            if (!projectId) throw new Error('Todoist: Project ID is required for get_sections');
+            
+            url = `${baseUrl}/sections?project_id=${projectId}`;
+            break;
+          }
+          default:
+            throw new Error(`Todoist: Unknown operation "${operation}"`);
+        }
+
+        const response = await fetch(url, {
+          method,
+          headers,
+          body: body ? JSON.stringify(body) : undefined,
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`Todoist API error: ${response.status} - ${errorText || response.statusText}`);
+        }
+
+        if (method === 'DELETE' && response.status === 204) {
+          return { success: true };
+        }
+
+        return await response.json();
+      } catch (error) {
+        throw new Error(`Todoist: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+
     default:
       console.log(`Node type ${type} executed with passthrough`);
       return input;
