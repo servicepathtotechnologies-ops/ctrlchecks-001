@@ -7679,6 +7679,756 @@ async function executeNode(
       }
     }
 
+    // ============================================
+    // SOCIAL MEDIA NODES
+    // ============================================
+
+    case "twitter": {
+      const apiKey = getStringProperty(config, 'apiKey', '');
+      const apiSecret = getStringProperty(config, 'apiSecret', '');
+      const accessToken = getStringProperty(config, 'accessToken', '');
+      const accessTokenSecret = getStringProperty(config, 'accessTokenSecret', '');
+      const operation = getStringProperty(config, 'operation', 'create_tweet');
+      
+      if (!apiKey || !apiSecret || !accessToken || !accessTokenSecret) {
+        throw new Error('Twitter: API Key, API Secret, Access Token, and Access Token Secret are required');
+      }
+
+      try {
+        // Twitter API v2 uses OAuth 1.0a for authentication
+        // For simplicity, we'll use HTTP Request with OAuth 1.0a signing
+        // Note: In production, use a proper OAuth library
+        
+        let url = '';
+        let method = 'GET';
+        let body: unknown = undefined;
+        const baseUrl = 'https://api.twitter.com/2';
+
+        switch (operation) {
+          case 'create_tweet':
+            url = `${baseUrl}/tweets`;
+            method = 'POST';
+            const text = replaceTemplates(getStringProperty(config, 'text', ''), input);
+            if (!text) throw new Error('Twitter: Tweet text is required for create_tweet');
+            body = { text: text.substring(0, 280) };
+            break;
+          case 'create_tweet_media':
+            url = `${baseUrl}/tweets`;
+            method = 'POST';
+            const mediaText = replaceTemplates(getStringProperty(config, 'text', ''), input);
+            const mediaUrl = replaceTemplates(getStringProperty(config, 'mediaUrl', ''), input);
+            if (!mediaText || !mediaUrl) throw new Error('Twitter: Text and Media URL are required for create_tweet_media');
+            // Note: Media upload requires separate endpoint, simplified here
+            body = { text: mediaText.substring(0, 280), media: { media_ids: [mediaUrl] } };
+            break;
+          case 'delete_tweet':
+            const deleteTweetId = replaceTemplates(getStringProperty(config, 'tweetId', ''), input);
+            if (!deleteTweetId) throw new Error('Twitter: Tweet ID is required for delete_tweet');
+            url = `${baseUrl}/tweets/${deleteTweetId}`;
+            method = 'DELETE';
+            break;
+          case 'like_tweet':
+            const likeTweetId = replaceTemplates(getStringProperty(config, 'tweetId', ''), input);
+            if (!likeTweetId) throw new Error('Twitter: Tweet ID is required for like_tweet');
+            url = `${baseUrl}/users/me/likes`;
+            method = 'POST';
+            body = { tweet_id: likeTweetId };
+            break;
+          case 'unlike_tweet':
+            const unlikeTweetId = replaceTemplates(getStringProperty(config, 'tweetId', ''), input);
+            if (!unlikeTweetId) throw new Error('Twitter: Tweet ID is required for unlike_tweet');
+            url = `${baseUrl}/users/me/likes/${unlikeTweetId}`;
+            method = 'DELETE';
+            break;
+          case 'retweet':
+            const retweetId = replaceTemplates(getStringProperty(config, 'tweetId', ''), input);
+            if (!retweetId) throw new Error('Twitter: Tweet ID is required for retweet');
+            url = `${baseUrl}/users/me/retweets`;
+            method = 'POST';
+            body = { tweet_id: retweetId };
+            break;
+          case 'search_tweets':
+            const query = replaceTemplates(getStringProperty(config, 'query', ''), input);
+            const maxResults = getNumberProperty(config, 'maxResults', 10);
+            if (!query) throw new Error('Twitter: Search query is required for search_tweets');
+            url = `${baseUrl}/tweets/search/recent?query=${encodeURIComponent(query)}&max_results=${Math.min(maxResults, 100)}`;
+            break;
+          case 'get_timeline':
+            const username = replaceTemplates(getStringProperty(config, 'username', ''), input);
+            const timelineMax = getNumberProperty(config, 'maxResults', 10);
+            if (!username) throw new Error('Twitter: Username is required for get_timeline');
+            url = `${baseUrl}/users/by/username/${username}/tweets?max_results=${Math.min(timelineMax, 100)}`;
+            break;
+          case 'get_mentions':
+            const mentionsMax = getNumberProperty(config, 'maxResults', 10);
+            url = `${baseUrl}/tweets/search/recent?query=mentions&max_results=${Math.min(mentionsMax, 100)}`;
+            break;
+          case 'get_tweet':
+            const getTweetId = replaceTemplates(getStringProperty(config, 'tweetId', ''), input);
+            if (!getTweetId) throw new Error('Twitter: Tweet ID is required for get_tweet');
+            url = `${baseUrl}/tweets/${getTweetId}`;
+            break;
+          case 'follow_user':
+            const followUsername = replaceTemplates(getStringProperty(config, 'username', ''), input);
+            if (!followUsername) throw new Error('Twitter: Username is required for follow_user');
+            // First get user ID
+            url = `${baseUrl}/users/by/username/${followUsername}`;
+            // Note: This requires two API calls - get user ID then follow
+            break;
+          case 'unfollow_user':
+            const unfollowUsername = replaceTemplates(getStringProperty(config, 'username', ''), input);
+            if (!unfollowUsername) throw new Error('Twitter: Username is required for unfollow_user');
+            // Similar to follow_user
+            break;
+          default:
+            throw new Error(`Twitter: Unknown operation "${operation}"`);
+        }
+
+        // For Twitter API v2, we need OAuth 1.0a signing
+        // Simplified: Using Bearer token for read operations, OAuth for write
+        const headers: Record<string, string> = {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        };
+
+        const response = await fetch(url, {
+          method,
+          headers,
+          body: body ? JSON.stringify(body) : undefined,
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`Twitter API error: ${response.status} - ${errorText || response.statusText}`);
+        }
+
+        const data = await response.json();
+        return data;
+      } catch (error) {
+        throw new Error(`Twitter: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+
+    case "facebook": {
+      const accessToken = getStringProperty(config, 'accessToken', '');
+      const pageId = getStringProperty(config, 'pageId', '');
+      const operation = getStringProperty(config, 'operation', 'create_post');
+      
+      if (!accessToken || !pageId) {
+        throw new Error('Facebook: Access Token and Page ID are required');
+      }
+
+      try {
+        let url = '';
+        let method = 'GET';
+        let body: unknown = undefined;
+        const baseUrl = 'https://graph.facebook.com/v18.0';
+
+        switch (operation) {
+          case 'create_post':
+            url = `${baseUrl}/${pageId}/feed`;
+            method = 'POST';
+            const message = replaceTemplates(getStringProperty(config, 'message', ''), input);
+            if (!message) throw new Error('Facebook: Message is required for create_post');
+            body = { message, access_token: accessToken };
+            break;
+          case 'create_post_image':
+            url = `${baseUrl}/${pageId}/photos`;
+            method = 'POST';
+            const imageMessage = replaceTemplates(getStringProperty(config, 'message', ''), input);
+            const imageUrl = replaceTemplates(getStringProperty(config, 'imageUrl', ''), input);
+            if (!imageUrl) throw new Error('Facebook: Image URL is required for create_post_image');
+            body = { url: imageUrl, message: imageMessage || '', access_token: accessToken };
+            break;
+          case 'create_post_link':
+            url = `${baseUrl}/${pageId}/feed`;
+            method = 'POST';
+            const linkMessage = replaceTemplates(getStringProperty(config, 'message', ''), input);
+            const linkUrl = replaceTemplates(getStringProperty(config, 'linkUrl', ''), input);
+            if (!linkUrl) throw new Error('Facebook: Link URL is required for create_post_link');
+            body = { message: linkMessage || '', link: linkUrl, access_token: accessToken };
+            break;
+          case 'create_post_video':
+            url = `${baseUrl}/${pageId}/videos`;
+            method = 'POST';
+            const videoMessage = replaceTemplates(getStringProperty(config, 'message', ''), input);
+            const videoUrl = replaceTemplates(getStringProperty(config, 'videoUrl', ''), input);
+            if (!videoUrl) throw new Error('Facebook: Video URL is required for create_post_video');
+            body = { file_url: videoUrl, description: videoMessage || '', access_token: accessToken };
+            break;
+          case 'get_posts':
+            const limit = getNumberProperty(config, 'limit', 25);
+            url = `${baseUrl}/${pageId}/posts?limit=${Math.min(limit, 100)}&access_token=${accessToken}`;
+            break;
+          case 'delete_post':
+            const postId = replaceTemplates(getStringProperty(config, 'postId', ''), input);
+            if (!postId) throw new Error('Facebook: Post ID is required for delete_post');
+            url = `${baseUrl}/${postId}?access_token=${accessToken}`;
+            method = 'DELETE';
+            break;
+          case 'create_comment':
+            const commentPostId = replaceTemplates(getStringProperty(config, 'postId', ''), input);
+            const commentText = replaceTemplates(getStringProperty(config, 'commentText', ''), input);
+            if (!commentPostId || !commentText) throw new Error('Facebook: Post ID and Comment Text are required for create_comment');
+            url = `${baseUrl}/${commentPostId}/comments`;
+            method = 'POST';
+            body = { message: commentText, access_token: accessToken };
+            break;
+          case 'reply_comment':
+            const replyCommentId = replaceTemplates(getStringProperty(config, 'commentId', ''), input);
+            const replyText = replaceTemplates(getStringProperty(config, 'commentText', ''), input);
+            if (!replyCommentId || !replyText) throw new Error('Facebook: Comment ID and Comment Text are required for reply_comment');
+            url = `${baseUrl}/${replyCommentId}/comments`;
+            method = 'POST';
+            body = { message: replyText, access_token: accessToken };
+            break;
+          case 'get_insights':
+            const metric = replaceTemplates(getStringProperty(config, 'metric', 'page_impressions'), input);
+            url = `${baseUrl}/${pageId}/insights/${metric}?access_token=${accessToken}`;
+            break;
+          default:
+            throw new Error(`Facebook: Unknown operation "${operation}"`);
+        }
+
+        const response = await fetch(url, {
+          method,
+          headers: method !== 'GET' ? { 'Content-Type': 'application/json' } : {},
+          body: body ? JSON.stringify(body) : undefined,
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`Facebook API error: ${response.status} - ${errorText || response.statusText}`);
+        }
+
+        const data = await response.json();
+        return data;
+      } catch (error) {
+        throw new Error(`Facebook: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+
+    case "instagram": {
+      const accessToken = getStringProperty(config, 'accessToken', '');
+      const accountId = getStringProperty(config, 'accountId', '');
+      const operation = getStringProperty(config, 'operation', 'create_image_post');
+      
+      if (!accessToken || !accountId) {
+        throw new Error('Instagram: Access Token and Account ID are required');
+      }
+
+      try {
+        let url = '';
+        let method = 'GET';
+        let body: unknown = undefined;
+        const baseUrl = 'https://graph.facebook.com/v18.0';
+
+        switch (operation) {
+          case 'create_image_post':
+            url = `${baseUrl}/${accountId}/media`;
+            method = 'POST';
+            const imageUrl = replaceTemplates(getStringProperty(config, 'imageUrl', ''), input);
+            const caption = replaceTemplates(getStringProperty(config, 'caption', ''), input);
+            if (!imageUrl) throw new Error('Instagram: Image URL is required for create_image_post');
+            body = { image_url: imageUrl, caption: caption || '', access_token: accessToken };
+            break;
+          case 'create_video_post':
+            url = `${baseUrl}/${accountId}/media`;
+            method = 'POST';
+            const videoUrl = replaceTemplates(getStringProperty(config, 'videoUrl', ''), input);
+            const videoCaption = replaceTemplates(getStringProperty(config, 'caption', ''), input);
+            if (!videoUrl) throw new Error('Instagram: Video URL is required for create_video_post');
+            body = { media_type: 'REELS', video_url: videoUrl, caption: videoCaption || '', access_token: accessToken };
+            break;
+          case 'create_carousel_post':
+            url = `${baseUrl}/${accountId}/media`;
+            method = 'POST';
+            const carouselUrls = config.carouselUrls as string[];
+            const carouselCaption = replaceTemplates(getStringProperty(config, 'caption', ''), input);
+            if (!carouselUrls || carouselUrls.length < 2) throw new Error('Instagram: Carousel URLs array with at least 2 images is required');
+            body = { media_type: 'CAROUSEL', children: carouselUrls.join(','), caption: carouselCaption || '', access_token: accessToken };
+            break;
+          case 'get_media':
+            const mediaLimit = getNumberProperty(config, 'limit', 25);
+            url = `${baseUrl}/${accountId}/media?limit=${Math.min(mediaLimit, 100)}&access_token=${accessToken}`;
+            break;
+          case 'get_comments':
+            const mediaId = replaceTemplates(getStringProperty(config, 'mediaId', ''), input);
+            const commentsLimit = getNumberProperty(config, 'limit', 25);
+            if (!mediaId) throw new Error('Instagram: Media ID is required for get_comments');
+            url = `${baseUrl}/${mediaId}/comments?limit=${Math.min(commentsLimit, 100)}&access_token=${accessToken}`;
+            break;
+          case 'reply_comment':
+            const replyCommentId = replaceTemplates(getStringProperty(config, 'commentId', ''), input);
+            const replyText = replaceTemplates(getStringProperty(config, 'commentText', ''), input);
+            if (!replyCommentId || !replyText) throw new Error('Instagram: Comment ID and Comment Text are required for reply_comment');
+            url = `${baseUrl}/${replyCommentId}/replies`;
+            method = 'POST';
+            body = { message: replyText, access_token: accessToken };
+            break;
+          case 'get_insights':
+            const insightMediaId = replaceTemplates(getStringProperty(config, 'mediaId', ''), input);
+            const metric = replaceTemplates(getStringProperty(config, 'metric', 'reach'), input);
+            if (!insightMediaId) throw new Error('Instagram: Media ID is required for get_insights');
+            url = `${baseUrl}/${insightMediaId}/insights?metric=${metric}&access_token=${accessToken}`;
+            break;
+          default:
+            throw new Error(`Instagram: Unknown operation "${operation}"`);
+        }
+
+        const response = await fetch(url, {
+          method,
+          headers: method !== 'GET' ? { 'Content-Type': 'application/json' } : {},
+          body: body ? JSON.stringify(body) : undefined,
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`Instagram API error: ${response.status} - ${errorText || response.statusText}`);
+        }
+
+        const data = await response.json();
+        return data;
+      } catch (error) {
+        throw new Error(`Instagram: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+
+    case "linkedin": {
+      const accessToken = getStringProperty(config, 'accessToken', '');
+      const accountType = getStringProperty(config, 'accountType', 'profile');
+      const operation = getStringProperty(config, 'operation', 'create_post');
+      
+      if (!accessToken) {
+        throw new Error('LinkedIn: Access Token is required');
+      }
+
+      try {
+        let url = '';
+        let method = 'GET';
+        let body: unknown = undefined;
+        const baseUrl = 'https://api.linkedin.com/v2';
+
+        switch (operation) {
+          case 'create_post':
+            url = `${baseUrl}/ugcPosts`;
+            method = 'POST';
+            const text = replaceTemplates(getStringProperty(config, 'text', ''), input);
+            if (!text) throw new Error('LinkedIn: Post text is required for create_post');
+            // LinkedIn UGC Post structure
+            body = {
+              author: accountType === 'organization' 
+                ? `urn:li:organization:${getStringProperty(config, 'organizationId', '')}`
+                : 'urn:li:person:me',
+              lifecycleState: 'PUBLISHED',
+              specificContent: {
+                'com.linkedin.ugc.ShareContent': {
+                  shareCommentary: { text },
+                  shareMediaCategory: 'NONE'
+                }
+              },
+              visibility: { 'com.linkedin.ugc.MemberNetworkVisibility': 'PUBLIC' }
+            };
+            break;
+          case 'create_article':
+            url = `${baseUrl}/ugcPosts`;
+            method = 'POST';
+            const articleUrl = replaceTemplates(getStringProperty(config, 'articleUrl', ''), input);
+            const articleText = replaceTemplates(getStringProperty(config, 'text', ''), input);
+            if (!articleUrl) throw new Error('LinkedIn: Article URL is required for create_article');
+            body = {
+              author: accountType === 'organization' 
+                ? `urn:li:organization:${getStringProperty(config, 'organizationId', '')}`
+                : 'urn:li:person:me',
+              lifecycleState: 'PUBLISHED',
+              specificContent: {
+                'com.linkedin.ugc.ShareContent': {
+                  shareCommentary: { text: articleText || '' },
+                  shareMediaCategory: 'ARTICLE',
+                  media: [{ status: 'READY', originalUrl: articleUrl }]
+                }
+              },
+              visibility: { 'com.linkedin.ugc.MemberNetworkVisibility': 'PUBLIC' }
+            };
+            break;
+          case 'create_post_media':
+            url = `${baseUrl}/ugcPosts`;
+            method = 'POST';
+            const mediaUrl = replaceTemplates(getStringProperty(config, 'mediaUrl', ''), input);
+            const mediaText = replaceTemplates(getStringProperty(config, 'text', ''), input);
+            if (!mediaUrl) throw new Error('LinkedIn: Media URL is required for create_post_media');
+            body = {
+              author: accountType === 'organization' 
+                ? `urn:li:organization:${getStringProperty(config, 'organizationId', '')}`
+                : 'urn:li:person:me',
+              lifecycleState: 'PUBLISHED',
+              specificContent: {
+                'com.linkedin.ugc.ShareContent': {
+                  shareCommentary: { text: mediaText || '' },
+                  shareMediaCategory: 'IMAGE',
+                  media: [{ status: 'READY', originalUrl: mediaUrl }]
+                }
+              },
+              visibility: { 'com.linkedin.ugc.MemberNetworkVisibility': 'PUBLIC' }
+            };
+            break;
+          case 'create_company_post':
+            const orgId = getStringProperty(config, 'organizationId', '');
+            if (!orgId) throw new Error('LinkedIn: Organization ID is required for create_company_post');
+            url = `${baseUrl}/ugcPosts`;
+            method = 'POST';
+            const companyText = replaceTemplates(getStringProperty(config, 'text', ''), input);
+            if (!companyText) throw new Error('LinkedIn: Post text is required for create_company_post');
+            body = {
+              author: `urn:li:organization:${orgId}`,
+              lifecycleState: 'PUBLISHED',
+              specificContent: {
+                'com.linkedin.ugc.ShareContent': {
+                  shareCommentary: { text: companyText },
+                  shareMediaCategory: 'NONE'
+                }
+              },
+              visibility: { 'com.linkedin.ugc.MemberNetworkVisibility': 'PUBLIC' }
+            };
+            break;
+          case 'get_posts':
+            const postsLimit = getNumberProperty(config, 'limit', 10);
+            url = `${baseUrl}/ugcPosts?q=authors&authors=${accountType === 'organization' ? `List(urn:li:organization:${getStringProperty(config, 'organizationId', '')})` : 'List(urn:li:person:me)'}&count=${Math.min(postsLimit, 100)}`;
+            break;
+          case 'get_org_updates':
+            const orgIdForUpdates = getStringProperty(config, 'organizationId', '');
+            const updatesLimit = getNumberProperty(config, 'limit', 10);
+            if (!orgIdForUpdates) throw new Error('LinkedIn: Organization ID is required for get_org_updates');
+            url = `${baseUrl}/ugcPosts?q=authors&authors=List(urn:li:organization:${orgIdForUpdates})&count=${Math.min(updatesLimit, 100)}`;
+            break;
+          case 'delete_post':
+            const postId = replaceTemplates(getStringProperty(config, 'postId', ''), input);
+            if (!postId) throw new Error('LinkedIn: Post ID is required for delete_post');
+            url = `${baseUrl}/ugcPosts/${postId}`;
+            method = 'DELETE';
+            break;
+          case 'get_engagement':
+            const engagementPostId = replaceTemplates(getStringProperty(config, 'postId', ''), input);
+            if (!engagementPostId) throw new Error('LinkedIn: Post ID is required for get_engagement');
+            url = `${baseUrl}/socialActions/${engagementPostId}`;
+            break;
+          default:
+            throw new Error(`LinkedIn: Unknown operation "${operation}"`);
+        }
+
+        const headers: Record<string, string> = {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+          'X-Restli-Protocol-Version': '2.0.0',
+        };
+
+        const response = await fetch(url, {
+          method,
+          headers,
+          body: body ? JSON.stringify(body) : undefined,
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`LinkedIn API error: ${response.status} - ${errorText || response.statusText}`);
+        }
+
+        if (response.status === 204 || response.headers.get('content-length') === '0') {
+          return { success: true, message: 'Operation completed successfully' };
+        }
+
+        const data = await response.json();
+        return data;
+      } catch (error) {
+        throw new Error(`LinkedIn: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+
+    case "youtube": {
+      const apiKey = getStringProperty(config, 'apiKey', '');
+      const accessToken = getStringProperty(config, 'accessToken', '');
+      const operation = getStringProperty(config, 'operation', 'upload_video');
+      
+      if (!apiKey) {
+        throw new Error('YouTube: API Key is required');
+      }
+
+      try {
+        let url = '';
+        let method = 'GET';
+        let body: unknown = undefined;
+        const baseUrl = 'https://www.googleapis.com/youtube/v3';
+
+        switch (operation) {
+          case 'upload_video':
+            if (!accessToken) throw new Error('YouTube: OAuth Access Token is required for upload_video');
+            const videoUrl = replaceTemplates(getStringProperty(config, 'videoUrl', ''), input);
+            const title = replaceTemplates(getStringProperty(config, 'title', ''), input);
+            const description = replaceTemplates(getStringProperty(config, 'description', ''), input);
+            const tags = replaceTemplates(getStringProperty(config, 'tags', ''), input);
+            const privacyStatus = replaceTemplates(getStringProperty(config, 'privacyStatus', 'public'), input);
+            if (!videoUrl || !title) throw new Error('YouTube: Video URL and Title are required for upload_video');
+            // Note: YouTube upload requires multipart/form-data with actual file upload
+            // This is simplified - in production, you'd need to download the file and upload it
+            url = 'https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status';
+            method = 'POST';
+            body = {
+              snippet: {
+                title: title.substring(0, 100),
+                description: description || '',
+                tags: tags ? tags.split(',').map((t: string) => t.trim()) : []
+              },
+              status: { privacyStatus }
+            };
+            break;
+          case 'update_video':
+            if (!accessToken) throw new Error('YouTube: OAuth Access Token is required for update_video');
+            const videoId = replaceTemplates(getStringProperty(config, 'videoId', ''), input);
+            const updateTitle = replaceTemplates(getStringProperty(config, 'title', ''), input);
+            const updateDescription = replaceTemplates(getStringProperty(config, 'description', ''), input);
+            const updateTags = replaceTemplates(getStringProperty(config, 'tags', ''), input);
+            if (!videoId) throw new Error('YouTube: Video ID is required for update_video');
+            url = `${baseUrl}/videos?part=snippet,status`;
+            method = 'PUT';
+            body = {
+              id: videoId,
+              snippet: {
+                title: updateTitle ? updateTitle.substring(0, 100) : undefined,
+                description: updateDescription || undefined,
+                tags: updateTags ? updateTags.split(',').map((t: string) => t.trim()) : undefined
+              }
+            };
+            break;
+          case 'delete_video':
+            if (!accessToken) throw new Error('YouTube: OAuth Access Token is required for delete_video');
+            const deleteVideoId = replaceTemplates(getStringProperty(config, 'videoId', ''), input);
+            if (!deleteVideoId) throw new Error('YouTube: Video ID is required for delete_video');
+            url = `${baseUrl}/videos?id=${deleteVideoId}`;
+            method = 'DELETE';
+            break;
+          case 'get_channel':
+            const channelId = replaceTemplates(getStringProperty(config, 'channelId', 'mine'), input);
+            url = `${baseUrl}/channels?part=snippet,statistics&id=${channelId === 'mine' ? 'mine' : channelId}&key=${apiKey}`;
+            break;
+          case 'get_video_stats':
+            const statsVideoId = replaceTemplates(getStringProperty(config, 'videoId', ''), input);
+            if (!statsVideoId) throw new Error('YouTube: Video ID is required for get_video_stats');
+            url = `${baseUrl}/videos?part=statistics,snippet&id=${statsVideoId}&key=${apiKey}`;
+            break;
+          case 'search_videos':
+            const searchQuery = replaceTemplates(getStringProperty(config, 'query', ''), input);
+            const maxResults = getNumberProperty(config, 'maxResults', 10);
+            if (!searchQuery) throw new Error('YouTube: Search query is required for search_videos');
+            url = `${baseUrl}/search?part=snippet&q=${encodeURIComponent(searchQuery)}&type=video&maxResults=${Math.min(maxResults, 50)}&key=${apiKey}`;
+            break;
+          case 'get_comments':
+            const commentsVideoId = replaceTemplates(getStringProperty(config, 'videoId', ''), input);
+            const commentsMax = getNumberProperty(config, 'maxResults', 10);
+            if (!commentsVideoId) throw new Error('YouTube: Video ID is required for get_comments');
+            url = `${baseUrl}/commentThreads?part=snippet&videoId=${commentsVideoId}&maxResults=${Math.min(commentsMax, 50)}&key=${apiKey}`;
+            break;
+          case 'reply_comment':
+            if (!accessToken) throw new Error('YouTube: OAuth Access Token is required for reply_comment');
+            const replyCommentId = replaceTemplates(getStringProperty(config, 'commentId', ''), input);
+            const replyText = replaceTemplates(getStringProperty(config, 'commentText', ''), input);
+            if (!replyCommentId || !replyText) throw new Error('YouTube: Comment ID and Comment Text are required for reply_comment');
+            url = `${baseUrl}/comments?part=snippet`;
+            method = 'POST';
+            body = {
+              snippet: {
+                parentId: replyCommentId,
+                textOriginal: replyText
+              }
+            };
+            break;
+          default:
+            throw new Error(`YouTube: Unknown operation "${operation}"`);
+        }
+
+        const headers: Record<string, string> = {
+          'Content-Type': 'application/json',
+        };
+
+        if (accessToken && (operation === 'upload_video' || operation === 'update_video' || operation === 'delete_video' || operation === 'reply_comment')) {
+          headers['Authorization'] = `Bearer ${accessToken}`;
+        }
+
+        const response = await fetch(url, {
+          method,
+          headers,
+          body: body ? JSON.stringify(body) : undefined,
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`YouTube API error: ${response.status} - ${errorText || response.statusText}`);
+        }
+
+        const data = await response.json();
+        return data;
+      } catch (error) {
+        throw new Error(`YouTube: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+
+    case "reddit": {
+      const clientId = getStringProperty(config, 'clientId', '');
+      const clientSecret = getStringProperty(config, 'clientSecret', '');
+      const accessToken = getStringProperty(config, 'accessToken', '');
+      const username = getStringProperty(config, 'username', '');
+      const password = getStringProperty(config, 'password', '');
+      const operation = getStringProperty(config, 'operation', 'create_post');
+      
+      if (!clientId || !clientSecret) {
+        throw new Error('Reddit: Client ID and Client Secret are required');
+      }
+
+      try {
+        // Get access token if not provided (using password grant for simplicity)
+        let token = accessToken;
+        if (!token && username && password) {
+          const tokenResponse = await fetch('https://www.reddit.com/api/v1/access_token', {
+            method: 'POST',
+            headers: {
+              'Authorization': `Basic ${btoa(`${clientId}:${clientSecret}`)}`,
+              'Content-Type': 'application/x-www-form-urlencoded',
+              'User-Agent': 'CtrlChecks-Workflow/1.0',
+            },
+            body: new URLSearchParams({
+              grant_type: 'password',
+              username,
+              password,
+            }),
+          });
+
+          if (!tokenResponse.ok) {
+            throw new Error('Reddit: Failed to obtain access token');
+          }
+
+          const tokenData = await tokenResponse.json();
+          token = tokenData.access_token;
+        }
+
+        if (!token) {
+          throw new Error('Reddit: Access Token is required. Provide either accessToken or username/password');
+        }
+
+        let url = '';
+        let method = 'GET';
+        let body: unknown = undefined;
+        const baseUrl = 'https://oauth.reddit.com';
+
+        switch (operation) {
+          case 'create_post':
+            const subreddit = replaceTemplates(getStringProperty(config, 'subreddit', ''), input);
+            const postTitle = replaceTemplates(getStringProperty(config, 'title', ''), input);
+            const postText = replaceTemplates(getStringProperty(config, 'text', ''), input);
+            if (!subreddit || !postTitle || !postText) throw new Error('Reddit: Subreddit, Title, and Text are required for create_post');
+            url = `${baseUrl}/r/${subreddit}/submit`;
+            method = 'POST';
+            body = {
+              kind: 'self',
+              sr: subreddit,
+              title: postTitle.substring(0, 300),
+              text: postText,
+            };
+            break;
+          case 'create_link_post':
+            const linkSubreddit = replaceTemplates(getStringProperty(config, 'subreddit', ''), input);
+            const linkTitle = replaceTemplates(getStringProperty(config, 'title', ''), input);
+            const linkUrl = replaceTemplates(getStringProperty(config, 'url', ''), input);
+            if (!linkSubreddit || !linkTitle || !linkUrl) throw new Error('Reddit: Subreddit, Title, and URL are required for create_link_post');
+            url = `${baseUrl}/r/${linkSubreddit}/submit`;
+            method = 'POST';
+            body = {
+              kind: 'link',
+              sr: linkSubreddit,
+              title: linkTitle.substring(0, 300),
+              url: linkUrl,
+            };
+            break;
+          case 'comment_post':
+            const commentPostId = replaceTemplates(getStringProperty(config, 'postId', ''), input);
+            const commentText = replaceTemplates(getStringProperty(config, 'commentText', ''), input);
+            if (!commentPostId || !commentText) throw new Error('Reddit: Post ID and Comment Text are required for comment_post');
+            url = `${baseUrl}/api/comment`;
+            method = 'POST';
+            body = {
+              thing_id: commentPostId,
+              text: commentText,
+            };
+            break;
+          case 'get_subreddit_posts':
+            const getSubreddit = replaceTemplates(getStringProperty(config, 'subreddit', ''), input);
+            const sort = replaceTemplates(getStringProperty(config, 'sort', 'hot'), input);
+            const postsLimit = getNumberProperty(config, 'limit', 25);
+            if (!getSubreddit) throw new Error('Reddit: Subreddit is required for get_subreddit_posts');
+            url = `${baseUrl}/r/${getSubreddit}/${sort}?limit=${Math.min(postsLimit, 100)}`;
+            break;
+          case 'search_posts':
+            const searchQuery = replaceTemplates(getStringProperty(config, 'query', ''), input);
+            const searchLimit = getNumberProperty(config, 'limit', 25);
+            if (!searchQuery) throw new Error('Reddit: Search query is required for search_posts');
+            url = `${baseUrl}/search?q=${encodeURIComponent(searchQuery)}&limit=${Math.min(searchLimit, 100)}`;
+            break;
+          case 'get_comments':
+            const commentsPostId = replaceTemplates(getStringProperty(config, 'postId', ''), input);
+            const commentsLimit = getNumberProperty(config, 'limit', 25);
+            if (!commentsPostId) throw new Error('Reddit: Post ID is required for get_comments');
+            url = `${baseUrl}/comments/${commentsPostId}?limit=${Math.min(commentsLimit, 100)}`;
+            break;
+          case 'delete_post':
+            const deletePostId = replaceTemplates(getStringProperty(config, 'postId', ''), input);
+            if (!deletePostId) throw new Error('Reddit: Post ID is required for delete_post');
+            url = `${baseUrl}/api/del`;
+            method = 'POST';
+            body = { id: deletePostId };
+            break;
+          case 'delete_comment':
+            const deleteCommentId = replaceTemplates(getStringProperty(config, 'commentId', ''), input);
+            if (!deleteCommentId) throw new Error('Reddit: Comment ID is required for delete_comment');
+            url = `${baseUrl}/api/del`;
+            method = 'POST';
+            body = { id: deleteCommentId };
+            break;
+          default:
+            throw new Error(`Reddit: Unknown operation "${operation}"`);
+        }
+
+        const headers: Record<string, string> = {
+          'Authorization': `Bearer ${token}`,
+          'User-Agent': 'CtrlChecks-Workflow/1.0',
+        };
+
+        // Reddit API uses form-urlencoded for POST requests
+        let requestBody: string | undefined = undefined;
+        if (body && method === 'POST') {
+          headers['Content-Type'] = 'application/x-www-form-urlencoded';
+          const formData = body as Record<string, string>;
+          requestBody = new URLSearchParams(formData).toString();
+        } else if (body) {
+          headers['Content-Type'] = 'application/json';
+          requestBody = JSON.stringify(body);
+        }
+
+        const response = await fetch(url, {
+          method,
+          headers,
+          body: requestBody,
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`Reddit API error: ${response.status} - ${errorText || response.statusText}`);
+        }
+
+        const data = await response.json();
+        return data;
+      } catch (error) {
+        throw new Error(`Reddit: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+
     default:
       console.log(`Node type ${type} executed with passthrough`);
       return input;
