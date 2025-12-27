@@ -291,6 +291,75 @@ Output: [John, Bob] (filtered out Jane)`,
     tips: ['Use "item" to reference current element', 'Returns new array, original unchanged', 'Chain multiple filters for complex logic'],
   },
 
+  merge: {
+    overview: 'Combines data from multiple input branches into a single output. Supports different merge modes: merge objects, append arrays, key-based merge, wait for all, or concatenate arrays.',
+    inputs: ['multiple data inputs from different branches'],
+    outputs: ['merged_data'],
+    example: `Mode: Merge Objects
+Input 1: {name: "John", age: 30}
+Input 2: {email: "john@test.com", city: "NYC"}
+
+Output: {name: "John", age: 30, email: "john@test.com", city: "NYC"}
+
+Mode: Append to Array
+Input 1: [1, 2]
+Input 2: [3, 4]
+Output: [1, 2, 3, 4]
+
+Mode: Key-based Merge (with mergeKey: "id")
+Input 1: [{id: 1, name: "John"}]
+Input 2: [{id: 1, email: "john@test.com"}]
+Output: [{id: 1, name: "John", email: "john@test.com"}]`,
+    tips: ['Use "merge" mode to combine object properties', 'Use "append" to add items to arrays', 'Key-based merge requires a mergeKey field', 'Wait All mode waits for all branches before merging', 'Connect multiple nodes as inputs to merge'],
+  },
+
+  noop: {
+    overview: 'No operation node - passes input data through unchanged. Useful for debugging, adding breakpoints, or maintaining workflow structure without modification.',
+    inputs: ['any data'],
+    outputs: ['input (unchanged)'],
+    example: `Input: {orderId: 123, status: "pending"}
+
+Output: {orderId: 123, status: "pending"}
+
+No transformation applied - data passes through exactly as received.`,
+    tips: ['Useful for debugging workflow flow', 'Can add comments or notes in workflow', 'Maintains data structure without changes', 'No configuration needed'],
+  },
+
+  stop_and_error: {
+    overview: 'Stops workflow execution and triggers an error. Useful for validation failures, business rule violations, or intentional workflow termination with custom error messages.',
+    inputs: ['any data'],
+    outputs: ['error (workflow stops)'],
+    example: `Error Message: "Payment validation failed"
+Error Code: "PAYMENT_INVALID"
+
+When this node executes:
+1. Workflow stops immediately
+2. Error trigger fires (if configured)
+3. Error message and code are logged
+
+Use with If/Else to conditionally stop workflows:
+If/Else (condition fails) → Stop And Error`,
+    tips: ['Use for validation failures', 'Error code helps categorize errors', 'Triggers error handler if configured', 'Use with conditional logic for smart stopping'],
+  },
+
+  split_in_batches: {
+    overview: 'Splits a large array into smaller batches. Useful for processing large datasets in chunks, avoiding memory issues, or respecting API rate limits.',
+    inputs: ['array of items'],
+    outputs: ['batches array', 'batch_index', 'current_batch'],
+    example: `Array: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+Batch Size: 3
+
+Output: [
+  [1, 2, 3],    // Batch 1
+  [4, 5, 6],    // Batch 2
+  [7, 8, 9],    // Batch 3
+  [10]          // Batch 4
+]
+
+Each batch can be processed separately in a loop.`,
+    tips: ['Set appropriate batch size for your use case', 'Useful for large API calls', 'Prevents memory overflow', 'Each batch can be processed independently'],
+  },
+
   // Data Transformation
   javascript: {
     overview: 'Execute custom JavaScript code. Full access to input data with ability to transform, calculate, or process as needed.',
@@ -309,6 +378,225 @@ return {
 Input: {items: [{price: 10}, {price: 20}]}
 Output: {total: 30, count: 2, average: 15}`,
     tips: ['Always return a value', 'Input available as "input" variable', 'Use for complex transformations'],
+  },
+
+  function: {
+    overview: 'Execute custom JavaScript function at dataset level. Receives both input and data parameters. Useful for complex data processing across entire datasets.',
+    inputs: ['any data as "input" and "data"'],
+    outputs: ['return value'],
+    example: `Code:
+const processed = data.map(item => ({
+  ...item,
+  processed: true,
+  timestamp: Date.now()
+}));
+return { items: processed, count: processed.length };
+
+Input: {items: [{id: 1}, {id: 2}]}
+Output: {
+  items: [
+    {id: 1, processed: true, timestamp: 1234567890},
+    {id: 2, processed: true, timestamp: 1234567890}
+  ],
+  count: 2
+}`,
+    tips: ['Receives both "input" and "data" variables', 'Use for dataset-level operations', 'Higher timeout than JavaScript node', 'Always return a value'],
+  },
+
+  function_item: {
+    overview: 'Execute custom JavaScript function for each item in an array. Processes items individually with access to item, index, and input context.',
+    inputs: ['array of items'],
+    outputs: ['array of processed items'],
+    example: `Code:
+return {
+  ...item,
+  doubled: item.value * 2,
+  index: index,
+  processed: true
+};
+
+Input: [
+  {id: 1, value: 10},
+  {id: 2, value: 20}
+]
+Output: [
+  {id: 1, value: 10, doubled: 20, index: 0, processed: true},
+  {id: 2, value: 20, doubled: 40, index: 1, processed: true}
+]`,
+    tips: ['Receives "item", "index", and "input" variables', 'Processes each array item separately', 'Useful for item-level transformations', 'Returns array of processed items'],
+  },
+
+  execute_command: {
+    overview: 'Execute system commands or shell scripts. ⚠️ WARNING: Disabled by default for security. Enable only if you trust the command and understand the risks.',
+    inputs: ['command parameters'],
+    outputs: ['stdout', 'stderr', 'exitCode'],
+    example: `Command: echo "Hello {{input.name}}"
+Enabled: true (⚠️ Security risk)
+
+Input: {name: "World"}
+Output: {
+  stdout: "Hello World",
+  stderr: "",
+  exitCode: 0
+}
+
+⚠️ Only enable for trusted commands in secure environments.`,
+    tips: ['⚠️ Disabled by default for security', 'Only enable if you trust the command', 'Use for system operations and scripts', 'Set appropriate timeout', 'Be careful with user input'],
+  },
+
+  set: {
+    overview: 'Sets or updates field values in an object. Creates new fields or overwrites existing ones. Supports template variables for dynamic values.',
+    inputs: ['object to modify'],
+    outputs: ['object with updated fields'],
+    example: `Fields (JSON): {
+  "name": "{{input.userName}}",
+  "status": "active",
+  "updated_at": "2024-01-15"
+}
+
+Input: {userName: "John", id: 123}
+Output: {
+  userName: "John",
+  id: 123,
+  name: "John",
+  status: "active",
+  updated_at: "2024-01-15"
+}`,
+    tips: ['Use {{input.field}} for dynamic values', 'New fields are added, existing ones are overwritten', 'Supports nested object paths', 'Great for data normalization'],
+  },
+
+  edit_fields: {
+    overview: 'Performs multiple field operations on an object: set values, delete fields, or rename keys. More powerful than Set node for complex transformations.',
+    inputs: ['object to modify'],
+    outputs: ['modified object'],
+    example: `Operations: [
+  {"operation": "set", "field": "status", "value": "active"},
+  {"operation": "delete", "field": "oldField"},
+  {"operation": "rename", "field": "oldName", "newName": "newName"}
+]
+
+Input: {oldName: "John", oldField: "remove", id: 123}
+Output: {newName: "John", status: "active", id: 123}`,
+    tips: ['Operations execute in order', 'Use "set" to add/update fields', 'Use "delete" to remove fields', 'Use "rename" to change field names'],
+  },
+
+  rename_keys: {
+    overview: 'Renames object keys while preserving values. Useful for data normalization, API compatibility, or restructuring data.',
+    inputs: ['object with keys to rename'],
+    outputs: ['object with renamed keys'],
+    example: `Mappings: {
+  "firstName": "first_name",
+  "lastName": "last_name",
+  "emailAddress": "email"
+}
+
+Input: {
+  firstName: "John",
+  lastName: "Doe",
+  emailAddress: "john@test.com"
+}
+Output: {
+  first_name: "John",
+  last_name: "Doe",
+  email: "john@test.com"
+}`,
+    tips: ['Keys not in mappings remain unchanged', 'Useful for API field name conversion', 'Preserves all values', 'Can rename nested keys with dot notation'],
+  },
+
+  aggregate: {
+    overview: 'Performs aggregation operations on arrays: sum, average, count, min, or max. Can aggregate by field or group by category.',
+    inputs: ['array of items'],
+    outputs: ['aggregated result'],
+    example: `Operation: Sum
+Field: price
+
+Input: [
+  {name: "Item 1", price: 10, category: "A"},
+  {name: "Item 2", price: 20, category: "A"},
+  {name: "Item 3", price: 15, category: "B"}
+]
+
+Output: 45 (sum of all prices)
+
+With Group By (category):
+Output: {
+  "A": 30,
+  "B": 15
+}`,
+    tips: ['Leave field empty to aggregate items directly', 'Use groupBy to aggregate by category', 'Supports sum, avg, count, min, max', 'Great for analytics and reporting'],
+  },
+
+  limit: {
+    overview: 'Limits the number of items in an array. Returns only the first N items, useful for pagination or processing subsets.',
+    inputs: ['array of items'],
+    outputs: ['limited array'],
+    example: `Limit: 5
+
+Input: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+Output: [1, 2, 3, 4, 5]
+
+Useful for:
+• Pagination (first page)
+• Processing top N items
+• Preventing large array processing`,
+    tips: ['Returns first N items', 'Useful for pagination', 'Prevents processing large arrays', 'Combine with Sort to get top/bottom items'],
+  },
+
+  sort: {
+    overview: 'Sorts array items in ascending or descending order. Can sort by a specific field or sort items directly. Supports string, number, and date types.',
+    inputs: ['array of items'],
+    outputs: ['sorted array'],
+    example: `Field: price
+Direction: Ascending
+Type: Number
+
+Input: [
+  {name: "Item A", price: 30},
+  {name: "Item B", price: 10},
+  {name: "Item C", price: 20}
+]
+
+Output: [
+  {name: "Item B", price: 10},
+  {name: "Item C", price: 20},
+  {name: "Item A", price: 30}
+]`,
+    tips: ['Leave field empty to sort items directly', 'Use "auto" type for automatic detection', 'Ascending = smallest to largest', 'Descending = largest to smallest'],
+  },
+
+  item_lists: {
+    overview: 'Converts an object into a key-value list format. Useful for displaying object data in lists, tables, or for iteration.',
+    inputs: ['object'],
+    outputs: ['array of key-value pairs'],
+    example: `Input: {
+  name: "John",
+  age: 30,
+  city: "NYC"
+}
+
+Output: [
+  {key: "name", value: "John"},
+  {key: "age", value: 30},
+  {key: "city", value: "NYC"}
+]`,
+    tips: ['Converts object to array format', 'Useful for UI display', 'Each item has key and value', 'Preserves all object properties'],
+  },
+
+  merge_data: {
+    overview: 'Combines data from multiple input sources. Supports merging objects, appending to arrays, or concatenating arrays. Similar to Merge node but for data manipulation.',
+    inputs: ['multiple data inputs'],
+    outputs: ['merged data'],
+    example: `Mode: Merge Objects
+Input 1: {name: "John", age: 30}
+Input 2: {email: "john@test.com"}
+
+Output: {name: "John", age: 30, email: "john@test.com"}
+
+Mode: Concatenate Arrays
+Input 1: [1, 2, 3]
+Input 2: [4, 5, 6]
+Output: [1, 2, 3, 4, 5, 6]`,
+    tips: ['Merge mode combines object properties', 'Append adds items to arrays', 'Concat joins arrays together', 'Useful for combining workflow data'],
   },
 
   json_parser: {
@@ -353,6 +641,47 @@ Output: {
   status: 200
 }`,
     tips: ['Use {{input.x}} in URL for dynamic values', 'Add auth headers for protected APIs', 'Set timeout for slow APIs'],
+  },
+
+  graphql: {
+    overview: 'Execute GraphQL queries and mutations. Send GraphQL requests to any GraphQL API endpoint with custom queries and variables.',
+    inputs: ['query variables'],
+    outputs: ['data', 'errors'],
+    example: `Endpoint: https://api.example.com/graphql
+Query: 
+  query GetUser($id: ID!) {
+    user(id: $id) {
+      name
+      email
+    }
+  }
+Variables: {"id": "{{input.userId}}"}
+
+Output: {
+  data: {
+    user: {
+      name: "John",
+      email: "john@test.com"
+    }
+  },
+  errors: null
+}`,
+    tips: ['Use GraphQL query syntax', 'Variables can use {{input.x}} templates', 'Check errors array for GraphQL errors', 'Supports both queries and mutations'],
+  },
+
+  respond_to_webhook: {
+    overview: 'Send HTTP response back to webhook caller. Use this at the end of webhook-triggered workflows to return data or status to the caller.',
+    inputs: ['response data'],
+    outputs: ['sent response'],
+    example: `Status Code: 200
+Headers: {"Content-Type": "application/json"}
+Body: {"status": "success", "data": "{{input}}"}
+
+When webhook receives request:
+1. Process workflow
+2. Respond with this node's configuration
+3. Caller receives the response`,
+    tips: ['Use at end of webhook workflows', 'Set appropriate status codes (200, 400, 500)', 'Add headers for content type', 'Body supports template variables'],
   },
 
   set_variable: {
@@ -539,6 +868,73 @@ Output: [
   {name: "Jane", email: "jane@test.com", age: "25"}
 ]`,
     tips: ['Set correct delimiter (comma, tab, etc)', 'Enable "has header" for column names', 'Output is JSON array'],
+  },
+
+  date_time: {
+    overview: 'Manipulate dates and times with timezone support. Format dates, add/subtract time, calculate differences, convert timezones, and get current time.',
+    inputs: ['date string or timestamp'],
+    outputs: ['formatted_date', 'timestamp', 'timezone_info'],
+    example: `Operation: Format
+Date: 2024-01-15T10:30:00Z
+Timezone: America/New_York
+Format: ISO
+
+Output: "2024-01-15T05:30:00-05:00"
+
+Operation: Add
+Date: 2024-01-15T10:30:00Z
+Value: 7
+Unit: Days
+Output: "2024-01-22T10:30:00Z"
+
+Operation: Now
+Timezone: UTC
+Output: Current date/time in UTC`,
+    tips: ['Supports ISO 8601 date format', 'Use IANA timezone identifiers (e.g., America/New_York)', 'Leave date empty for current time', 'Custom format: YYYY-MM-DD HH:mm:ss'],
+  },
+
+  math: {
+    overview: 'Perform mathematical operations with precision control. Supports basic arithmetic, advanced functions, and array operations. Deterministic and precise calculations.',
+    inputs: ['numeric values or arrays'],
+    outputs: ['calculated_result'],
+    example: `Operation: Add
+Value 1: {{input.price}}
+Value 2: {{input.tax}}
+Precision: 2
+
+Input: {price: 10.50, tax: 1.25}
+Output: 11.75
+
+Operation: Average
+Value 1: 10,20,30,40,50
+Output: 30
+
+Operation: Power
+Value 1: 2
+Value 2: 8
+Output: 256`,
+    tips: ['Supports template expressions like {{input.x}}', 'Use comma-separated values for arrays', 'Set precision for decimal operations (1-20)', 'Supports: add, subtract, multiply, divide, power, sqrt, min, max, avg, sum'],
+  },
+
+  crypto: {
+    overview: 'Perform secure cryptographic operations: hash data, encode/decode Base64, generate UUIDs, create random strings, and compute HMAC signatures.',
+    inputs: ['data to process'],
+    outputs: ['hashed_value', 'encoded_value', 'uuid', 'random_string', 'hmac_signature'],
+    example: `Operation: Hash
+Data: "Hello World"
+Algorithm: SHA-256
+
+Output: "a591a6d40bf420404a011733cfb7b190d62c65bf0bcda32b57b277d9ad9f146e"
+
+Operation: Generate UUID v4
+Output: "550e8400-e29b-41d4-a716-446655440000"
+
+Operation: HMAC
+Data: "message"
+Secret Key: "secret"
+Algorithm: SHA-256
+Output: HMAC signature`,
+    tips: ['SHA-256 is most commonly used', 'Keep secret keys secure for HMAC', 'UUID v4 generates random UUIDs', 'Random string length: 1-256 characters'],
   },
 
   slack_webhook: {

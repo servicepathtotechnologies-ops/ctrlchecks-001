@@ -1,8 +1,8 @@
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { BookOpen, ArrowRightLeft, Lightbulb, Code } from 'lucide-react';
+import { ArrowRightLeft, Lightbulb, Code } from 'lucide-react';
 import { NodeUsageGuide } from './nodeTypes';
 
 interface NodeUsageCardProps {
@@ -13,13 +13,7 @@ interface NodeUsageCardProps {
 export default function NodeUsageCard({ guide, nodeLabel }: NodeUsageCardProps) {
   return (
     <Card className="border-primary/20 bg-primary/5">
-      <CardHeader className="pb-2">
-        <CardTitle className="text-sm flex items-center gap-2">
-          <BookOpen className="h-4 w-4 text-primary" />
-          How to use {nodeLabel}
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="pt-0">
+      <CardContent className="pt-4">
         <Tabs defaultValue="overview" className="w-full">
           <TabsList className="grid w-full grid-cols-3 h-8">
             <TabsTrigger value="overview" className="text-xs">Overview</TabsTrigger>
