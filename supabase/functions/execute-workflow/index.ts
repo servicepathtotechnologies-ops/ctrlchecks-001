@@ -227,7 +227,7 @@ serve(async (req: Request) => {
       const log: ExecutionLog = {
         nodeId: node.id,
         nodeName: node.data.label,
-        status: "running",
+        status: "pending",
         startedAt: new Date().toISOString(),
       };
 
@@ -311,6 +311,36 @@ serve(async (req: Request) => {
           log.finishedAt = new Date().toISOString();
           logs.push(log);
           continue;
+        }
+
+        // Mark node as pending before execution
+        log.status = "pending";
+        logs.push({ ...log });
+        
+        // Update execution with pending status
+        try {
+          await supabase
+            .from("executions")
+            .update({ logs })
+            .eq("id", executionId);
+        } catch (updateError) {
+          console.error("Failed to update execution logs (pending):", updateError);
+        }
+
+        // Mark node as running
+        log.status = "running";
+        log.startedAt = new Date().toISOString();
+        // Update the last log entry (pending) to running
+        logs[logs.length - 1] = { ...log };
+        
+        // Update execution with running status
+        try {
+          await supabase
+            .from("executions")
+            .update({ logs })
+            .eq("id", executionId);
+        } catch (updateError) {
+          console.error("Failed to update execution logs (running):", updateError);
         }
 
         let nodeInput: unknown;
@@ -430,6 +460,7 @@ serve(async (req: Request) => {
         console.log(`Node output is undefined?:`, output === undefined);
 
         // Store output - ensure we store the actual value, not null/undefined
+        // Also ensure output is JSON-serializable (no [object Object] strings)
         let outputToStore = output;
         if (output === null || output === undefined) {
           console.error(`Node ${node.data.label} (${node.data.type}) returned null/undefined output!`);
@@ -441,6 +472,27 @@ serve(async (req: Request) => {
             node.data.type === "interval" || node.data.type === "workflow_trigger") {
             outputToStore = nodeInput || {};
             console.log(`Using input as output for trigger node:`, JSON.stringify(outputToStore));
+          } else {
+            // For non-trigger nodes, use empty object to prevent null/undefined
+            outputToStore = {};
+          }
+        } else {
+          // Ensure output is JSON-serializable - check for [object Object] strings
+          if (typeof outputToStore === 'string' && outputToStore === '[object Object]') {
+            console.error(`Node ${node.data.label} (${node.data.type}) returned "[object Object]" string!`);
+            console.error(`Node input was:`, JSON.stringify(nodeInput));
+            // Try to reconstruct from input if possible
+            outputToStore = typeof nodeInput === 'object' && nodeInput !== null ? nodeInput : {};
+          } else if (typeof outputToStore === 'object' && outputToStore !== null) {
+            // Verify it's properly serializable
+            try {
+              JSON.stringify(outputToStore);
+            } catch (serializeError) {
+              console.error(`Node ${node.data.label} (${node.data.type}) output is not JSON-serializable!`);
+              console.error(`Error:`, serializeError instanceof Error ? serializeError.message : String(serializeError));
+              // Fallback to input or empty object
+              outputToStore = typeof nodeInput === 'object' && nodeInput !== null ? nodeInput : {};
+            }
           }
         }
 
@@ -540,7 +592,11 @@ serve(async (req: Request) => {
         // Continue execution even if log update fails
       }
 
-      if (hasError) break;
+      // STRICT ERROR STOP: Break immediately on error, no downstream execution
+      if (hasError) {
+        console.error(`🛑 Workflow execution STOPPED due to error in node ${node.data.label}`);
+        break;
+      }
     }
 
     // Finalize execution
@@ -548,6 +604,7 @@ serve(async (req: Request) => {
     const durationMs = new Date(finishedAt).getTime() - new Date(execution.started_at).getTime();
 
     // Ensure finalOutput is never null - use last successful node output or input
+    // Also ensure it's JSON-serializable
     let finalOutputToStore = finalOutput;
     if (finalOutputToStore === null || finalOutputToStore === undefined) {
       console.warn("Final output is null/undefined, using last node output or input");
@@ -558,8 +615,21 @@ serve(async (req: Request) => {
         console.log(`Using last successful node output:`, JSON.stringify(finalOutputToStore));
       } else {
         // Fallback to input
-        finalOutputToStore = input;
+        finalOutputToStore = input || {};
         console.log(`Using input as fallback:`, JSON.stringify(finalOutputToStore));
+      }
+    }
+    
+    // Ensure final output is JSON-serializable
+    if (typeof finalOutputToStore === 'string' && finalOutputToStore === '[object Object]') {
+      console.error("Final output is '[object Object]' string, using empty object");
+      finalOutputToStore = {};
+    } else if (finalOutputToStore !== null && typeof finalOutputToStore === 'object') {
+      try {
+        JSON.stringify(finalOutputToStore);
+      } catch (serializeError) {
+        console.error("Final output is not JSON-serializable, using empty object");
+        finalOutputToStore = {};
       }
     }
 
@@ -676,8 +746,16 @@ function topologicalSort(nodes: WorkflowNode[], edges: WorkflowEdge[]): Workflow
  * Handles various input formats gracefully
  */
 function extractInputObject(input: unknown): Record<string, unknown> {
-  if (input && typeof input === 'object' && input !== null) {
+  if (input && typeof input === 'object' && input !== null && !Array.isArray(input)) {
     return input as Record<string, unknown>;
+  }
+  if (Array.isArray(input)) {
+    // For arrays, return a wrapper object
+    return { items: input, data: input, array: input };
+  }
+  if (input !== null && input !== undefined) {
+    // For primitives, wrap in object
+    return { value: input };
   }
   return {};
 }
@@ -690,6 +768,11 @@ function extractDataFromInput(input: unknown): unknown {
   // If input is directly a string or array, return it
   if (typeof input === 'string' || Array.isArray(input)) {
     return input;
+  }
+  
+  // If input is null or undefined, return empty array for consistency
+  if (input === null || input === undefined) {
+    return [];
   }
   
   const inputObj = extractInputObject(input);
@@ -706,7 +789,13 @@ function extractDataFromInput(input: unknown): unknown {
   }
   
   // For other types, try common field names
-  return inputObj.data || inputObj.input || inputObj.text || inputObj.body || inputObj.content || inputObj;
+  const data = inputObj.data || inputObj.input || inputObj.text || inputObj.body || inputObj.content;
+  if (data !== undefined && data !== null) {
+    return data;
+  }
+  
+  // If no data found, return the input object itself
+  return inputObj;
 }
 
 /**
@@ -986,8 +1075,16 @@ async function executeNode(
         try {
           // Get current time in the specified timezone
           const now = new Date();
-          const scheduledHour = parseInt(time.split(':')[0], 10);
-          const scheduledMinute = parseInt(time.split(':')[1], 10);
+          const timeParts = time.split(':');
+          if (timeParts.length !== 2) {
+            throw new Error(`Schedule Trigger: Invalid time format "${time}". Expected format: HH:MM (e.g., "09:00")`);
+          }
+          const scheduledHour = parseInt(timeParts[0], 10);
+          const scheduledMinute = parseInt(timeParts[1], 10);
+          
+          if (isNaN(scheduledHour) || isNaN(scheduledMinute) || scheduledHour < 0 || scheduledHour > 23 || scheduledMinute < 0 || scheduledMinute > 59) {
+            throw new Error(`Schedule Trigger: Invalid time values. Hour must be 0-23, minute must be 0-59. Got: ${scheduledHour}:${scheduledMinute}`);
+          }
           
           // Format current time in the specified timezone
           const formatter = new Intl.DateTimeFormat('en-US', {
@@ -999,7 +1096,11 @@ async function executeNode(
           });
           
           const currentTimeStr = formatter.format(now);
-          const [currentHour, currentMinute, currentSecond] = currentTimeStr.split(':').map(Number);
+          const timeComponents = currentTimeStr.split(':').map(Number);
+          if (timeComponents.length < 3) {
+            throw new Error(`Schedule Trigger: Failed to parse current time from timezone ${timezone}`);
+          }
+          const [currentHour, currentMinute, currentSecond] = timeComponents;
           const currentTimeFormatted = `${String(currentHour).padStart(2, '0')}:${String(currentMinute).padStart(2, '0')}`;
           
           // Calculate time difference in minutes
@@ -1385,10 +1486,15 @@ async function executeNode(
         clearTimeout(timeoutId);
 
         const text = await response.text();
-        const result = JSON.parse(text);
+        let result: unknown;
+        try {
+          result = JSON.parse(text);
+        } catch (parseError) {
+          throw new Error(createNodeError('GraphQL', `Invalid JSON response from endpoint`, `Endpoint: ${url}\nResponse: ${text.substring(0, 200)}${text.length > 200 ? '...' : ''}\n\nError: ${parseError instanceof Error ? parseError.message : String(parseError)}`));
+        }
 
         // Check for GraphQL errors
-        if (result.errors && Array.isArray(result.errors) && result.errors.length > 0) {
+        if (result && typeof result === 'object' && 'errors' in result && Array.isArray(result.errors) && result.errors.length > 0) {
           const errorMessages = result.errors.map((e: unknown) => {
             if (e && typeof e === 'object' && 'message' in e) {
               return String(e.message);
@@ -1398,7 +1504,10 @@ async function executeNode(
           throw new Error(createNodeError('GraphQL', `Query failed: ${errorMessages}`, `Endpoint: ${url}`));
         }
 
-        return result.data || result;
+        if (result && typeof result === 'object' && 'data' in result) {
+          return result.data;
+        }
+        return result;
       } catch (error) {
         clearTimeout(timeoutId);
         const errorMessage = error instanceof Error ? error.message : String(error);
@@ -1428,7 +1537,8 @@ async function executeNode(
       if (responseBodyStr) {
         try {
           // Try to parse as JSON first
-          responseBody = JSON.parse(replaceTemplates(responseBodyStr, input));
+          const replaced = replaceTemplates(responseBodyStr, input);
+          responseBody = JSON.parse(replaced);
         } catch {
           // If not valid JSON, treat as template string
           responseBody = replaceTemplates(responseBodyStr, input);
@@ -1438,7 +1548,18 @@ async function executeNode(
         responseBody = input;
       }
 
-      const customHeaders = headersStr ? JSON.parse(replaceTemplates(headersStr, input)) : {};
+      let customHeaders: Record<string, string> = {};
+      if (headersStr) {
+        try {
+          const replaced = replaceTemplates(headersStr, input);
+          customHeaders = JSON.parse(replaced) as Record<string, string>;
+          if (!customHeaders || typeof customHeaders !== 'object' || Array.isArray(customHeaders)) {
+            customHeaders = {};
+          }
+        } catch (error) {
+          throw new Error(`Respond to Webhook: Invalid headers JSON. ${error instanceof Error ? error.message : String(error)}`);
+        }
+      }
 
       // Return response data in a format that webhook-trigger can extract
       return {
@@ -1455,23 +1576,45 @@ async function executeNode(
     }
 
     case "http_post": {
-      const url = replaceTemplates(config.url as string, input);
-      const headersStr = config.headers as string;
-      const headers = headersStr ? JSON.parse(replaceTemplates(headersStr, input)) : {};
-      const bodyTemplate = config.bodyTemplate as string;
+      const urlTemplate = getStringProperty(config, 'url', '');
+      if (!urlTemplate || urlTemplate.trim() === '') {
+        throw new Error("HTTP POST: URL is required. Please configure the URL in the node properties.");
+      }
+      const url = replaceTemplates(urlTemplate, input);
+      validateURL(url, 'URL', 'HTTP POST');
+      
+      const headersStr = getStringProperty(config, 'headers', '');
+      let headers: Record<string, string> = {};
+      if (headersStr && headersStr.trim() !== '') {
+        try {
+          const replaced = replaceTemplates(headersStr, input);
+          headers = JSON.parse(replaced) as Record<string, string>;
+          if (!headers || typeof headers !== 'object' || Array.isArray(headers)) {
+            headers = {};
+          }
+        } catch (error) {
+          throw new Error(`HTTP POST: Invalid headers JSON. ${error instanceof Error ? error.message : String(error)}`);
+        }
+      }
+      
+      const bodyTemplate = getStringProperty(config, 'bodyTemplate', '');
       const body = bodyTemplate ? replaceTemplates(bodyTemplate, input) : JSON.stringify(input);
 
-      const response = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", ...headers },
-        body,
-      });
-
-      const text = await response.text();
       try {
-        return JSON.parse(text);
-      } catch {
-        return { text, status: response.status };
+        const response = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...headers },
+          body,
+        });
+
+        const text = await response.text();
+        try {
+          return JSON.parse(text);
+        } catch {
+          return { text, status: response.status };
+        }
+      } catch (error) {
+        throw new Error(`HTTP POST: Request failed. ${error instanceof Error ? error.message : String(error)}`);
       }
     }
 
@@ -1605,7 +1748,11 @@ async function executeNode(
         // Try to parse as JSON for sentiment analyzer
         if (type === "sentiment_analyzer") {
           try {
-            return JSON.parse(content);
+            const parsed = JSON.parse(content);
+            if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+              return parsed;
+            }
+            return { raw: content, parsed };
           } catch {
             return { raw: content };
           }
@@ -1646,7 +1793,11 @@ async function executeNode(
         // Try to parse as JSON for sentiment analyzer
         if (type === "sentiment_analyzer") {
           try {
-            return JSON.parse(content);
+            const parsed = JSON.parse(content);
+            if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+              return parsed;
+            }
+            return { raw: content, parsed };
           } catch {
             return { raw: content };
           }
@@ -1903,13 +2054,15 @@ async function executeNode(
         if (config.iconEmoji) payload.icon_emoji = config.iconEmoji;
 
         const blocksStr = config.blocks as string;
-        if (blocksStr) {
+        if (blocksStr && blocksStr.trim() !== '') {
           try {
-            const blocks = JSON.parse(replaceTemplates(blocksStr, input));
+            const replaced = replaceTemplates(blocksStr, input);
+            const blocks = JSON.parse(replaced);
             if (Array.isArray(blocks) && blocks.length > 0) {
               payload.blocks = blocks;
             }
-          } catch {
+          } catch (error) {
+            console.warn(`Slack: Failed to parse blocks JSON, falling back to text. Error: ${error instanceof Error ? error.message : String(error)}`);
             // Do nothing, we'll fall back to using the text
           }
         }
@@ -2101,7 +2254,11 @@ async function executeNode(
     }
 
     case "if_else": {
-      const condition = config.condition as string;
+      const condition = getStringProperty(config, 'condition', '');
+      if (!condition || !condition.trim()) {
+        throw new Error("If/Else: Condition is required. Please configure the condition expression in the node properties.");
+      }
+      
       // Extract the actual input data (in case it's wrapped)
       const actualInput = (input && typeof input === "object" && "input" in input)
         ? (input as Record<string, unknown>).input
@@ -2115,7 +2272,9 @@ async function executeNode(
       console.log(`If/Else condition result: ${result}`);
 
       // Return the original input structure for downstream nodes
-      return { condition: result, input: actualInput };
+      // Ensure output is always valid JSON
+      const output = { condition: result, input: actualInput !== null && actualInput !== undefined ? actualInput : {} };
+      return output;
     }
 
     case "switch": {
@@ -2246,13 +2405,43 @@ async function executeNode(
 
       const filtered = items.filter((item) => {
         try {
+          // Sanitize condition expression to prevent code injection
+          // Replace template variables first
+          let sanitizedCondition = conditionExpr.trim();
+          
+          // Replace {{item.property}} patterns safely
+          sanitizedCondition = sanitizedCondition.replace(/\{\{item\.([\w.]+)\}\}/g, (match, path) => {
+            const keys = path.split('.');
+            let value: unknown = item;
+            for (const key of keys) {
+              if (value && typeof value === 'object' && value !== null && key in value) {
+                value = (value as Record<string, unknown>)[key];
+              } else {
+                return 'undefined';
+              }
+            }
+            // Return properly formatted value for JavaScript evaluation
+            if (typeof value === 'string') {
+              return `"${value.replace(/"/g, '\\"')}"`;
+            } else if (value === null) {
+              return 'null';
+            } else if (value === undefined) {
+              return 'undefined';
+            } else if (typeof value === 'boolean') {
+              return String(value);
+            } else {
+              return String(value);
+            }
+          });
+          
           // Evaluate condition with item in scope
-          const fn = new Function("item", `return ${conditionExpr};`);
+          const fn = new Function("item", `return ${sanitizedCondition};`);
           const result = fn(item);
           console.log(`Filter: Item ${JSON.stringify(item).substring(0, 50)}... -> ${result}`);
           return Boolean(result);
         } catch (error) {
           console.error(`Filter condition evaluation error for item:`, item, error);
+          // Return false on error to exclude item from results
           return false;
         }
       });
@@ -2262,13 +2451,17 @@ async function executeNode(
     }
 
     case "wait": {
-      const duration = (config.duration as number) || 1000;
-      await new Promise(resolve => setTimeout(resolve, Math.min(duration, 10000)));
+      const duration = getNumberProperty(config, 'duration', 1000);
+      // Ensure duration is positive and within reasonable bounds (max 60 seconds)
+      const safeDuration = Math.max(0, Math.min(Math.abs(duration), 60000));
+      if (safeDuration > 0) {
+        await new Promise(resolve => setTimeout(resolve, safeDuration));
+      }
       return input;
     }
 
     case "javascript": {
-      const code = config.code as string;
+      const code = getStringProperty(config, 'code', '');
       if (!code || !code.trim()) {
         return input;
       }
@@ -2280,7 +2473,18 @@ async function executeNode(
           // Try as function expression first
           try {
             const fn = new Function("input", `return (${code})(input);`);
-            return fn(input);
+            const result = fn(input);
+            // Ensure result is JSON-serializable
+            if (result !== undefined && result !== null) {
+              try {
+                JSON.stringify(result);
+                return result;
+              } catch {
+                // If not serializable, return as string representation
+                return { result: String(result), _warning: "Result was not JSON-serializable, converted to string" };
+              }
+            }
+            return input;
           } catch {
             // Fall through to function body approach
           }
@@ -2290,7 +2494,17 @@ async function executeNode(
         const fn = new Function("input", code);
         const result = fn(input);
         // If function doesn't return anything, return the input
-        return result !== undefined ? result : input;
+        if (result === undefined) {
+          return input;
+        }
+        // Ensure result is JSON-serializable
+        try {
+          JSON.stringify(result);
+          return result;
+        } catch {
+          // If not serializable, return as string representation
+          return { result: String(result), _warning: "Result was not JSON-serializable, converted to string" };
+        }
       } catch (error) {
         console.error(`JavaScript node execution error:`, error);
         throw new Error(`JavaScript execution failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -2907,8 +3121,8 @@ async function executeNode(
           case 'update':
             const matchColumn = getStringProperty(config, 'matchColumn', 'id');
             const matchValue = dataToWrite[matchColumn];
-            if (!matchValue) {
-              throw new Error(`Database Write: matchColumn "${matchColumn}" value is required for update operation`);
+            if (matchValue === undefined || matchValue === null || matchValue === '') {
+              throw new Error(`Database Write: matchColumn "${matchColumn}" value is required for update operation. Current value: ${matchValue === undefined ? 'undefined' : matchValue === null ? 'null' : 'empty string'}`);
             }
             delete dataToWrite[matchColumn];
             const { data: updateData, error: updateError } = await supabaseClient
@@ -2933,8 +3147,8 @@ async function executeNode(
           case 'delete':
             const deleteMatchColumn = getStringProperty(config, 'matchColumn', 'id');
             const deleteValue = dataToWrite[deleteMatchColumn];
-            if (!deleteValue) {
-              throw new Error(`Database Write: matchColumn "${deleteMatchColumn}" value is required for delete operation`);
+            if (deleteValue === undefined || deleteValue === null || deleteValue === '') {
+              throw new Error(`Database Write: matchColumn "${deleteMatchColumn}" value is required for delete operation. Current value: ${deleteValue === undefined ? 'undefined' : deleteValue === null ? 'null' : 'empty string'}`);
             }
             const { data: deleteData, error: deleteError } = await supabaseClient
               .from(table)
@@ -3592,6 +3806,18 @@ async function executeNode(
 
     case "noop": {
       // NoOp: Exact input → output passthrough
+      // Ensure we return a valid value (never null/undefined)
+      if (input === null || input === undefined) {
+        return {};
+      }
+      // Ensure it's JSON-serializable
+      if (typeof input === 'object') {
+        try {
+          JSON.stringify(input);
+        } catch {
+          return { value: String(input), _warning: "Input was not JSON-serializable, converted to string" };
+        }
+      }
       return input;
     }
 
@@ -4716,14 +4942,16 @@ async function executeNode(
         });
         
         if (!response.ok) {
-          const errorText = await response.text();
-          throw new Error(`Microsoft Teams: Request failed with status ${response.status}: ${errorText}`);
+          const errorText = await response.text().catch(() => 'Unable to read error response');
+          throw new Error(`Microsoft Teams: Request failed with status ${response.status}: ${errorText.substring(0, 500)}`);
         }
         
+        // Teams webhook returns 200 OK with no body on success
         const inputObj = extractInputObject(input);
         return {
           success: true,
           message: 'Message sent to Microsoft Teams',
+          status: response.status,
           ...inputObj
         };
       } catch (error) {
@@ -4752,9 +4980,16 @@ async function executeNode(
           })
         });
         
-        const data = await response.json();
-        if (!data.ok) {
-          throw new Error(`Telegram API error: ${data.description || 'Unknown error'}`);
+        let data: any;
+        try {
+          data = await response.json();
+        } catch (parseError) {
+          const errorText = await response.text().catch(() => 'Unable to read response');
+          throw new Error(`Telegram: Invalid JSON response. ${parseError instanceof Error ? parseError.message : String(parseError)}. Response: ${errorText.substring(0, 200)}`);
+        }
+        
+        if (!data || !data.ok) {
+          throw new Error(`Telegram API error: ${data?.description || data?.error_code || 'Unknown error'}`);
         }
         
         const inputObj = extractInputObject(input);
@@ -4794,9 +5029,16 @@ async function executeNode(
           })
         });
         
-        const data = await response.json();
-        if (data.error) {
-          throw new Error(`WhatsApp API error: ${data.error.message || 'Unknown error'}`);
+        let data: any;
+        try {
+          data = await response.json();
+        } catch (parseError) {
+          const errorText = await response.text().catch(() => 'Unable to read response');
+          throw new Error(`WhatsApp: Invalid JSON response. ${parseError instanceof Error ? parseError.message : String(parseError)}. Response: ${errorText.substring(0, 200)}`);
+        }
+        
+        if (data && data.error) {
+          throw new Error(`WhatsApp API error: ${data.error.message || data.error.error_user_msg || 'Unknown error'}`);
         }
         
         const inputObj = extractInputObject(input);
@@ -4837,9 +5079,16 @@ async function executeNode(
           }).toString()
         });
         
-        const data = await response.json();
-        if (data.error_code) {
-          throw new Error(`Twilio API error: ${data.message || 'Unknown error'}`);
+        let data: any;
+        try {
+          data = await response.json();
+        } catch (parseError) {
+          const errorText = await response.text().catch(() => 'Unable to read response');
+          throw new Error(`Twilio: Invalid JSON response. ${parseError instanceof Error ? parseError.message : String(parseError)}. Response: ${errorText.substring(0, 200)}`);
+        }
+        
+        if (data && (data.error_code || data.code)) {
+          throw new Error(`Twilio API error: ${data.message || data.error_message || 'Unknown error'}`);
         }
         
         const inputObj = extractInputObject(input);
@@ -13148,8 +13397,14 @@ function performAggregateOperation(
   items: unknown[],
   field: string
 ): unknown {
-  if (items.length === 0) {
-    return operation === 'count' ? 0 : null;
+  if (!Array.isArray(items) || items.length === 0) {
+    if (operation === 'count') {
+      return 0;
+    }
+    if (operation === 'avg' || operation === 'average') {
+      return 0;
+    }
+    return null;
   }
 
   switch (operation) {
@@ -13481,15 +13736,12 @@ function replaceTemplates(template: unknown, input: unknown): string {
 }
 
 function extractValue(expression: string, input: unknown): unknown {
-  if (!expression) return input;
-  
-  // Ensure expression is a string
-  if (typeof expression !== 'string') {
-    throw new Error(`extractValue: expression must be a string, got ${typeof expression}`);
+  if (!expression || typeof expression !== 'string') {
+    return input;
   }
 
   // Handle {{input}} and {{input.field}} patterns
-  const cleanExpr = expression.replace(/^\$\.?/, "").replace(/^input\.?/, "");
+  const cleanExpr = expression.replace(/^\$\.?/, "").replace(/^input\.?/, "").trim();
 
   if (!cleanExpr) return input;
 
@@ -13497,22 +13749,38 @@ function extractValue(expression: string, input: unknown): unknown {
   let result: unknown = input;
 
   for (const part of parts) {
+    if (!part) continue; // Skip empty parts
+    
     // Check if result is a JSON string and parse it first
     result = tryParseJson(result);
 
-    if (result && typeof result === "object") {
+    if (result && typeof result === "object" && result !== null) {
       // Handle array indexing like items[0]
       const arrayMatch = part.match(/^(\w+)\[(\d+)\]$/);
       if (arrayMatch) {
-        const [, key, index] = arrayMatch;
-        const arr = (result as Record<string, unknown>)[key];
-        if (Array.isArray(arr)) {
-          result = arr[parseInt(index, 10)];
+        const [, key, indexStr] = arrayMatch;
+        const index = parseInt(indexStr, 10);
+        if (isNaN(index)) {
+          return undefined;
+        }
+        const obj = result as Record<string, unknown>;
+        if (key in obj) {
+          const arr = obj[key];
+          if (Array.isArray(arr) && index >= 0 && index < arr.length) {
+            result = arr[index];
+          } else {
+            return undefined;
+          }
         } else {
-          result = undefined;
+          return undefined;
         }
       } else {
-        result = (result as Record<string, unknown>)[part];
+        const obj = result as Record<string, unknown>;
+        if (part in obj) {
+          result = obj[part];
+        } else {
+          return undefined;
+        }
       }
     } else {
       return undefined;

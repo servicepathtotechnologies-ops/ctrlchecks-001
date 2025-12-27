@@ -155,22 +155,76 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
 
   updateNodeStatus: (nodeId, status) => {
     // Status updates don't need to be in history/undo stack
+    const { nodes, edges } = get();
+    const updatedNodes = nodes.map((node) =>
+      node.id === nodeId
+        ? { ...node, data: { ...node.data, executionStatus: status } }
+        : node
+    );
+    
+    // Recalculate ALL edge colors based on current node states
+    // Rules:
+    // - Show green for edges from successful nodes (including edges leading to error nodes)
+    // - No color change for edges FROM error nodes (default color)
+    // - Yellow for running, gray for pending
+    const updatedEdges = edges.map((edge) => {
+      const sourceNode = updatedNodes.find(n => n.id === edge.source);
+      const targetNode = updatedNodes.find(n => n.id === edge.target);
+      
+      if (!sourceNode || !targetNode) {
+        // Edge connected to non-existent node, keep default
+        const { style, ...edgeWithoutStyle } = edge;
+        return edgeWithoutStyle;
+      }
+      
+      const sourceStatus = sourceNode.data.executionStatus || 'idle';
+      
+      let edgeColor: string | undefined;
+      
+      // Color edges from successful nodes green (including edges leading to error nodes)
+      // Don't color edges FROM error nodes (keep default)
+      if (sourceStatus === 'success') {
+        edgeColor = '#22c55e'; // Green - for all edges from successful nodes
+      } else if (sourceStatus === 'running') {
+        edgeColor = '#facc15'; // Yellow
+      } else if (sourceStatus === 'pending') {
+        edgeColor = '#9ca3af'; // Gray
+      }
+      // If source is 'error' or 'idle', no custom color (use default)
+      
+      // Apply color if defined, otherwise remove custom styling
+      if (edgeColor) {
+        return { ...edge, style: { stroke: edgeColor, strokeWidth: 2 } };
+      } else {
+        // Remove custom style to use default
+        const { style, ...edgeWithoutStyle } = edge;
+        return edgeWithoutStyle;
+      }
+    });
+    
     set({
-      nodes: get().nodes.map((node) =>
-        node.id === nodeId
-          ? { ...node, data: { ...node.data, executionStatus: status } }
-          : node
-      ),
+      nodes: updatedNodes,
+      edges: updatedEdges,
     });
   },
 
   resetAllNodeStatuses: () => {
     // Reset all node execution statuses to 'idle' - used when starting a new execution
+    // Also reset edge colors to default
+    const { nodes, edges } = get();
     set({
-      nodes: get().nodes.map((node) => ({
+      nodes: nodes.map((node) => ({
         ...node,
         data: { ...node.data, executionStatus: 'idle' as const },
       })),
+      edges: edges.map((edge) => {
+        // Remove custom stroke style to reset to default
+        if (edge.style) {
+          const { style, ...edgeWithoutStyle } = edge;
+          return edgeWithoutStyle;
+        }
+        return edge;
+      }),
     });
   },
 

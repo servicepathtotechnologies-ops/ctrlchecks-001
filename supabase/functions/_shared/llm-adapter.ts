@@ -132,7 +132,16 @@ export class LLMAdapter {
         throw new Error(errorMessage);
       }
 
-      const data = await response.json();
+      let data: any;
+      try {
+        data = await response.json();
+      } catch (parseError) {
+        throw new Error(`OpenAI API: Invalid JSON response. ${parseError instanceof Error ? parseError.message : String(parseError)}`);
+      }
+      
+      if (!data || !data.choices || !Array.isArray(data.choices) || data.choices.length === 0) {
+        throw new Error(`OpenAI API: Invalid response format. Expected choices array.`);
+      }
       
       return {
         content: data.choices[0]?.message?.content || '',
@@ -216,11 +225,21 @@ export class LLMAdapter {
         throw new Error(errorMessage);
       }
 
-      const data = await response.json();
+      let data: any;
+      try {
+        data = await response.json();
+      } catch (parseError) {
+        throw new Error(`Claude API: Invalid JSON response. ${parseError instanceof Error ? parseError.message : String(parseError)}`);
+      }
+      
+      if (!data || !data.content || !Array.isArray(data.content)) {
+        throw new Error(`Claude API: Invalid response format. Expected content array.`);
+      }
       
       // Claude returns content as an array
       const content = data.content
-        .map((block: any) => block.text)
+        .map((block: any) => block?.text || '')
+        .filter((text: string) => text)
         .join('');
 
       return {
@@ -309,9 +328,18 @@ export class LLMAdapter {
         throw new Error(errorMessage);
       }
 
-      const data = await response.json();
+      let data: any;
+      try {
+        data = await response.json();
+      } catch (parseError) {
+        throw new Error(`Gemini API: Invalid JSON response. ${parseError instanceof Error ? parseError.message : String(parseError)}`);
+      }
       
-      const content = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+      if (!data || !data.candidates || !Array.isArray(data.candidates) || data.candidates.length === 0) {
+        throw new Error(`Gemini API: Invalid response format. Expected candidates array.`);
+      }
+      
+      const content = data.candidates[0]?.content?.parts?.[0]?.text || '';
       const usageInfo = data.usageMetadata;
 
       return {
@@ -362,7 +390,21 @@ export class LLMAdapter {
         throw new Error(`OpenAI Embeddings API error: ${response.status} - ${errorText}`);
       }
 
-      const data = await response.json();
+      let data: any;
+      try {
+        data = await response.json();
+      } catch (parseError) {
+        throw new Error(`OpenAI Embeddings API: Invalid JSON response. ${parseError instanceof Error ? parseError.message : String(parseError)}`);
+      }
+      
+      if (!data || !data.data || !Array.isArray(data.data) || data.data.length === 0) {
+        throw new Error(`OpenAI Embeddings API: Invalid response format. Expected data array with embeddings.`);
+      }
+      
+      if (!data.data[0] || !data.data[0].embedding || !Array.isArray(data.data[0].embedding)) {
+        throw new Error(`OpenAI Embeddings API: Invalid embedding format.`);
+      }
+      
       return {
         embedding: data.data[0].embedding,
         model: data.model,

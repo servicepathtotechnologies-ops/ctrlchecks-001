@@ -146,14 +146,16 @@ export default function ExecutionConsole({ isExpanded, onToggle }: ExecutionCons
     logs.forEach(log => {
       if (log.nodeId && log.status) {
         // Map log status to node status
-        // Log statuses: 'running', 'success', 'failed', 'pending'
+        // Log statuses: 'running', 'success', 'failed', 'pending', 'skipped'
         // Node statuses: 'idle', 'running', 'success', 'error'
         let nodeStatus: 'idle' | 'running' | 'success' | 'error' = 'idle';
 
         switch (log.status) {
+          case 'pending': nodeStatus = 'idle'; break; // Show as idle until running
           case 'running': nodeStatus = 'running'; break;
           case 'success': nodeStatus = 'success'; break;
           case 'failed': nodeStatus = 'error'; break;
+          case 'skipped': nodeStatus = 'idle'; break; // Skipped nodes remain idle
           default: nodeStatus = 'idle'; break;
         }
 
