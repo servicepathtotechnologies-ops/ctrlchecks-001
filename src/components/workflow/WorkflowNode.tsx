@@ -60,9 +60,8 @@ const WorkflowNode = memo(({ data, selected }: NodeProps<WorkflowNodeProps>) => 
     borderClass = 'border-blue-500 border-2 shadow-[0_0_15px_rgba(59,130,246,0.5)] animate-pulse';
   } else if (status === 'success') {
     borderClass = 'border-blue-500 border-2';
-  } else if (status === 'error') {
-    borderClass = 'border-red-500 border-2';
   }
+  // Error nodes keep default border color (no red)
 
   return (
     <div
@@ -107,44 +106,40 @@ const WorkflowNode = memo(({ data, selected }: NodeProps<WorkflowNodeProps>) => 
       </div>
 
       {isIfElseNode ? (
-        <div className="relative">
-          <div className="absolute -bottom-6 left-1/2 -translate-x-1/2 flex gap-8 text-xs text-muted-foreground">
-            <span className="text-green-600 font-medium">True</span>
-            <span className="text-red-600 font-medium">False</span>
-          </div>
+        <>
           <Handle
             type="source"
             id="true"
             position={Position.Bottom}
             className="!w-3 !h-3 !bg-green-500 !border-2 !border-background"
-            style={{ left: '35%' }}
+            style={{ left: '25%' }}
           />
           <Handle
             type="source"
             id="false"
             position={Position.Bottom}
             className="!w-3 !h-3 !bg-red-500 !border-2 !border-background"
-            style={{ left: '65%' }}
+            style={{ left: '75%' }}
           />
-        </div>
+        </>
       ) : isSwitchNode ? (
         switchCases.length > 0 ? (
-          <div key={switchCasesKey} className="relative mt-2 pb-2 min-h-[40px]">
+          <>
             {/* Output handles - dynamically positioned based on number of cases */}
             {switchCases.map((c, idx) => {
-              // Calculate position: evenly distribute handles across the bottom
+              // Calculate position: evenly distribute handles across the bottom border
               // For 1 case: 50% (center)
-              // For 2 cases: 30% and 70%
-              // For 3+ cases: evenly spaced
+              // For 2 cases: 25% and 75%
+              // For 3+ cases: evenly spaced from edges
               let leftPercent: string;
               if (switchCases.length === 1) {
                 leftPercent = '50%';
               } else if (switchCases.length === 2) {
-                leftPercent = idx === 0 ? '30%' : '70%';
+                leftPercent = idx === 0 ? '25%' : '75%';
               } else {
-                // For 3+ cases, distribute evenly: 20%, 40%, 60%, 80%, etc.
-                const spacing = 60 / (switchCases.length - 1);
-                leftPercent = `${20 + (idx * spacing)}%`;
+                // For 3+ cases, distribute evenly across the border
+                const spacing = 70 / (switchCases.length - 1);
+                leftPercent = `${15 + (idx * spacing)}%`;
               }
 
               return (
@@ -153,7 +148,7 @@ const WorkflowNode = memo(({ data, selected }: NodeProps<WorkflowNodeProps>) => 
                   type="source"
                   id={c.value}
                   position={Position.Bottom}
-                  className="!w-3.5 !h-3.5 !bg-blue-500 hover:!bg-blue-600 !border-2 !border-background !relative z-10"
+                  className="!w-3 !h-3 !bg-blue-500 !border-2 !border-background"
                   style={{
                     left: leftPercent,
                     transform: 'translateX(-50%)'
@@ -161,15 +156,7 @@ const WorkflowNode = memo(({ data, selected }: NodeProps<WorkflowNodeProps>) => 
                 />
               );
             })}
-            {/* Labels below handles */}
-            <div className="absolute -bottom-6 left-0 right-0 flex justify-center gap-2 text-xs text-muted-foreground flex-wrap px-1">
-              {switchCases.map((c, idx) => (
-                <span key={`label-${idx}-${c.value}`} className="text-xs font-medium whitespace-nowrap">
-                  {c.label || c.value}
-                </span>
-              ))}
-            </div>
-          </div>
+          </>
         ) : (
           // No cases configured yet - show single default handle
           <Handle

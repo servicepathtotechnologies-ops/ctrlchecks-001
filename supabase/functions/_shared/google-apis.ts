@@ -66,7 +66,16 @@ export async function executeGoogleDocsOperation(
           throw new Error(errorMessage);
         }
 
-        const docData = await readResponse.json();
+        let docData: any;
+        try {
+          docData = await readResponse.json();
+        } catch (parseError) {
+          throw new Error(`Google Docs: Invalid JSON response. ${parseError instanceof Error ? parseError.message : String(parseError)}`);
+        }
+        
+        if (!docData || typeof docData !== 'object') {
+          throw new Error('Google Docs: Invalid response format');
+        }
         
         // Extract text content from document
         let textContent = '';

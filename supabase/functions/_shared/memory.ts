@@ -116,10 +116,17 @@ export class HybridMemoryService {
         if (redis) {
           const recent = await redis.lrange(`memory:${sessionId}:recent`, 0, maxLimit - 1);
           for (const msg of recent) {
-            try {
-              messages.push(JSON.parse(msg));
-            } catch (e) {
-              console.error("Error parsing Redis message:", e);
+            if (typeof msg === 'string' && msg.trim()) {
+              try {
+                const parsed = JSON.parse(msg);
+                if (parsed && typeof parsed === 'object' && 'role' in parsed && 'content' in parsed) {
+                  messages.push(parsed);
+                } else {
+                  console.warn("Redis message missing required fields (role, content), skipping");
+                }
+              } catch (e) {
+                console.error("Error parsing Redis message:", e);
+              }
             }
           }
         }
