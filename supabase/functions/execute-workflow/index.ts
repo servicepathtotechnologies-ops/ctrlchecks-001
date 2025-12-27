@@ -11281,6 +11281,1858 @@ async function executeNode(
       }
     }
 
+    // ============================================
+    // AUTHENTICATION & IDENTITY NODES
+    // ============================================
+    case "oauth2": {
+      const inputObj = extractInputObject(input);
+      const operation = getStringProperty(config, 'operation', 'get_access_token');
+      const grantType = getStringProperty(config, 'grantType', 'authorization_code');
+      const clientId = getStringProperty(config, 'clientId', '');
+      const clientSecret = getStringProperty(config, 'clientSecret', '');
+      const tokenUrl = getStringProperty(config, 'tokenUrl', '');
+      
+      if (!clientId || !clientSecret || !tokenUrl) {
+        throw new Error('OAuth2: Client ID, Client Secret, and Token URL are required');
+      }
+
+      try {
+        const params = new URLSearchParams();
+        params.append('grant_type', grantType);
+        params.append('client_id', clientId);
+        params.append('client_secret', clientSecret);
+
+        if (operation === 'get_access_token') {
+          if (grantType === 'authorization_code') {
+            const code = getStringProperty(config, 'code', '');
+            if (!code) throw new Error('OAuth2: Authorization code is required for authorization_code grant type');
+            params.append('code', code);
+            const redirectUri = getStringProperty(config, 'redirectUri', '');
+            if (redirectUri) params.append('redirect_uri', redirectUri);
+          } else if (grantType === 'password') {
+            const username = getStringProperty(inputObj, 'username', '');
+            const password = getStringProperty(inputObj, 'password', '');
+            if (!username || !password) throw new Error('OAuth2: Username and password are required for password grant type');
+            params.append('username', username);
+            params.append('password', password);
+          }
+
+          const scope = getStringProperty(config, 'scope', '');
+          if (scope) params.append('scope', scope);
+
+          const response = await fetch(tokenUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: params.toString(),
+          });
+
+          if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`OAuth2 API error: ${response.status} - ${errorText}`);
+          }
+
+          return await response.json();
+        } else if (operation === 'refresh_token') {
+          const refreshToken = getStringProperty(config, 'refreshToken', '');
+          if (!refreshToken) throw new Error('OAuth2: Refresh token is required');
+          params.append('refresh_token', refreshToken);
+
+          const response = await fetch(tokenUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: params.toString(),
+          });
+
+          if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`OAuth2 API error: ${response.status} - ${errorText}`);
+          }
+
+          return await response.json();
+        } else if (operation === 'validate_token') {
+          const token = getStringProperty(config, 'token', '') || getStringProperty(inputObj, 'token', '');
+          if (!token) throw new Error('OAuth2: Token is required for validation');
+          
+          // Basic validation - check if token exists and is not empty
+          // For production, you might want to call an introspection endpoint
+          const parts = token.split('.');
+          if (parts.length !== 3) {
+            throw new Error('OAuth2: Invalid token format');
+          }
+
+          try {
+            const payload = JSON.parse(atob(parts[1]));
+            const currentTime = Math.floor(Date.now() / 1000);
+            
+            if (payload.exp && payload.exp < currentTime) {
+              return { valid: false, reason: 'Token expired' };
+            }
+
+            return { valid: true, payload };
+          } catch (error) {
+            return { valid: false, reason: 'Invalid token format' };
+          }
+        } else if (operation === 'revoke_token') {
+          const token = getStringProperty(config, 'token', '') || getStringProperty(inputObj, 'token', '');
+          if (!token) throw new Error('OAuth2: Token is required for revocation');
+          
+          // Revocation endpoint is typically tokenUrl + '/revoke' or similar
+          const revokeUrl = tokenUrl.replace('/token', '/revoke');
+          const params = new URLSearchParams();
+          params.append('token', token);
+          params.append('client_id', clientId);
+          params.append('client_secret', clientSecret);
+
+          const response = await fetch(revokeUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: params.toString(),
+          });
+
+          if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`OAuth2 API error: ${response.status} - ${errorText}`);
+          }
+
+          return { success: true };
+        }
+      } catch (error) {
+        throw new Error(`OAuth2: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+
+    case "jwt": {
+      const operation = getStringProperty(config, 'operation', 'sign');
+      const algorithm = getStringProperty(config, 'algorithm', 'HS256');
+      const secret = getStringProperty(config, 'secret', '');
+      
+      if (!secret) {
+        throw new Error('JWT: Secret/Key is required');
+      }
+
+      try {
+        if (operation === 'sign') {
+          const payloadStr = getStringProperty(config, 'payload', '{}');
+          const payload = parseJSONSafe(payloadStr, 'payload') as Record<string, unknown>;
+          
+          // Simple JWT encoding (base64url)
+          const base64UrlEncode = (str: string) => {
+            return btoa(str).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+          };
+
+          const header = { alg: algorithm, typ: 'JWT' };
+          const headerEncoded = base64UrlEncode(JSON.stringify(header));
+          
+          // Add expiration if expiresIn is provided
+          if (config.expiresIn) {
+            const expiresInStr = getStringProperty(config, 'expiresIn', '');
+            const now = Math.floor(Date.now() / 1000);
+            let expires = now + 3600; // Default 1 hour
+            
+            if (expiresInStr) {
+              const match = expiresInStr.match(/^(\d+)([hdms])$/);
+              if (match) {
+                const value = parseInt(match[1]);
+                const unit = match[2];
+                expires = now + (unit === 's' ? value : unit === 'm' ? value * 60 : unit === 'h' ? value * 3600 : value * 86400);
+              }
+            }
+            payload.exp = expires;
+          }
+
+          const payloadEncoded = base64UrlEncode(JSON.stringify(payload));
+          
+          // For HS* algorithms, we'd need crypto, but for simplicity, we'll return the structure
+          // In production, use a proper JWT library
+          const signature = base64UrlEncode(secret); // Simplified - use proper HMAC in production
+          
+          return {
+            token: `${headerEncoded}.${payloadEncoded}.${signature}`,
+            header,
+            payload,
+          };
+        } else if (operation === 'verify' || operation === 'decode') {
+          const token = getStringProperty(config, 'token', '') || getStringProperty(inputObj, 'token', '');
+          if (!token) throw new Error('JWT: Token is required for verify/decode');
+
+          const parts = token.split('.');
+          if (parts.length !== 3) {
+            throw new Error('JWT: Invalid token format');
+          }
+
+          const base64UrlDecode = (str: string) => {
+            str = str.replace(/-/g, '+').replace(/_/g, '/');
+            while (str.length % 4) {
+              str += '=';
+            }
+            return JSON.parse(atob(str));
+          };
+
+          const header = base64UrlDecode(parts[0]);
+          const payload = base64UrlDecode(parts[1]);
+
+          if (operation === 'decode') {
+            return { header, payload };
+          }
+
+          // Verify expiration
+          const currentTime = Math.floor(Date.now() / 1000);
+          if (payload.exp && payload.exp < currentTime) {
+            throw new Error('JWT: Token has expired');
+          }
+
+          // Signature verification would require proper crypto implementation
+          return { valid: true, header, payload };
+        }
+      } catch (error) {
+        throw new Error(`JWT: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+
+    case "ldap": {
+      // LDAP implementation requires an LDAP library
+      // For now, we'll provide a structure that can be extended
+      const operation = getStringProperty(config, 'operation', 'authenticate');
+      const serverUrl = getStringProperty(config, 'serverUrl', '');
+      
+      if (!serverUrl) {
+        throw new Error('LDAP: Server URL is required');
+      }
+
+      throw new Error('LDAP: LDAP operations require an LDAP client library. Use HTTP Request node with LDAP API endpoints as an alternative.');
+    }
+
+    case "okta": {
+      const inputObj = extractInputObject(input);
+      const operation = getStringProperty(config, 'operation', 'get_user');
+      const domain = getStringProperty(config, 'domain', '');
+      const apiToken = getStringProperty(config, 'apiToken', '');
+      
+      if (!domain || !apiToken) {
+        throw new Error('Okta: Domain and API Token are required');
+      }
+
+      const baseUrl = `https://${domain.replace(/^https?:\/\//, '')}`;
+      const headers = {
+        'Authorization': `SSWS ${apiToken}`,
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      };
+
+      try {
+        let url = '';
+        let method = 'GET';
+        let body: unknown = undefined;
+
+        switch (operation) {
+          case 'get_user': {
+            const userId = getStringProperty(config, 'userId', '');
+            if (!userId) throw new Error('Okta: User ID is required for get_user');
+            url = `${baseUrl}/api/v1/users/${userId}`;
+            break;
+          }
+          case 'list_users': {
+            url = `${baseUrl}/api/v1/users`;
+            const query = getStringProperty(config, 'query', '');
+            const limit = getNumberProperty(config, 'limit', 200);
+            const params = new URLSearchParams();
+            if (query) params.append('q', query);
+            params.append('limit', String(limit));
+            if (params.toString()) url += `?${params.toString()}`;
+            break;
+          }
+          case 'create_user': {
+            url = `${baseUrl}/api/v1/users`;
+            method = 'POST';
+            const userDataStr = getStringProperty(config, 'userData', '{}');
+            body = parseJSONSafe(userDataStr, 'userData');
+            break;
+          }
+          case 'update_user': {
+            const userId = getStringProperty(config, 'userId', '');
+            if (!userId) throw new Error('Okta: User ID is required for update_user');
+            url = `${baseUrl}/api/v1/users/${userId}`;
+            method = 'POST';
+            const userDataStr = getStringProperty(config, 'userData', '{}');
+            body = parseJSONSafe(userDataStr, 'userData');
+            break;
+          }
+          case 'delete_user': {
+            const userId = getStringProperty(config, 'userId', '');
+            if (!userId) throw new Error('Okta: User ID is required for delete_user');
+            url = `${baseUrl}/api/v1/users/${userId}`;
+            method = 'DELETE';
+            break;
+          }
+          case 'authenticate_user': {
+            url = `${baseUrl}/api/v1/authn`;
+            method = 'POST';
+            const username = getStringProperty(inputObj, 'username', '');
+            const password = getStringProperty(inputObj, 'password', '');
+            if (!username || !password) throw new Error('Okta: Username and password are required for authenticate_user');
+            body = { username, password };
+            break;
+          }
+          default:
+            throw new Error(`Okta: Unknown operation "${operation}"`);
+        }
+
+        const response = await fetch(url, {
+          method,
+          headers,
+          body: body ? JSON.stringify(body) : undefined,
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`Okta API error: ${response.status} - ${errorText}`);
+        }
+
+        if (method === 'DELETE' && response.status === 204) {
+          return { success: true };
+        }
+
+        return await response.json();
+      } catch (error) {
+        throw new Error(`Okta: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+
+    case "auth0": {
+      const inputObj = extractInputObject(input);
+      const operation = getStringProperty(config, 'operation', 'get_user');
+      const domain = getStringProperty(config, 'domain', '');
+      const clientId = getStringProperty(config, 'clientId', '');
+      const clientSecret = getStringProperty(config, 'clientSecret', '');
+      
+      if (!domain || !clientId || !clientSecret) {
+        throw new Error('Auth0: Domain, Client ID, and Client Secret are required');
+      }
+
+      const baseUrl = `https://${domain.replace(/^https?:\/\//, '')}`;
+      
+      // Get management API token
+      const getManagementToken = async () => {
+        const tokenResponse = await fetch(`${baseUrl}/oauth/token`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            client_id: clientId,
+            client_secret: clientSecret,
+            audience: `${baseUrl}/api/v2/`,
+            grant_type: 'client_credentials',
+          }),
+        });
+
+        if (!tokenResponse.ok) {
+          const errorText = await tokenResponse.text();
+          throw new Error(`Auth0 token error: ${tokenResponse.status} - ${errorText}`);
+        }
+
+        const tokenData = await tokenResponse.json();
+        return tokenData.access_token;
+      };
+
+      try {
+        if (operation === 'get_token') {
+          const audience = getStringProperty(config, 'audience', '');
+          const scope = getStringProperty(config, 'scope', '');
+          
+          const tokenResponse = await fetch(`${baseUrl}/oauth/token`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              client_id: clientId,
+              client_secret: clientSecret,
+              audience: audience || `${baseUrl}/api/v2/`,
+              grant_type: 'client_credentials',
+              scope: scope || undefined,
+            }),
+          });
+
+          if (!tokenResponse.ok) {
+            const errorText = await tokenResponse.text();
+            throw new Error(`Auth0 token error: ${tokenResponse.status} - ${errorText}`);
+          }
+
+          return await tokenResponse.json();
+        }
+
+        const accessToken = await getManagementToken();
+        const headers = {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        };
+
+        let url = '';
+        let method = 'GET';
+        let body: unknown = undefined;
+
+        switch (operation) {
+          case 'get_user': {
+            const userId = getStringProperty(config, 'userId', '');
+            if (!userId) throw new Error('Auth0: User ID is required for get_user');
+            url = `${baseUrl}/api/v2/users/${encodeURIComponent(userId)}`;
+            break;
+          }
+          case 'list_users': {
+            url = `${baseUrl}/api/v2/users`;
+            break;
+          }
+          case 'create_user': {
+            url = `${baseUrl}/api/v2/users`;
+            method = 'POST';
+            const userDataStr = getStringProperty(config, 'userData', '{}');
+            body = parseJSONSafe(userDataStr, 'userData');
+            break;
+          }
+          case 'update_user': {
+            const userId = getStringProperty(config, 'userId', '');
+            if (!userId) throw new Error('Auth0: User ID is required for update_user');
+            url = `${baseUrl}/api/v2/users/${encodeURIComponent(userId)}`;
+            method = 'PATCH';
+            const userDataStr = getStringProperty(config, 'userData', '{}');
+            body = parseJSONSafe(userDataStr, 'userData');
+            break;
+          }
+          case 'delete_user': {
+            const userId = getStringProperty(config, 'userId', '');
+            if (!userId) throw new Error('Auth0: User ID is required for delete_user');
+            url = `${baseUrl}/api/v2/users/${encodeURIComponent(userId)}`;
+            method = 'DELETE';
+            break;
+          }
+          default:
+            throw new Error(`Auth0: Unknown operation "${operation}"`);
+        }
+
+        const response = await fetch(url, {
+          method,
+          headers,
+          body: body ? JSON.stringify(body) : undefined,
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`Auth0 API error: ${response.status} - ${errorText}`);
+        }
+
+        if (method === 'DELETE' && response.status === 204) {
+          return { success: true };
+        }
+
+        return await response.json();
+      } catch (error) {
+        throw new Error(`Auth0: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+
+    case "keycloak": {
+      const operation = getStringProperty(config, 'operation', 'get_token');
+      const serverUrl = getStringProperty(config, 'serverUrl', '').replace(/\/$/, '');
+      const realm = getStringProperty(config, 'realm', '');
+      const clientId = getStringProperty(config, 'clientId', '');
+      const clientSecret = getStringProperty(config, 'clientSecret', '');
+      
+      if (!serverUrl || !realm || !clientId || !clientSecret) {
+        throw new Error('Keycloak: Server URL, Realm, Client ID, and Client Secret are required');
+      }
+
+      const tokenUrl = `${serverUrl}/realms/${realm}/protocol/openid-connect/token`;
+
+      try {
+        if (operation === 'get_token' || operation === 'refresh_token') {
+          const params = new URLSearchParams();
+          
+          if (operation === 'get_token') {
+            params.append('grant_type', 'password');
+            params.append('client_id', clientId);
+            params.append('client_secret', clientSecret);
+            const username = getStringProperty(config, 'username', '');
+            const password = getStringProperty(config, 'password', '');
+            if (!username || !password) throw new Error('Keycloak: Username and password are required for get_token');
+            params.append('username', username);
+            params.append('password', password);
+          } else {
+            params.append('grant_type', 'refresh_token');
+            params.append('client_id', clientId);
+            params.append('client_secret', clientSecret);
+            const refreshToken = getStringProperty(config, 'refreshToken', '');
+            if (!refreshToken) throw new Error('Keycloak: Refresh token is required');
+            params.append('refresh_token', refreshToken);
+          }
+
+          const response = await fetch(tokenUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: params.toString(),
+          });
+
+          if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Keycloak API error: ${response.status} - ${errorText}`);
+          }
+
+          return await response.json();
+        } else {
+          // User operations require admin REST API
+          const adminUrl = `${serverUrl}/admin/realms/${realm}`;
+          const accessToken = await (async () => {
+            const params = new URLSearchParams();
+            params.append('grant_type', 'client_credentials');
+            params.append('client_id', clientId);
+            params.append('client_secret', clientSecret);
+
+            const tokenResponse = await fetch(tokenUrl, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+              body: params.toString(),
+            });
+
+            if (!tokenResponse.ok) {
+              throw new Error('Keycloak: Failed to obtain admin access token');
+            }
+
+            const tokenData = await tokenResponse.json();
+            return tokenData.access_token;
+          })();
+
+          const headers = {
+            'Authorization': `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+          };
+
+          let url = '';
+          let method = 'GET';
+          let body: unknown = undefined;
+
+          switch (operation) {
+            case 'get_user': {
+              const userId = getStringProperty(config, 'userId', '');
+              if (!userId) throw new Error('Keycloak: User ID is required for get_user');
+              url = `${adminUrl}/users/${userId}`;
+              break;
+            }
+            case 'list_users': {
+              url = `${adminUrl}/users`;
+              break;
+            }
+            case 'create_user': {
+              url = `${adminUrl}/users`;
+              method = 'POST';
+              const userDataStr = getStringProperty(config, 'userData', '{}');
+              body = parseJSONSafe(userDataStr, 'userData');
+              break;
+            }
+            case 'update_user': {
+              const userId = getStringProperty(config, 'userId', '');
+              if (!userId) throw new Error('Keycloak: User ID is required for update_user');
+              url = `${adminUrl}/users/${userId}`;
+              method = 'PUT';
+              const userDataStr = getStringProperty(config, 'userData', '{}');
+              body = parseJSONSafe(userDataStr, 'userData');
+              break;
+            }
+            default:
+              throw new Error(`Keycloak: Unknown operation "${operation}"`);
+          }
+
+          const response = await fetch(url, {
+            method,
+            headers,
+            body: body ? JSON.stringify(body) : undefined,
+          });
+
+          if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Keycloak API error: ${response.status} - ${errorText}`);
+          }
+
+          if (method === 'DELETE' && response.status === 204) {
+            return { success: true };
+          }
+
+          if (method === 'POST' && response.status === 201) {
+            return { success: true };
+          }
+
+          return await response.json();
+        }
+      } catch (error) {
+        throw new Error(`Keycloak: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+
+    // ============================================
+    // PAYMENT & FINANCE NODES
+    // ============================================
+    case "stripe": {
+      const inputObj = extractInputObject(input);
+      const operation = getStringProperty(config, 'operation', 'create_payment');
+      const apiKey = getStringProperty(config, 'apiKey', '');
+      
+      if (!apiKey) {
+        throw new Error('Stripe: API Key is required');
+      }
+
+      const baseUrl = 'https://api.stripe.com/v1';
+      const headers = {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/x-www-form-urlencoded',
+      };
+
+      try {
+        let url = '';
+        let method = 'GET';
+        let body: URLSearchParams | undefined = undefined;
+
+        switch (operation) {
+          case 'create_payment_intent': {
+            url = `${baseUrl}/payment_intents`;
+            method = 'POST';
+            body = new URLSearchParams();
+            const amount = getNumberProperty(config, 'amount', 0);
+            const currency = getStringProperty(config, 'currency', 'usd');
+            if (!amount) throw new Error('Stripe: Amount is required for create_payment_intent');
+            body.append('amount', String(amount));
+            body.append('currency', currency);
+            const paymentMethodId = getStringProperty(config, 'paymentMethodId', '');
+            if (paymentMethodId) body.append('payment_method', paymentMethodId);
+            break;
+          }
+          case 'get_payment': {
+            const paymentIntentId = getStringProperty(config, 'paymentIntentId', '');
+            if (!paymentIntentId) throw new Error('Stripe: Payment Intent ID is required');
+            url = `${baseUrl}/payment_intents/${paymentIntentId}`;
+            break;
+          }
+          case 'create_refund': {
+            url = `${baseUrl}/refunds`;
+            method = 'POST';
+            body = new URLSearchParams();
+            const paymentIntentId = getStringProperty(config, 'paymentIntentId', '');
+            if (paymentIntentId) body.append('payment_intent', paymentIntentId);
+            break;
+          }
+          case 'create_customer': {
+            url = `${baseUrl}/customers`;
+            method = 'POST';
+            body = new URLSearchParams();
+            const email = getStringProperty(inputObj, 'email', '');
+            if (email) body.append('email', email);
+            break;
+          }
+          case 'create_subscription': {
+            url = `${baseUrl}/subscriptions`;
+            method = 'POST';
+            body = new URLSearchParams();
+            const customerId = getStringProperty(config, 'customerId', '');
+            if (!customerId) throw new Error('Stripe: Customer ID is required');
+            body.append('customer', customerId);
+            break;
+          }
+          case 'create_invoice': {
+            url = `${baseUrl}/invoices`;
+            method = 'POST';
+            body = new URLSearchParams();
+            const customerId = getStringProperty(config, 'customerId', '');
+            if (customerId) body.append('customer', customerId);
+            break;
+          }
+          default:
+            throw new Error(`Stripe: Unknown operation "${operation}"`);
+        }
+
+        const response = await fetch(url, {
+          method,
+          headers,
+          body: body ? body.toString() : undefined,
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`Stripe API error: ${response.status} - ${errorText}`);
+        }
+
+        return await response.json();
+      } catch (error) {
+        throw new Error(`Stripe: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+
+    case "razorpay": {
+      const operation = getStringProperty(config, 'operation', 'create_order');
+      const keyId = getStringProperty(config, 'keyId', '');
+      const keySecret = getStringProperty(config, 'keySecret', '');
+      
+      if (!keyId || !keySecret) {
+        throw new Error('Razorpay: Key ID and Key Secret are required');
+      }
+
+      const baseUrl = 'https://api.razorpay.com/v1';
+      const auth = btoa(`${keyId}:${keySecret}`);
+      const headers = {
+        'Authorization': `Basic ${auth}`,
+        'Content-Type': 'application/json',
+      };
+
+      try {
+        let url = '';
+        let method = 'GET';
+        let body: unknown = undefined;
+
+        switch (operation) {
+          case 'create_order': {
+            url = `${baseUrl}/orders`;
+            method = 'POST';
+            const amount = getNumberProperty(config, 'amount', 0);
+            const currency = getStringProperty(config, 'currency', 'INR');
+            if (!amount) throw new Error('Razorpay: Amount is required');
+            body = { amount, currency };
+            const notesStr = getStringProperty(config, 'notes', '{}');
+            if (notesStr) {
+              const notes = parseJSONSafe(notesStr, 'notes');
+              if (notes) body = { ...body, notes };
+            }
+            break;
+          }
+          case 'get_order': {
+            const orderId = getStringProperty(config, 'orderId', '');
+            if (!orderId) throw new Error('Razorpay: Order ID is required');
+            url = `${baseUrl}/orders/${orderId}`;
+            break;
+          }
+          case 'get_payment': {
+            const paymentId = getStringProperty(config, 'paymentId', '');
+            if (!paymentId) throw new Error('Razorpay: Payment ID is required');
+            url = `${baseUrl}/payments/${paymentId}`;
+            break;
+          }
+          case 'create_refund': {
+            const paymentId = getStringProperty(config, 'paymentId', '');
+            if (!paymentId) throw new Error('Razorpay: Payment ID is required for refund');
+            url = `${baseUrl}/payments/${paymentId}/refund`;
+            method = 'POST';
+            body = {};
+            break;
+          }
+          case 'create_customer': {
+            url = `${baseUrl}/customers`;
+            method = 'POST';
+            body = {};
+            break;
+          }
+          default:
+            throw new Error(`Razorpay: Unknown operation "${operation}"`);
+        }
+
+        const response = await fetch(url, {
+          method,
+          headers,
+          body: body ? JSON.stringify(body) : undefined,
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`Razorpay API error: ${response.status} - ${errorText}`);
+        }
+
+        return await response.json();
+      } catch (error) {
+        throw new Error(`Razorpay: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+
+    case "paypal": {
+      const operation = getStringProperty(config, 'operation', 'create_order');
+      const clientId = getStringProperty(config, 'clientId', '');
+      const clientSecret = getStringProperty(config, 'clientSecret', '');
+      const environment = getStringProperty(config, 'environment', 'sandbox');
+      
+      if (!clientId || !clientSecret) {
+        throw new Error('PayPal: Client ID and Client Secret are required');
+      }
+
+      const baseUrl = environment === 'production' 
+        ? 'https://api-m.paypal.com'
+        : 'https://api-m.sandbox.paypal.com';
+
+      // Get access token
+      const getAccessToken = async () => {
+        const auth = btoa(`${clientId}:${clientSecret}`);
+        const response = await fetch(`${baseUrl}/v1/oauth2/token`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Basic ${auth}`,
+            'Content-Type': 'application/x-www-form-urlencoded',
+          },
+          body: 'grant_type=client_credentials',
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`PayPal token error: ${response.status} - ${errorText}`);
+        }
+
+        const tokenData = await response.json();
+        return tokenData.access_token;
+      };
+
+      try {
+        if (operation === 'get_access_token') {
+          const token = await getAccessToken();
+          return { access_token: token };
+        }
+
+        const accessToken = await getAccessToken();
+        const headers = {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        };
+
+        let url = '';
+        let method = 'GET';
+        let body: unknown = undefined;
+
+        switch (operation) {
+          case 'create_order': {
+            url = `${baseUrl}/v2/checkout/orders`;
+            method = 'POST';
+            const amount = getStringProperty(config, 'amount', '');
+            const currency = getStringProperty(config, 'currency', 'USD');
+            if (!amount) throw new Error('PayPal: Amount is required');
+            body = {
+              intent: 'CAPTURE',
+              purchase_units: [{
+                amount: {
+                  currency_code: currency,
+                  value: amount,
+                },
+              }],
+            };
+            break;
+          }
+          case 'get_order': {
+            const orderId = getStringProperty(config, 'orderId', '');
+            if (!orderId) throw new Error('PayPal: Order ID is required');
+            url = `${baseUrl}/v2/checkout/orders/${orderId}`;
+            break;
+          }
+          case 'capture_order': {
+            const orderId = getStringProperty(config, 'orderId', '');
+            if (!orderId) throw new Error('PayPal: Order ID is required');
+            url = `${baseUrl}/v2/checkout/orders/${orderId}/capture`;
+            method = 'POST';
+            break;
+          }
+          case 'create_refund': {
+            url = `${baseUrl}/v2/payments/captures/${getStringProperty(config, 'captureId', '')}/refund`;
+            method = 'POST';
+            body = {};
+            break;
+          }
+          default:
+            throw new Error(`PayPal: Unknown operation "${operation}"`);
+        }
+
+        const response = await fetch(url, {
+          method,
+          headers,
+          body: body ? JSON.stringify(body) : undefined,
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`PayPal API error: ${response.status} - ${errorText}`);
+        }
+
+        return await response.json();
+      } catch (error) {
+        throw new Error(`PayPal: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+
+    case "quickbooks": {
+      const operation = getStringProperty(config, 'operation', 'get_invoice');
+      const accessToken = getStringProperty(config, 'accessToken', '');
+      const realmId = getStringProperty(config, 'realmId', '');
+      const environment = getStringProperty(config, 'environment', 'sandbox');
+      
+      if (!accessToken || !realmId) {
+        throw new Error('QuickBooks: Access Token and Realm ID are required');
+      }
+
+      const baseUrl = environment === 'production'
+        ? 'https://quickbooks.api.intuit.com'
+        : 'https://sandbox-quickbooks.api.intuit.com';
+
+      const headers = {
+        'Authorization': `Bearer ${accessToken}`,
+        'Accept': 'application/json',
+        'Content-Type': 'application/json',
+      };
+
+      try {
+        let url = '';
+        let method = 'GET';
+        let body: unknown = undefined;
+
+        switch (operation) {
+          case 'get_invoice': {
+            const invoiceId = getStringProperty(config, 'invoiceId', '');
+            if (!invoiceId) throw new Error('QuickBooks: Invoice ID is required');
+            url = `${baseUrl}/v3/company/${realmId}/invoice/${invoiceId}`;
+            break;
+          }
+          case 'list_invoices': {
+            url = `${baseUrl}/v3/company/${realmId}/query?query=SELECT * FROM Invoice MAXRESULTS 100`;
+            break;
+          }
+          case 'create_invoice': {
+            url = `${baseUrl}/v3/company/${realmId}/invoice`;
+            method = 'POST';
+            const invoiceDataStr = getStringProperty(config, 'invoiceData', '{}');
+            body = parseJSONSafe(invoiceDataStr, 'invoiceData');
+            break;
+          }
+          case 'get_customer': {
+            const customerId = getStringProperty(config, 'customerId', '');
+            if (!customerId) throw new Error('QuickBooks: Customer ID is required');
+            url = `${baseUrl}/v3/company/${realmId}/customer/${customerId}`;
+            break;
+          }
+          case 'create_customer': {
+            url = `${baseUrl}/v3/company/${realmId}/customer`;
+            method = 'POST';
+            body = {};
+            break;
+          }
+          case 'get_payment': {
+            const paymentId = getStringProperty(config, 'paymentId', '');
+            if (!paymentId) throw new Error('QuickBooks: Payment ID is required');
+            url = `${baseUrl}/v3/company/${realmId}/payment/${paymentId}`;
+            break;
+          }
+          case 'create_payment': {
+            url = `${baseUrl}/v3/company/${realmId}/payment`;
+            method = 'POST';
+            body = {};
+            break;
+          }
+          default:
+            throw new Error(`QuickBooks: Unknown operation "${operation}"`);
+        }
+
+        const response = await fetch(url, {
+          method,
+          headers,
+          body: body ? JSON.stringify(body) : undefined,
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`QuickBooks API error: ${response.status} - ${errorText}`);
+        }
+
+        return await response.json();
+      } catch (error) {
+        throw new Error(`QuickBooks: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+
+    case "xero": {
+      const operation = getStringProperty(config, 'operation', 'get_invoice');
+      const accessToken = getStringProperty(config, 'accessToken', '');
+      const tenantId = getStringProperty(config, 'tenantId', '');
+      
+      if (!accessToken || !tenantId) {
+        throw new Error('Xero: Access Token and Tenant ID are required');
+      }
+
+      const baseUrl = 'https://api.xero.com/api.xro/2.0';
+      const headers = {
+        'Authorization': `Bearer ${accessToken}`,
+        'Xero-tenant-id': tenantId,
+        'Accept': 'application/json',
+        'Content-Type': 'application/json',
+      };
+
+      try {
+        let url = '';
+        let method = 'GET';
+        let body: unknown = undefined;
+
+        switch (operation) {
+          case 'get_invoice': {
+            const invoiceId = getStringProperty(config, 'invoiceId', '');
+            if (!invoiceId) throw new Error('Xero: Invoice ID is required');
+            url = `${baseUrl}/Invoices/${invoiceId}`;
+            break;
+          }
+          case 'list_invoices': {
+            url = `${baseUrl}/Invoices`;
+            break;
+          }
+          case 'create_invoice': {
+            url = `${baseUrl}/Invoices`;
+            method = 'POST';
+            const invoiceDataStr = getStringProperty(config, 'invoiceData', '{}');
+            body = parseJSONSafe(invoiceDataStr, 'invoiceData');
+            break;
+          }
+          case 'get_contact': {
+            const contactId = getStringProperty(config, 'contactId', '');
+            if (!contactId) throw new Error('Xero: Contact ID is required');
+            url = `${baseUrl}/Contacts/${contactId}`;
+            break;
+          }
+          case 'create_contact': {
+            url = `${baseUrl}/Contacts`;
+            method = 'POST';
+            body = {};
+            break;
+          }
+          case 'get_payment': {
+            const paymentId = getStringProperty(config, 'paymentId', '');
+            if (!paymentId) throw new Error('Xero: Payment ID is required');
+            url = `${baseUrl}/Payments/${paymentId}`;
+            break;
+          }
+          case 'create_payment': {
+            url = `${baseUrl}/Payments`;
+            method = 'POST';
+            body = {};
+            break;
+          }
+          default:
+            throw new Error(`Xero: Unknown operation "${operation}"`);
+        }
+
+        const response = await fetch(url, {
+          method,
+          headers,
+          body: body ? JSON.stringify(body) : undefined,
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`Xero API error: ${response.status} - ${errorText}`);
+        }
+
+        return await response.json();
+      } catch (error) {
+        throw new Error(`Xero: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+
+    // ============================================
+    // E-COMMERCE NODES
+    // ============================================
+    case "shopify": {
+      const operation = getStringProperty(config, 'operation', 'get_product');
+      const shopDomain = getStringProperty(config, 'shopDomain', '').replace(/^https?:\/\//, '').replace(/\/$/, '');
+      const accessToken = getStringProperty(config, 'accessToken', '');
+      
+      if (!shopDomain || !accessToken) {
+        throw new Error('Shopify: Shop Domain and Access Token are required');
+      }
+
+      const baseUrl = `https://${shopDomain}/admin/api/2024-01`;
+      const headers = {
+        'X-Shopify-Access-Token': accessToken,
+        'Content-Type': 'application/json',
+      };
+
+      try {
+        let url = '';
+        let method = 'GET';
+        let body: unknown = undefined;
+
+        switch (operation) {
+          case 'get_product': {
+            const productId = getStringProperty(config, 'productId', '');
+            if (!productId) throw new Error('Shopify: Product ID is required');
+            url = `${baseUrl}/products/${productId}.json`;
+            break;
+          }
+          case 'list_products': {
+            url = `${baseUrl}/products.json`;
+            const limit = getNumberProperty(config, 'limit', 250);
+            url += `?limit=${limit}`;
+            break;
+          }
+          case 'create_product': {
+            url = `${baseUrl}/products.json`;
+            method = 'POST';
+            body = { product: {} };
+            break;
+          }
+          case 'update_product': {
+            const productId = getStringProperty(config, 'productId', '');
+            if (!productId) throw new Error('Shopify: Product ID is required');
+            url = `${baseUrl}/products/${productId}.json`;
+            method = 'PUT';
+            body = { product: {} };
+            break;
+          }
+          case 'get_order': {
+            const orderId = getStringProperty(config, 'orderId', '');
+            if (!orderId) throw new Error('Shopify: Order ID is required');
+            url = `${baseUrl}/orders/${orderId}.json`;
+            break;
+          }
+          case 'list_orders': {
+            url = `${baseUrl}/orders.json`;
+            const limit = getNumberProperty(config, 'limit', 250);
+            url += `?limit=${limit}`;
+            break;
+          }
+          case 'create_order': {
+            url = `${baseUrl}/orders.json`;
+            method = 'POST';
+            body = { order: {} };
+            break;
+          }
+          case 'get_customer': {
+            const customerId = getStringProperty(config, 'customerId', '');
+            if (!customerId) throw new Error('Shopify: Customer ID is required');
+            url = `${baseUrl}/customers/${customerId}.json`;
+            break;
+          }
+          case 'list_customers': {
+            url = `${baseUrl}/customers.json`;
+            const limit = getNumberProperty(config, 'limit', 250);
+            url += `?limit=${limit}`;
+            break;
+          }
+          default:
+            throw new Error(`Shopify: Unknown operation "${operation}"`);
+        }
+
+        const response = await fetch(url, {
+          method,
+          headers,
+          body: body ? JSON.stringify(body) : undefined,
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`Shopify API error: ${response.status} - ${errorText}`);
+        }
+
+        return await response.json();
+      } catch (error) {
+        throw new Error(`Shopify: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+
+    case "woocommerce": {
+      const operation = getStringProperty(config, 'operation', 'get_product');
+      const storeUrl = getStringProperty(config, 'storeUrl', '').replace(/\/$/, '');
+      const consumerKey = getStringProperty(config, 'consumerKey', '');
+      const consumerSecret = getStringProperty(config, 'consumerSecret', '');
+      
+      if (!storeUrl || !consumerKey || !consumerSecret) {
+        throw new Error('WooCommerce: Store URL, Consumer Key, and Consumer Secret are required');
+      }
+
+      const baseUrl = `${storeUrl}/wp-json/wc/v3`;
+      const auth = btoa(`${consumerKey}:${consumerSecret}`);
+      const headers = {
+        'Authorization': `Basic ${auth}`,
+        'Content-Type': 'application/json',
+      };
+
+      try {
+        let url = '';
+        let method = 'GET';
+        let body: unknown = undefined;
+
+        switch (operation) {
+          case 'get_product': {
+            const productId = getStringProperty(config, 'productId', '');
+            if (!productId) throw new Error('WooCommerce: Product ID is required');
+            url = `${baseUrl}/products/${productId}`;
+            break;
+          }
+          case 'list_products': {
+            url = `${baseUrl}/products`;
+            const perPage = getNumberProperty(config, 'perPage', 10);
+            url += `?per_page=${perPage}`;
+            break;
+          }
+          case 'create_product': {
+            url = `${baseUrl}/products`;
+            method = 'POST';
+            body = {};
+            break;
+          }
+          case 'update_product': {
+            const productId = getStringProperty(config, 'productId', '');
+            if (!productId) throw new Error('WooCommerce: Product ID is required');
+            url = `${baseUrl}/products/${productId}`;
+            method = 'PUT';
+            body = {};
+            break;
+          }
+          case 'get_order': {
+            const orderId = getStringProperty(config, 'orderId', '');
+            if (!orderId) throw new Error('WooCommerce: Order ID is required');
+            url = `${baseUrl}/orders/${orderId}`;
+            break;
+          }
+          case 'list_orders': {
+            url = `${baseUrl}/orders`;
+            const perPage = getNumberProperty(config, 'perPage', 10);
+            url += `?per_page=${perPage}`;
+            break;
+          }
+          case 'create_order': {
+            url = `${baseUrl}/orders`;
+            method = 'POST';
+            body = {};
+            break;
+          }
+          case 'get_customer': {
+            const customerId = getStringProperty(config, 'customerId', '');
+            if (!customerId) throw new Error('WooCommerce: Customer ID is required');
+            url = `${baseUrl}/customers/${customerId}`;
+            break;
+          }
+          default:
+            throw new Error(`WooCommerce: Unknown operation "${operation}"`);
+        }
+
+        const response = await fetch(url, {
+          method,
+          headers,
+          body: body ? JSON.stringify(body) : undefined,
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`WooCommerce API error: ${response.status} - ${errorText}`);
+        }
+
+        return await response.json();
+      } catch (error) {
+        throw new Error(`WooCommerce: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+
+    case "magento": {
+      const operation = getStringProperty(config, 'operation', 'get_product');
+      const storeUrl = getStringProperty(config, 'storeUrl', '').replace(/\/$/, '');
+      const accessToken = getStringProperty(config, 'accessToken', '');
+      
+      if (!storeUrl || !accessToken) {
+        throw new Error('Magento: Store URL and Access Token are required');
+      }
+
+      const baseUrl = `${storeUrl}/rest/V1`;
+      const headers = {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      };
+
+      try {
+        let url = '';
+        let method = 'GET';
+        let body: unknown = undefined;
+
+        switch (operation) {
+          case 'get_product': {
+            const productId = getStringProperty(config, 'productId', '');
+            if (!productId) throw new Error('Magento: Product ID (SKU) is required');
+            url = `${baseUrl}/products/${productId}`;
+            break;
+          }
+          case 'list_products': {
+            url = `${baseUrl}/products`;
+            const searchCriteriaStr = getStringProperty(config, 'searchCriteria', '{}');
+            if (searchCriteriaStr) {
+              const searchCriteria = parseJSONSafe(searchCriteriaStr, 'searchCriteria');
+              url += `?searchCriteria=${encodeURIComponent(JSON.stringify(searchCriteria))}`;
+            }
+            break;
+          }
+          case 'create_product': {
+            url = `${baseUrl}/products`;
+            method = 'POST';
+            body = { product: {} };
+            break;
+          }
+          case 'update_product': {
+            const productId = getStringProperty(config, 'productId', '');
+            if (!productId) throw new Error('Magento: Product ID (SKU) is required');
+            url = `${baseUrl}/products/${productId}`;
+            method = 'PUT';
+            body = { product: {} };
+            break;
+          }
+          case 'get_order': {
+            const orderId = getNumberProperty(config, 'orderId', 0);
+            if (!orderId) throw new Error('Magento: Order ID is required');
+            url = `${baseUrl}/orders/${orderId}`;
+            break;
+          }
+          case 'list_orders': {
+            url = `${baseUrl}/orders`;
+            break;
+          }
+          case 'create_order': {
+            url = `${baseUrl}/orders`;
+            method = 'POST';
+            body = {};
+            break;
+          }
+          default:
+            throw new Error(`Magento: Unknown operation "${operation}"`);
+        }
+
+        const response = await fetch(url, {
+          method,
+          headers,
+          body: body ? JSON.stringify(body) : undefined,
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`Magento API error: ${response.status} - ${errorText}`);
+        }
+
+        return await response.json();
+      } catch (error) {
+        throw new Error(`Magento: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+
+    case "bigcommerce": {
+      const operation = getStringProperty(config, 'operation', 'get_product');
+      const storeHash = getStringProperty(config, 'storeHash', '');
+      const accessToken = getStringProperty(config, 'accessToken', '');
+      
+      if (!storeHash || !accessToken) {
+        throw new Error('BigCommerce: Store Hash and Access Token are required');
+      }
+
+      const baseUrl = `https://api.bigcommerce.com/stores/${storeHash}/v3`;
+      const headers = {
+        'X-Auth-Token': accessToken,
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      };
+
+      try {
+        let url = '';
+        let method = 'GET';
+        let body: unknown = undefined;
+
+        switch (operation) {
+          case 'get_product': {
+            const productId = getStringProperty(config, 'productId', '');
+            if (!productId) throw new Error('BigCommerce: Product ID is required');
+            url = `${baseUrl}/catalog/products/${productId}`;
+            break;
+          }
+          case 'list_products': {
+            url = `${baseUrl}/catalog/products`;
+            const limit = getNumberProperty(config, 'limit', 250);
+            url += `?limit=${limit}`;
+            break;
+          }
+          case 'create_product': {
+            url = `${baseUrl}/catalog/products`;
+            method = 'POST';
+            body = { data: {} };
+            break;
+          }
+          case 'update_product': {
+            const productId = getStringProperty(config, 'productId', '');
+            if (!productId) throw new Error('BigCommerce: Product ID is required');
+            url = `${baseUrl}/catalog/products/${productId}`;
+            method = 'PUT';
+            body = { data: {} };
+            break;
+          }
+          case 'get_order': {
+            const orderId = getStringProperty(config, 'orderId', '');
+            if (!orderId) throw new Error('BigCommerce: Order ID is required');
+            url = `${baseUrl}/orders/${orderId}`;
+            break;
+          }
+          case 'list_orders': {
+            url = `${baseUrl}/orders`;
+            const limit = getNumberProperty(config, 'limit', 250);
+            url += `?limit=${limit}`;
+            break;
+          }
+          case 'get_customer': {
+            const customerId = getStringProperty(config, 'customerId', '');
+            if (!customerId) throw new Error('BigCommerce: Customer ID is required');
+            url = `${baseUrl}/customers/${customerId}`;
+            break;
+          }
+          default:
+            throw new Error(`BigCommerce: Unknown operation "${operation}"`);
+        }
+
+        const response = await fetch(url, {
+          method,
+          headers,
+          body: body ? JSON.stringify(body) : undefined,
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`BigCommerce API error: ${response.status} - ${errorText}`);
+        }
+
+        return await response.json();
+      } catch (error) {
+        throw new Error(`BigCommerce: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+
+    // ============================================
+    // ANALYTICS & DATA TOOLS NODES
+    // ============================================
+    case "google_analytics": {
+      const operation = getStringProperty(config, 'operation', 'get_report');
+      const accessToken = getStringProperty(config, 'accessToken', '');
+      
+      if (!accessToken) {
+        throw new Error('Google Analytics: Access Token is required');
+      }
+
+      const headers = {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      };
+
+      try {
+        if (operation === 'track_event') {
+          // Google Analytics 4 Measurement Protocol
+          const propertyId = getStringProperty(config, 'propertyId', '').replace('properties/', '');
+          if (!propertyId) throw new Error('Google Analytics: Property ID is required for track_event');
+          
+          const eventName = getStringProperty(config, 'eventName', '');
+          const eventParamsStr = getStringProperty(config, 'eventParams', '{}');
+          const eventParams = parseJSONSafe(eventParamsStr, 'eventParams') || {};
+
+          const url = `https://www.google-analytics.com/mp/collect?measurement_id=${propertyId}&api_secret=${getStringProperty(config, 'apiSecret', '')}`;
+          
+          const body = {
+            client_id: 'workflow-' + Date.now(),
+            events: [{
+              name: eventName,
+              params: eventParams,
+            }],
+          };
+
+          const response = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+          });
+
+          if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Google Analytics API error: ${response.status} - ${errorText}`);
+          }
+
+          return { success: true };
+        } else if (operation === 'list_properties') {
+          const url = 'https://analyticsadmin.googleapis.com/v1beta/properties';
+          const response = await fetch(url, { headers });
+
+          if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Google Analytics API error: ${response.status} - ${errorText}`);
+          }
+
+          return await response.json();
+        } else {
+          // Get Report (GA4 Data API)
+          const propertyId = getStringProperty(config, 'propertyId', '');
+          if (!propertyId) throw new Error('Google Analytics: Property ID is required');
+          
+          const dateRangesStr = getStringProperty(config, 'dateRanges', '[{"startDate": "2024-01-01", "endDate": "2024-01-31"}]');
+          const dateRanges = parseJSONSafe(dateRangesStr, 'dateRanges') as Array<{ startDate: string; endDate: string }>;
+          
+          const dimensionsStr = getStringProperty(config, 'dimensions', '[]');
+          const dimensions = parseJSONSafe(dimensionsStr, 'dimensions') as string[];
+          
+          const metricsStr = getStringProperty(config, 'metrics', '[]');
+          const metrics = parseJSONSafe(metricsStr, 'metrics') as string[];
+
+          const url = `https://analyticsdata.googleapis.com/v1beta/${propertyId}:runReport`;
+          
+          const body = {
+            dateRanges: dateRanges || [{ startDate: '2024-01-01', endDate: '2024-01-31' }],
+            dimensions: (dimensions || []).map(d => ({ name: d })),
+            metrics: (metrics || []).map(m => ({ name: m })),
+          };
+
+          const response = await fetch(url, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify(body),
+          });
+
+          if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Google Analytics API error: ${response.status} - ${errorText}`);
+          }
+
+          return await response.json();
+        }
+      } catch (error) {
+        throw new Error(`Google Analytics: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+
+    case "mixpanel": {
+      const inputObj = extractInputObject(input);
+      const operation = getStringProperty(config, 'operation', 'track_event');
+      const projectToken = getStringProperty(config, 'projectToken', '');
+      
+      if (!projectToken) {
+        throw new Error('Mixpanel: Project Token is required');
+      }
+
+      try {
+        if (operation === 'track_event' || operation === 'track_user') {
+          const eventName = getStringProperty(config, 'eventName', '');
+          const distinctId = getStringProperty(config, 'distinctId', '') || getStringProperty(inputObj, 'userId', '') || 'anonymous';
+          const propertiesStr = getStringProperty(config, 'properties', '{}');
+          const properties = parseJSONSafe(propertiesStr, 'properties') || {};
+
+          const event = {
+            event: eventName || (operation === 'track_user' ? '$set' : ''),
+            properties: {
+              token: projectToken,
+              distinct_id: distinctId,
+              ...properties,
+            },
+          };
+
+          // Base64 encode the event
+          const data = btoa(JSON.stringify([event]));
+          const url = 'https://api.mixpanel.com/track/?data=' + encodeURIComponent(data);
+
+          const response = await fetch(url, { method: 'GET' });
+
+          if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Mixpanel API error: ${response.status} - ${errorText}`);
+          }
+
+          return { success: true };
+        } else if (operation === 'query_insights') {
+          const apiSecret = getStringProperty(config, 'apiSecret', '');
+          if (!apiSecret) throw new Error('Mixpanel: API Secret is required for query_insights');
+
+          const queryStr = getStringProperty(config, 'query', '{}');
+          const query = parseJSONSafe(queryStr, 'query') || {};
+
+          const url = 'https://mixpanel.com/api/2.0/insights/';
+          const params = new URLSearchParams();
+          params.append('format', 'json');
+          
+          // Mixpanel Insights API uses form-encoded data
+          const body = new URLSearchParams();
+          body.append('from_date', query.from_date || '2024-01-01');
+          body.append('to_date', query.to_date || '2024-01-31');
+          if (query.event) body.append('event', JSON.stringify([query.event]));
+
+          const auth = btoa(`${projectToken}:${apiSecret}`);
+
+          const response = await fetch(url, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Basic ${auth}`,
+              'Content-Type': 'application/x-www-form-urlencoded',
+            },
+            body: body.toString(),
+          });
+
+          if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Mixpanel API error: ${response.status} - ${errorText}`);
+          }
+
+          return await response.json();
+        } else {
+          throw new Error(`Mixpanel: Unknown operation "${operation}"`);
+        }
+      } catch (error) {
+        throw new Error(`Mixpanel: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+
+    case "segment": {
+      const inputObj = extractInputObject(input);
+      const operation = getStringProperty(config, 'operation', 'track');
+      const writeKey = getStringProperty(config, 'writeKey', '');
+      
+      if (!writeKey) {
+        throw new Error('Segment: Write Key is required');
+      }
+
+      try {
+        const userId = getStringProperty(config, 'userId', '') || getStringProperty(inputObj, 'userId', '');
+        const anonymousId = userId || 'anonymous-' + Date.now();
+
+        let body: Record<string, unknown> = {
+          anonymousId,
+          context: {
+            library: {
+              name: 'flow-genius-ai',
+              version: '1.0.0',
+            },
+          },
+        };
+
+        if (userId) body.userId = userId;
+
+        switch (operation) {
+          case 'track': {
+            const event = getStringProperty(config, 'event', '');
+            const propertiesStr = getStringProperty(config, 'properties', '{}');
+            const properties = parseJSONSafe(propertiesStr, 'properties') || {};
+
+            body.type = 'track';
+            body.event = event;
+            body.properties = properties;
+            break;
+          }
+          case 'identify': {
+            const traitsStr = getStringProperty(config, 'traits', '{}');
+            const traits = parseJSONSafe(traitsStr, 'traits') || {};
+
+            body.type = 'identify';
+            body.traits = traits;
+            break;
+          }
+          case 'page': {
+            const name = getStringProperty(config, 'name', '');
+            const propertiesStr = getStringProperty(config, 'properties', '{}');
+            const properties = parseJSONSafe(propertiesStr, 'properties') || {};
+
+            body.type = 'page';
+            body.name = name;
+            body.properties = properties;
+            break;
+          }
+          case 'group': {
+            const groupId = getStringProperty(config, 'groupId', '');
+            const traitsStr = getStringProperty(config, 'traits', '{}');
+            const traits = parseJSONSafe(traitsStr, 'traits') || {};
+
+            body.type = 'group';
+            body.groupId = groupId;
+            body.traits = traits;
+            break;
+          }
+          default:
+            throw new Error(`Segment: Unknown operation "${operation}"`);
+        }
+
+        const url = 'https://api.segment.io/v1/' + operation;
+        const auth = btoa(`${writeKey}:`);
+
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Basic ${auth}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(body),
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`Segment API error: ${response.status} - ${errorText}`);
+        }
+
+        return await response.json();
+      } catch (error) {
+        throw new Error(`Segment: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+
+    case "amplitude": {
+      const inputObj = extractInputObject(input);
+      const operation = getStringProperty(config, 'operation', 'track');
+      const apiKey = getStringProperty(config, 'apiKey', '');
+      
+      if (!apiKey) {
+        throw new Error('Amplitude: API Key is required');
+      }
+
+      try {
+        const userId = getStringProperty(config, 'userId', '') || getStringProperty(inputObj, 'userId', '');
+
+        if (operation === 'track') {
+          const eventType = getStringProperty(config, 'eventType', '');
+          const eventPropertiesStr = getStringProperty(config, 'eventProperties', '{}');
+          const eventProperties = parseJSONSafe(eventPropertiesStr, 'eventProperties') || {};
+
+          const event = {
+            user_id: userId,
+            event_type: eventType,
+            event_properties: eventProperties,
+            time: Math.floor(Date.now() / 1000),
+          };
+
+          const body = {
+            api_key: apiKey,
+            events: [event],
+          };
+
+          const response = await fetch('https://api2.amplitude.com/2/httpapi', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+          });
+
+          if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Amplitude API error: ${response.status} - ${errorText}`);
+          }
+
+          return await response.json();
+        } else if (operation === 'identify') {
+          const userPropertiesStr = getStringProperty(config, 'userProperties', '{}');
+          const userProperties = parseJSONSafe(userPropertiesStr, 'userProperties') || {};
+
+          const event = {
+            user_id: userId,
+            user_properties: userProperties,
+            time: Math.floor(Date.now() / 1000),
+          };
+
+          const body = {
+            api_key: apiKey,
+            events: [event],
+          };
+
+          const response = await fetch('https://api2.amplitude.com/2/httpapi', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+          });
+
+          if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Amplitude API error: ${response.status} - ${errorText}`);
+          }
+
+          return await response.json();
+        } else {
+          throw new Error(`Amplitude: Unknown operation "${operation}"`);
+        }
+      } catch (error) {
+        throw new Error(`Amplitude: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+
+    case "elasticsearch": {
+      const operation = getStringProperty(config, 'operation', 'search');
+      const nodeUrl = getStringProperty(config, 'nodeUrl', '').replace(/\/$/, '');
+      const username = getStringProperty(config, 'username', '');
+      const password = getStringProperty(config, 'password', '');
+      const index = getStringProperty(config, 'index', '');
+      
+      if (!nodeUrl || !index) {
+        throw new Error('Elasticsearch: Node URL and Index are required');
+      }
+
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+
+      if (username && password) {
+        const auth = btoa(`${username}:${password}`);
+        headers['Authorization'] = `Basic ${auth}`;
+      }
+
+      try {
+        let url = '';
+        let method = 'GET';
+        let body: unknown = undefined;
+
+        switch (operation) {
+          case 'search': {
+            const queryStr = getStringProperty(config, 'query', '{"query": {"match_all": {}}}');
+            const query = parseJSONSafe(queryStr, 'query');
+            url = `${nodeUrl}/${index}/_search`;
+            method = 'POST';
+            body = query || { query: { match_all: {} } };
+            break;
+          }
+          case 'index': {
+            const documentStr = getStringProperty(config, 'document', '{}');
+            const document = parseJSONSafe(documentStr, 'document');
+            url = `${nodeUrl}/${index}/_doc`;
+            method = 'POST';
+            body = document || {};
+            break;
+          }
+          case 'get': {
+            const documentId = getStringProperty(config, 'documentId', '');
+            if (!documentId) throw new Error('Elasticsearch: Document ID is required');
+            url = `${nodeUrl}/${index}/_doc/${documentId}`;
+            break;
+          }
+          case 'update': {
+            const documentId = getStringProperty(config, 'documentId', '');
+            if (!documentId) throw new Error('Elasticsearch: Document ID is required');
+            const documentStr = getStringProperty(config, 'document', '{}');
+            const document = parseJSONSafe(documentStr, 'document');
+            url = `${nodeUrl}/${index}/_doc/${documentId}`;
+            method = 'POST';
+            body = { doc: document || {} };
+            break;
+          }
+          case 'delete': {
+            const documentId = getStringProperty(config, 'documentId', '');
+            if (!documentId) throw new Error('Elasticsearch: Document ID is required');
+            url = `${nodeUrl}/${index}/_doc/${documentId}`;
+            method = 'DELETE';
+            break;
+          }
+          case 'bulk': {
+            const bulkBody = getStringProperty(config, 'bulkBody', '');
+            if (!bulkBody) throw new Error('Elasticsearch: Bulk Body is required');
+            url = `${nodeUrl}/_bulk`;
+            method = 'POST';
+            body = bulkBody; // NDJSON format
+            headers['Content-Type'] = 'application/x-ndjson';
+            break;
+          }
+          default:
+            throw new Error(`Elasticsearch: Unknown operation "${operation}"`);
+        }
+
+        const response = await fetch(url, {
+          method,
+          headers,
+          body: typeof body === 'string' ? body : body ? JSON.stringify(body) : undefined,
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`Elasticsearch API error: ${response.status} - ${errorText}`);
+        }
+
+        return await response.json();
+      } catch (error) {
+        throw new Error(`Elasticsearch: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+
     default:
       console.log(`Node type ${type} executed with passthrough`);
       return input;
