@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Switch } from '@/components/ui/switch';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import NodeUsageCard from './NodeUsageCard';
 import GoogleSheetsSettings from './GoogleSheetsSettings';
 import {
@@ -35,6 +36,9 @@ export default function PropertiesPanel() {
   // Resizable sidebar state
   const [width, setWidth] = useState(400); // Increased default width from 320px (w-80) to 400px
   const [isResizing, setIsResizing] = useState(false);
+  
+  // Help sidebar state
+  const [selectedHelp, setSelectedHelp] = useState<{ title: string; steps: string[] } | null>(null);
 
   // Resize handlers
   const startResizing = useCallback(() => {
@@ -99,6 +103,68 @@ export default function PropertiesPanel() {
   // Stop event propagation to prevent ReactFlow from stealing focus
   const handleInputMouseDown = (e: React.MouseEvent) => {
     e.stopPropagation();
+  };
+
+  // Parse helpText to extract title and steps
+  const parseHelpText = (helpText: string): { title: string; steps: string[] } | null => {
+    if (!helpText || !helpText.startsWith('How to get')) {
+      return null;
+    }
+    
+    // Extract title (everything before the colon)
+    const colonIndex = helpText.indexOf(':');
+    if (colonIndex === -1) return null;
+    
+    const title = helpText.substring(0, colonIndex).trim();
+    const content = helpText.substring(colonIndex + 1).trim();
+    
+    // Extract steps (numbered items like "1) ... 2) ...")
+    const steps: string[] = [];
+    
+    // Split by numbered steps pattern: "1) ", "2) ", etc.
+    const stepParts = content.split(/(?=\d+\)\s)/);
+    
+    for (const part of stepParts) {
+      const stepMatch = part.match(/^\d+\)\s*(.+?)(?=\s*\d+\)|$)/s);
+      if (stepMatch) {
+        const stepText = stepMatch[1].trim();
+        if (stepText.length > 0) {
+          steps.push(stepText);
+        }
+      } else {
+        // If no match, try to extract any remaining text
+        const cleaned = part.replace(/^\d+\)\s*/, '').trim();
+        if (cleaned.length > 0) {
+          steps.push(cleaned);
+        }
+      }
+    }
+    
+    // If still no steps found, try alternative parsing
+    if (steps.length === 0) {
+      // Try splitting by "Method 1", "Method 2", etc. or by periods
+      const alternativeSteps = content
+        .split(/(?=Method \d+:|Step \d+:|^\d+\.)/)
+        .filter(s => s.trim().length > 0)
+        .map(s => s.replace(/^(Method \d+:|Step \d+:|\d+\.)\s*/, '').trim())
+        .filter(s => s.length > 0);
+      
+      if (alternativeSteps.length > 0) {
+        steps.push(...alternativeSteps);
+      } else {
+        // Last resort: split by periods and filter
+        const periodSteps = content
+          .split(/\.(?=\s)/)
+          .map(s => s.trim())
+          .filter(s => s.length > 10); // Filter out very short fragments
+        
+        if (periodSteps.length > 0) {
+          steps.push(...periodSteps);
+        }
+      }
+    }
+    
+    return steps.length > 0 ? { title, steps } : null;
   };
 
   const renderField = (field: ConfigField) => {
@@ -258,20 +324,43 @@ export default function PropertiesPanel() {
                   <h3 className="text-xs font-semibold uppercase text-muted-foreground tracking-wide">
                     Configuration
                   </h3>
-                  {nodeDefinition.configFields.map((field) => (
-                    <div key={field.key} className="space-y-2">
-                      <div className="flex items-center justify-between">
+                  {nodeDefinition.configFields.map((field) => {
+                    const helpInfo = field.helpText ? parseHelpText(field.helpText) : null;
+                    const hasHelpLink = helpInfo !== null;
+                    const hasDescription = field.helpText && !hasHelpLink;
+                    
+                    return (
+                      <div key={field.key} className="space-y-2">
+                        {/* Top - Heading */}
                         <Label htmlFor={field.key} className="text-sm flex items-center gap-1">
                           {field.label}
                           {field.required && <span className="text-destructive">*</span>}
                         </Label>
+                        
+                        {/* Next - Description (if exists and not a help link) */}
+                        {hasDescription && (
+                          <p className="text-xs text-muted-foreground">{field.helpText}</p>
+                        )}
+                        
+                        {/* Next - Input Field */}
+                        {renderField(field)}
+                        
+                        {/* Last - User Manual Link at Right Side End */}
+                        {hasHelpLink && (
+                          <div className="flex justify-end">
+                            <button
+                              type="button"
+                              onClick={() => setSelectedHelp(helpInfo)}
+                              className="text-xs text-primary hover:underline cursor-pointer flex items-center gap-1 transition-colors"
+                            >
+                              <HelpCircle className="h-3 w-3" />
+                              How to get {field.label}?
+                            </button>
+                          </div>
+                        )}
                       </div>
-                      {field.helpText && (
-                        <p className="text-xs text-muted-foreground">{field.helpText}</p>
-                      )}
-                      {renderField(field)}
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               ) : null}
             </>
@@ -296,6 +385,28 @@ export default function PropertiesPanel() {
           Delete Node
         </Button>
       </div>
+
+      {/* Help Sidebar */}
+      <Sheet open={!!selectedHelp} onOpenChange={(open) => !open && setSelectedHelp(null)}>
+        <SheetContent side="right" className="w-full sm:max-w-lg overflow-y-auto">
+          <SheetHeader>
+            <SheetTitle>{selectedHelp?.title || 'Help'}</SheetTitle>
+            <SheetDescription>
+              Follow these steps to get the required information.
+            </SheetDescription>
+          </SheetHeader>
+          <div className="mt-6 space-y-4">
+            {selectedHelp?.steps.map((step, index) => (
+              <div key={index} className="flex gap-3">
+                <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-medium text-primary">
+                  {index + 1}
+                </div>
+                <p className="text-sm text-muted-foreground pt-0.5">{step}</p>
+              </div>
+            ))}
+          </div>
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }

@@ -53,10 +53,11 @@ interface Requirement {
   required?: boolean;
 }
 
-const HELP_TOPICS: Record<string, { title: string; steps: string[]; linkLabel: string }> = {
+const HELP_TOPICS: Record<string, { title: string; steps: string[]; linkLabel: string; keywords: string[] }> = {
   sheet_url: {
     title: "How to get Google Sheet URL",
     linkLabel: "Sheet URL",
+    keywords: ['sheet_url', 'google_sheet_url', 'spreadsheet_url', 'sheet url'],
     steps: [
       "Open your Google Sheet.",
       "Copy the full URL from the browser address bar.",
@@ -67,6 +68,7 @@ const HELP_TOPICS: Record<string, { title: string; steps: string[]; linkLabel: s
   sheet_name: {
     title: "How to get Sheet Name",
     linkLabel: "Sheet Name",
+    keywords: ['sheet_name', 'sheet name', 'tab name'],
     steps: [
       "Open your Google Sheet.",
       "Look at the tabs at the bottom of the screen.",
@@ -78,6 +80,7 @@ const HELP_TOPICS: Record<string, { title: string; steps: string[]; linkLabel: s
   slack: {
     title: "How to get Slack Webhook URL",
     linkLabel: "Webhook URL",
+    keywords: ['slack', 'webhook', 'slack_webhook', 'webhook_url'],
     steps: [
       "Go to https://api.slack.com/apps.",
       "Create a new app or select an existing one.",
@@ -87,14 +90,134 @@ const HELP_TOPICS: Record<string, { title: string; steps: string[]; linkLabel: s
       "Copy the Webhook URL."
     ]
   },
-  api: {
-    title: "How to get API Details",
-    linkLabel: "API Details",
+  api_key: {
+    title: "How to get API Key",
+    linkLabel: "API Key",
+    keywords: ['api_key', 'api key', 'apikey', 'gemini_api_key', 'openai_api_key', 'claude_api_key'],
     steps: [
       "Log in to the service provider's developer console.",
       "Navigate to API Keys or Credentials section.",
-      "Generate or copy the existing API Key/Endpoint.",
+      "Generate or copy the existing API Key.",
       "Paste it here."
+    ]
+  },
+  whatsapp: {
+    title: "How to get WhatsApp API Details",
+    linkLabel: "WhatsApp API Details",
+    keywords: ['whatsapp', 'phone_number_id', 'access_token', 'whatsapp_phone', 'whatsapp_token'],
+    steps: [
+      "Go to https://developers.facebook.com/.",
+      "Create a Meta App or select existing one.",
+      "Add WhatsApp product to your app.",
+      "Go to WhatsApp > API Setup.",
+      "Copy Phone Number ID and Access Token.",
+      "Paste them into the input fields."
+    ]
+  },
+  gemini: {
+    title: "How to get Gemini API Key",
+    linkLabel: "Gemini API Key",
+    keywords: ['gemini', 'gemini_api', 'google_gemini'],
+    steps: [
+      "Go to https://aistudio.google.com/apikey.",
+      "Click 'Create API Key'.",
+      "Select or create a Google Cloud project.",
+      "Copy the generated API key (starts with AIza...).",
+      "Paste it here."
+    ]
+  },
+  openai: {
+    title: "How to get OpenAI API Key",
+    linkLabel: "OpenAI API Key",
+    keywords: ['openai', 'gpt', 'openai_api'],
+    steps: [
+      "Go to https://platform.openai.com/api-keys.",
+      "Sign in or create an account.",
+      "Click 'Create new secret key'.",
+      "Copy the key (starts with sk-...).",
+      "Paste it here."
+    ]
+  },
+  claude: {
+    title: "How to get Claude API Key",
+    linkLabel: "Claude API Key",
+    keywords: ['claude', 'anthropic', 'claude_api'],
+    steps: [
+      "Go to https://console.anthropic.com/settings/keys.",
+      "Sign in or create an account.",
+      "Click 'Create Key'.",
+      "Copy the key (starts with sk-ant-...).",
+      "Paste it here."
+    ]
+  },
+  telegram: {
+    title: "How to get Telegram Bot Token",
+    linkLabel: "Telegram Bot Token",
+    keywords: ['telegram', 'bot_token', 'telegram_token'],
+    steps: [
+      "Open Telegram and search for @BotFather.",
+      "Start a chat and send /newbot command.",
+      "Follow instructions to create your bot.",
+      "Copy the bot token (format: 123456:ABC-DEF...).",
+      "Paste it here."
+    ]
+  },
+  discord: {
+    title: "How to get Discord Webhook URL",
+    linkLabel: "Discord Webhook URL",
+    keywords: ['discord', 'discord_webhook'],
+    steps: [
+      "Open your Discord server.",
+      "Go to Server Settings > Integrations > Webhooks.",
+      "Click 'New Webhook'.",
+      "Copy the Webhook URL.",
+      "Paste it here."
+    ]
+  },
+  email: {
+    title: "How to get Email Configuration",
+    linkLabel: "Email Details",
+    keywords: ['email', 'resend', 'email_api'],
+    steps: [
+      "For Resend: Go to https://resend.com/api-keys.",
+      "Sign up or log in to your account.",
+      "Create an API key.",
+      "Copy the API key.",
+      "Paste it here."
+    ]
+  },
+  twilio: {
+    title: "How to get Twilio Credentials",
+    linkLabel: "Twilio Credentials",
+    keywords: ['twilio', 'twilio_account', 'twilio_token'],
+    steps: [
+      "Go to https://console.twilio.com/.",
+      "Sign in or create an account.",
+      "Find Account SID and Auth Token on dashboard.",
+      "Copy both values.",
+      "Paste them into the input fields."
+    ]
+  },
+  google_doc: {
+    title: "How to get Google Doc URL/ID",
+    linkLabel: "Google Doc URL/ID",
+    keywords: ['google_doc', 'doc_url', 'document_id', 'doc id'],
+    steps: [
+      "Open your Google Doc.",
+      "Copy the full URL from the browser.",
+      "Or extract the Document ID from the URL.",
+      "Paste the URL or ID here."
+    ]
+  },
+  database: {
+    title: "How to get Database Connection Details",
+    linkLabel: "Database Details",
+    keywords: ['database', 'postgres', 'mysql', 'mongodb', 'db_'],
+    steps: [
+      "Check your database provider's documentation.",
+      "Find connection string or credentials.",
+      "Extract host, port, database name, username, password.",
+      "Enter each value in the corresponding fields."
     ]
   }
 };
@@ -421,17 +544,15 @@ export default function AIWorkflowBuilder() {
                         value={config[req.key] || ''}
                         onChange={(e) => handleConfigChange(req.key, e.target.value)}
                       />
-                      {Object.keys(HELP_TOPICS).map((helpKey) => {
-                        const isMatch = req.key.toLowerCase().includes(helpKey) || req.label.toLowerCase().includes(helpKey);
-                        // Prevent 'sheet_url' matching 'sheet_name' by checking specific exclusions if needed, 
-                        // but since 'sheet_url' is longer and specific, and 'sheet_name' is specific, we rely on the specific key being present.
-                        // However, 'sheet_url' key has 'sheet' in it? No, key is 'sheet_url'.
-                        // req.key 'google_sheet_url' includes 'sheet_url'.
-                        // req.key 'sheet_name' DOES NOT include 'sheet_url'.
-                        // req.key 'sheet_name' includes 'sheet_name'.
-                        // Ideally we check keys cleanly.
+                      {(() => {
+                        // Find matching help topic by checking keywords
+                        const matchedHelp = Object.entries(HELP_TOPICS).find(([_, topic]) => {
+                          const searchText = `${req.key} ${req.label}`.toLowerCase();
+                          return topic.keywords.some(keyword => searchText.includes(keyword.toLowerCase()));
+                        });
 
-                        if (isMatch) {
+                        if (matchedHelp) {
+                          const [helpKey, topic] = matchedHelp;
                           return (
                             <div key={helpKey} className="flex justify-end mt-1">
                               <button
@@ -439,13 +560,13 @@ export default function AIWorkflowBuilder() {
                                 onClick={() => setSelectedHelp(helpKey)}
                                 className="text-xs text-primary hover:underline cursor-pointer flex items-center gap-1"
                               >
-                                How to get {HELP_TOPICS[helpKey].linkLabel}?
+                                How to get {topic.linkLabel}?
                               </button>
                             </div>
                           );
                         }
                         return null;
-                      })}
+                      })()}
                     </div>
                   ))}
                 </div>
