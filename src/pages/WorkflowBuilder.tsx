@@ -130,6 +130,42 @@ export default function WorkflowBuilder() {
     }
   }, [nodes, edges, user, navigate, setWorkflowId, setIsDirty]);
 
+  const handleImportWorkflow = useCallback((workflowData: { name?: string; nodes?: unknown[]; edges?: unknown[] }) => {
+    try {
+      // Validate workflow structure
+      if (!workflowData.nodes || !workflowData.edges) {
+        throw new Error('Invalid workflow format: missing nodes or edges');
+      }
+
+      // Set workflow name
+      if (workflowData.name) {
+        setWorkflowName(workflowData.name);
+      }
+
+      // Convert and set nodes
+      const importedNodes = (workflowData.nodes || []) as WorkflowNode[];
+      setNodes(importedNodes);
+
+      // Convert and set edges
+      const importedEdges = (workflowData.edges || []) as Edge[];
+      setEdges(importedEdges);
+
+      setIsDirty(true);
+
+      toast({
+        title: 'Success',
+        description: 'Workflow imported successfully',
+      });
+    } catch (error) {
+      console.error('Error importing workflow:', error);
+      toast({
+        title: 'Error',
+        description: `Failed to import workflow: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        variant: 'destructive',
+      });
+    }
+  }, [setWorkflowName, setNodes, setEdges, setIsDirty]);
+
   const handleRun = useCallback(async () => {
     const workflowId = useWorkflowStore.getState().workflowId;
 
@@ -219,6 +255,7 @@ export default function WorkflowBuilder() {
         isRunning={isRunning}
         showAI={showAI}
         onToggleAI={() => setShowAI(!showAI)}
+        onImport={handleImportWorkflow}
       />
       <div className="flex-1 flex flex-col overflow-hidden relative">
         <div className="flex-1 flex overflow-hidden">

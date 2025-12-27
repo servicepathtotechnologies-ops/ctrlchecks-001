@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Play, Save, Settings, Sparkles } from 'lucide-react';
+import { ArrowLeft, Play, Save, Settings, Sparkles, Upload } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -16,6 +16,7 @@ import { cn } from '@/lib/utils';
 import WebhookSettings from './WebhookSettings';
 import ScheduleSettings from './ScheduleSettings';
 import AgentSettings from './AgentSettings';
+import { toast } from '@/hooks/use-toast';
 
 interface WorkflowHeaderProps {
   onSave: () => void;
@@ -24,12 +25,46 @@ interface WorkflowHeaderProps {
   isRunning?: boolean;
   showAI?: boolean;
   onToggleAI?: () => void;
+  onImport?: () => void;
 }
 
-export default function WorkflowHeader({ onSave, onRun, isSaving, isRunning, showAI, onToggleAI }: WorkflowHeaderProps) {
+export default function WorkflowHeader({ onSave, onRun, isSaving, isRunning, showAI, onToggleAI, onImport }: WorkflowHeaderProps) {
   const navigate = useNavigate();
   const { workflowId, workflowName, setWorkflowName, isDirty } = useWorkflowStore();
   const [isEditing, setIsEditing] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleImportClick = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const text = event.target?.result as string;
+        const workflowData = JSON.parse(text);
+        if (onImport) {
+          onImport(workflowData);
+        }
+      } catch (error) {
+        toast({
+          title: 'Error',
+          description: `Failed to import workflow: ${error instanceof Error ? error.message : 'Invalid JSON file'}`,
+          variant: 'destructive',
+        });
+      }
+    };
+    reader.readAsText(file);
+    
+    // Reset file input
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
 
   return (
     <header className="h-14 border-b border-border bg-card flex items-center justify-between px-4">
@@ -97,13 +132,25 @@ export default function WorkflowHeader({ onSave, onRun, isSaving, isRunning, sho
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
+            <DropdownMenuItem onClick={handleImportClick}>
+              <Upload className="mr-2 h-4 w-4" />
+              Import JSON
+            </DropdownMenuItem>
+            <DropdownMenuItem>Export as JSON</DropdownMenuItem>
+            <DropdownMenuSeparator />
             <DropdownMenuItem>Workflow Settings</DropdownMenuItem>
             <DropdownMenuItem>Version History</DropdownMenuItem>
-            <DropdownMenuItem>Export as JSON</DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem className="text-destructive">Delete Workflow</DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".json"
+          onChange={handleFileChange}
+          className="hidden"
+        />
       </div>
     </header>
   );

@@ -1147,14 +1147,43 @@ async function executeNode(
         }
       }
       
-      // Parse body safely
+      // Determine content type from headers
+      const contentType = headers['Content-Type'] || headers['content-type'] || 'application/json';
+      const isFormUrlEncoded = contentType.includes('application/x-www-form-urlencoded');
+      const isFormData = contentType.includes('multipart/form-data');
+      const isJson = contentType.includes('application/json') || (!isFormUrlEncoded && !isFormData);
+      
+      // Parse body safely based on content type
       let body: unknown = undefined;
       const bodyStr = getStringProperty(config, 'body', '');
       if (bodyStr && bodyStr.trim() !== '' && method !== 'GET') {
-        try {
-          body = parseJSONSafe(replaceTemplates(bodyStr, input), 'body');
-        } catch (error) {
-          throw new Error(`HTTP Request: Invalid body format. Expected valid JSON. Error: ${error instanceof Error ? error.message : String(error)}`);
+        // Check original body string for form-urlencoded pattern (before template replacement)
+        // Form-urlencoded typically has: key=value&key2=value2 pattern
+        const hasFormPattern = (str: string) => {
+          const trimmed = str.trim();
+          return trimmed.includes('&') && 
+                 trimmed.includes('=') && 
+                 !trimmed.startsWith('{') && 
+                 !trimmed.startsWith('[') &&
+                 !trimmed.startsWith('"');
+        };
+        
+        const originalBodyHasFormPattern = hasFormPattern(bodyStr);
+        const replacedBody = replaceTemplates(bodyStr, input);
+        const looksLikeFormUrlEncoded = hasFormPattern(replacedBody);
+        
+        // If Content-Type is form-urlencoded OR body has form-urlencoded pattern, treat as string
+        // Priority: Content-Type header > body pattern detection
+        if (isFormUrlEncoded || isFormData || looksLikeFormUrlEncoded || originalBodyHasFormPattern) {
+          // For form-encoded or form-data, keep as string
+          body = replacedBody;
+        } else {
+          // For JSON, try to parse
+          try {
+            body = parseJSONSafe(replacedBody, 'body');
+          } catch (error) {
+            throw new Error(`HTTP Request: Invalid body format. Expected valid JSON. Error: ${error instanceof Error ? error.message : String(error)}`);
+          }
         }
       }
 
@@ -1167,10 +1196,25 @@ async function executeNode(
         const timeoutId = setTimeout(() => controller.abort(), timeout);
 
         try {
+          // Prepare body based on content type
+          let requestBody: string | undefined = undefined;
+          if (method !== "GET" && body !== undefined) {
+            if (typeof body === 'string') {
+              requestBody = body;
+            } else if (isJson) {
+              requestBody = JSON.stringify(body);
+            } else {
+              requestBody = String(body);
+            }
+          } else if (method !== "GET" && body === undefined && isJson) {
+            // Default to JSON stringify input if body is undefined and content type is JSON
+            requestBody = JSON.stringify(input);
+          }
+
           const response = await fetch(url, {
             method,
-            headers: { "Content-Type": "application/json", ...headers },
-            body: method !== "GET" ? JSON.stringify(body || input) : undefined,
+            headers: headers,
+            body: requestBody,
             signal: controller.signal,
           });
           clearTimeout(timeoutId);
@@ -2475,9 +2519,13 @@ async function executeNode(
     }
 
     case "json_parser": {
-      const expression = config.expression as string;
-      if (!expression) return input;
-      return extractValue(expression, input);
+      const expression = getStringProperty(config, 'expression', '');
+      if (!expression || expression.trim() === '') return input;
+      try {
+        return extractValue(expression, input);
+      } catch (error) {
+        throw new Error(`JSON Parser: Error extracting value with expression "${expression}": ${error instanceof Error ? error.message : String(error)}`);
+      }
     }
 
     case "text_formatter": {
@@ -2796,11 +2844,45 @@ async function executeNode(
         if (dataTemplate && dataTemplate.trim() !== '{}') {
           dataToWrite = parseJSONSafe(replaceTemplates(dataTemplate, input), 'data') as Record<string, unknown>;
         } else {
-          // Use input data
-          dataToWrite = inputObj;
+          // Use input data, but process template strings in values
+          dataToWrite = {};
+          for (const [key, value] of Object.entries(inputObj)) {
+            // Skip internal workflow properties
+            if (key.startsWith('_') && (key === '_user_id' || key === '_workflow_id' || key.startsWith('_'))) {
+              continue;
+            }
+            
+            // Process template strings
+            if (typeof value === 'string' && value.includes('{{')) {
+              const processed = replaceTemplates(value, input);
+              // Try to parse as JSON if it looks like JSON, otherwise use as string
+              try {
+                const parsed = JSON.parse(processed);
+                dataToWrite[key] = parsed;
+              } catch {
+                // If template replacement didn't result in valid JSON, check if template was resolved
+                if (processed !== value) {
+                  // Template was replaced, use the processed value
+                  dataToWrite[key] = processed;
+                } else {
+                  // Template was not resolved, skip this field
+                  console.warn(`Database Write: Skipping field "${key}" with unresolved template "${value}"`);
+                  continue;
+                }
+              }
+            } else if (value !== undefined && value !== null) {
+              // Use value as-is if it's not a template string
+              dataToWrite[key] = value;
+            }
+          }
         }
       } catch (error) {
         throw new Error(`Database Write: Invalid data JSON. ${error instanceof Error ? error.message : String(error)}`);
+      }
+      
+      // Validate that we have data to write
+      if (!dataToWrite || Object.keys(dataToWrite).length === 0) {
+        throw new Error('Database Write: No valid data to write. All template strings were unresolved or no data fields provided.');
       }
       
       try {
@@ -2812,7 +2894,13 @@ async function executeNode(
               .from(table)
               .insert(dataToWrite)
               .select();
-            if (insertError) throw insertError;
+            if (insertError) {
+              // Format error message better
+              const errorMsg = insertError.message || JSON.stringify(insertError);
+              const errorDetails = insertError.details ? ` Details: ${insertError.details}` : '';
+              const errorHint = insertError.hint ? ` Hint: ${insertError.hint}` : '';
+              throw new Error(`Database Write insert error: ${errorMsg}${errorDetails}${errorHint}`);
+            }
             result = insertData;
             break;
             
@@ -2868,7 +2956,24 @@ async function executeNode(
           ...inputObj
         };
       } catch (error) {
-        throw new Error(`Database Write: ${operation} operation failed. ${error instanceof Error ? error.message : String(error)}`);
+        // Better error formatting
+        let errorMessage = 'Unknown error';
+        if (error instanceof Error) {
+          errorMessage = error.message;
+        } else if (typeof error === 'object' && error !== null) {
+          // Try to extract meaningful error information
+          const errorObj = error as Record<string, unknown>;
+          if (errorObj.message) {
+            errorMessage = String(errorObj.message);
+          } else if (errorObj.error) {
+            errorMessage = String(errorObj.error);
+          } else {
+            errorMessage = JSON.stringify(error);
+          }
+        } else {
+          errorMessage = String(error);
+        }
+        throw new Error(`Database Write: ${operation} operation failed. ${errorMessage}`);
       }
     }
 
@@ -4064,9 +4169,74 @@ async function executeNode(
     // ============================================
 
     case "date_time": {
-      // Date & Time: Manipulate dates and times
+      // Date & Time: Manipulate dates and times with timezone awareness
       const operation = getStringProperty(config, 'operation', 'format');
       const inputObj = extractInputObject(input);
+      const timezone = getStringProperty(config, 'timezone', 'UTC');
+      const locale = getStringProperty(config, 'locale', 'en-US');
+      
+      // Helper function to format date in timezone
+      const formatDateInTimezone = (date: Date, tz: string, format: string, loc?: string): string => {
+        try {
+          if (format === 'ISO') {
+            // Use Intl API to format in timezone, then convert to ISO
+            const formatter = new Intl.DateTimeFormat(loc || 'en-US', {
+              timeZone: tz,
+              year: 'numeric',
+              month: '2-digit',
+              day: '2-digit',
+              hour: '2-digit',
+              minute: '2-digit',
+              second: '2-digit',
+              hour12: false,
+            });
+            const parts = formatter.formatToParts(date);
+            const year = parts.find(p => p.type === 'year')?.value || '';
+            const month = parts.find(p => p.type === 'month')?.value || '';
+            const day = parts.find(p => p.type === 'day')?.value || '';
+            const hour = parts.find(p => p.type === 'hour')?.value || '';
+            const minute = parts.find(p => p.type === 'minute')?.value || '';
+            const second = parts.find(p => p.type === 'second')?.value || '';
+            return `${year}-${month}-${day}T${hour}:${minute}:${second}`;
+          } else if (format === 'locale') {
+            const formatter = new Intl.DateTimeFormat(loc || 'en-US', {
+              timeZone: tz,
+              year: 'numeric',
+              month: 'long',
+              day: 'numeric',
+              hour: 'numeric',
+              minute: 'numeric',
+              second: 'numeric',
+            });
+            return formatter.format(date);
+          } else if (format === 'custom') {
+            const customFormat = getStringProperty(config, 'customFormat', 'YYYY-MM-DD HH:mm:ss');
+            const formatter = new Intl.DateTimeFormat(loc || 'en-US', {
+              timeZone: tz,
+              year: 'numeric',
+              month: '2-digit',
+              day: '2-digit',
+              hour: '2-digit',
+              minute: '2-digit',
+              second: '2-digit',
+              hour12: false,
+            });
+            const parts = formatter.formatToParts(date);
+            return customFormat
+              .replace('YYYY', parts.find(p => p.type === 'year')?.value || '')
+              .replace('MM', parts.find(p => p.type === 'month')?.value || '')
+              .replace('DD', parts.find(p => p.type === 'day')?.value || '')
+              .replace('HH', parts.find(p => p.type === 'hour')?.value || '')
+              .replace('mm', parts.find(p => p.type === 'minute')?.value || '')
+              .replace('ss', parts.find(p => p.type === 'second')?.value || '');
+          } else {
+            return date.toISOString();
+          }
+        } catch (error) {
+          // Fallback to ISO if timezone formatting fails
+          return date.toISOString();
+        }
+      };
       
       try {
         let result: unknown;
@@ -4084,20 +4254,15 @@ async function executeNode(
             }
             
             if (format === 'ISO') {
-              result = date.toISOString();
+              result = formatDateInTimezone(date, timezone, 'ISO', locale);
             } else if (format === 'timestamp') {
               result = date.getTime();
+            } else if (format === 'locale') {
+              result = formatDateInTimezone(date, timezone, 'locale', locale);
             } else if (format === 'custom') {
-              const customFormat = getStringProperty(config, 'customFormat', 'YYYY-MM-DD HH:mm:ss');
-              result = customFormat
-                .replace('YYYY', date.getFullYear().toString())
-                .replace('MM', String(date.getMonth() + 1).padStart(2, '0'))
-                .replace('DD', String(date.getDate()).padStart(2, '0'))
-                .replace('HH', String(date.getHours()).padStart(2, '0'))
-                .replace('mm', String(date.getMinutes()).padStart(2, '0'))
-                .replace('ss', String(date.getSeconds()).padStart(2, '0'));
+              result = formatDateInTimezone(date, timezone, 'custom', locale);
             } else {
-              result = date.toISOString();
+              result = formatDateInTimezone(date, timezone, 'ISO', locale);
             }
             break;
           }
@@ -4122,7 +4287,7 @@ async function executeNode(
               case 'months': addDate.setMonth(addDate.getMonth() + addValue); break;
               case 'years': addDate.setFullYear(addDate.getFullYear() + addValue); break;
             }
-            result = addDate.toISOString();
+            result = formatDateInTimezone(addDate, timezone, 'ISO', locale);
             break;
           }
           case 'subtract': {
@@ -4146,7 +4311,7 @@ async function executeNode(
               case 'months': subDate.setMonth(subDate.getMonth() - subValue); break;
               case 'years': subDate.setFullYear(subDate.getFullYear() - subValue); break;
             }
-            result = subDate.toISOString();
+            result = formatDateInTimezone(subDate, timezone, 'ISO', locale);
             break;
           }
           case 'diff': {
@@ -4182,9 +4347,64 @@ async function executeNode(
             }
             break;
           }
-          case 'now':
-            result = new Date().toISOString();
+          case 'now': {
+            const now = new Date();
+            result = formatDateInTimezone(now, timezone, 'ISO', locale);
             break;
+          }
+          case 'convertTimezone': {
+            const dateTemplate = getStringProperty(config, 'date', '');
+            const targetTimezone = getStringProperty(config, 'targetTimezone', timezone);
+            const resolvedDateStr = dateTemplate ? replaceTemplates(dateTemplate, input) : '';
+            const date = resolvedDateStr ? new Date(resolvedDateStr) : new Date();
+            
+            if (isNaN(date.getTime())) {
+              throw new Error(`Invalid date value: ${resolvedDateStr}`);
+            }
+            
+            // Convert date string in source timezone to target timezone
+            result = formatDateInTimezone(date, targetTimezone, 'ISO', locale);
+            break;
+          }
+          case 'getTimezoneInfo': {
+            const dateTemplate = getStringProperty(config, 'date', '');
+            const resolvedDateStr = dateTemplate ? replaceTemplates(dateTemplate, input) : '';
+            const date = resolvedDateStr ? new Date(resolvedDateStr) : new Date();
+            
+            if (isNaN(date.getTime())) {
+              throw new Error(`Invalid date value: ${resolvedDateStr}`);
+            }
+            
+            try {
+              const formatter = new Intl.DateTimeFormat('en-US', {
+                timeZone: timezone,
+                timeZoneName: 'long',
+              });
+              const parts = formatter.formatToParts(date);
+              const tzName = parts.find(p => p.type === 'timeZoneName')?.value || timezone;
+              
+              // Get timezone offset
+              const utcDate = new Date(date.toLocaleString('en-US', { timeZone: 'UTC' }));
+              const tzDate = new Date(date.toLocaleString('en-US', { timeZone: timezone }));
+              const offset = (tzDate.getTime() - utcDate.getTime()) / (1000 * 60); // minutes
+              
+              result = {
+                timezone,
+                timezoneName: tzName,
+                offsetMinutes: offset,
+                offsetHours: offset / 60,
+                formatted: formatDateInTimezone(date, timezone, 'ISO', locale),
+                iso: date.toISOString(),
+              };
+            } catch (error) {
+              result = {
+                timezone,
+                error: 'Could not get timezone information',
+                formatted: formatDateInTimezone(date, timezone, 'ISO', locale),
+              };
+            }
+            break;
+          }
           default:
             throw new Error(`Date & Time: Unknown operation "${operation}"`);
         }
@@ -4192,6 +4412,7 @@ async function executeNode(
         return {
           result,
           operation,
+          timezone: operation === 'getTimezoneInfo' ? undefined : timezone,
           ...inputObj
         };
       } catch (error) {
@@ -4271,35 +4492,75 @@ async function executeNode(
           return 0;
         };
         
-        const num1 = getNumericValue(value1Template, input);
-        const num2 = getNumericValue(value2Template, input);
-        console.log(`[MATH] num1: ${num1}, num2: ${num2}`);
+        // Helper function to round to precision
+        const precision = Math.max(1, Math.min(20, getNumberProperty(config, 'precision', 10)));
+        const roundToPrecision = (value: number): number => {
+          const factor = Math.pow(10, precision);
+          return Math.round(value * factor) / factor;
+        };
         
-        switch (operation) {
-          case 'add': result = num1 + num2; break;
-          case 'subtract': result = num1 - num2; break;
-          case 'multiply': result = num1 * num2; break;
-          case 'divide':
-            if (num2 === 0) throw new Error('Math: Division by zero');
-            result = num1 / num2;
-            break;
-          case 'modulo':
-            if (num2 === 0) throw new Error('Math: Modulo by zero');
-            result = num1 % num2;
-            break;
-          case 'power': result = Math.pow(num1, num2); break;
-          case 'sqrt':
-            if (num1 < 0) throw new Error('Math: Square root of negative number');
-            result = Math.sqrt(num1);
-            break;
-          case 'abs': result = Math.abs(num1); break;
-          case 'round': result = Math.round(num1); break;
-          case 'floor': result = Math.floor(num1); break;
-          case 'ceil': result = Math.ceil(num1); break;
-          case 'min': result = Math.min(num1, num2); break;
-          case 'max': result = Math.max(num1, num2); break;
-          default:
-            throw new Error(`Math: Unknown operation "${operation}"`);
+        // Parse array values if comma-separated or from input array
+        const parseArrayValue = (template: string): number[] => {
+          const resolvedStr = replaceTemplates(template, input);
+          if (resolvedStr.includes(',')) {
+            return resolvedStr.split(',').map(v => parseFloat(v.trim())).filter(v => !isNaN(v));
+          }
+          // Check if input contains an array
+          if (input && typeof input === 'object' && input !== null) {
+            const inputRecord = input as Record<string, unknown>;
+            const key = template.replace(/[{}]/g, '').replace(/^input\./, '');
+            if (key in inputRecord && Array.isArray(inputRecord[key])) {
+              return (inputRecord[key] as unknown[]).map(v => parseFloat(String(v))).filter(v => !isNaN(v));
+            }
+          }
+          return [];
+        };
+        
+        // Handle array operations (avg, sum)
+        if (operation === 'avg' || operation === 'sum') {
+          const array = parseArrayValue(value1Template);
+          if (array.length === 0) {
+            throw new Error('Math: Array values required for avg/sum operations. Provide comma-separated values or array in input.');
+          }
+          if (operation === 'avg') {
+            result = roundToPrecision(array.reduce((sum, val) => sum + val, 0) / array.length);
+          } else {
+            result = roundToPrecision(array.reduce((sum, val) => sum + val, 0));
+          }
+        } else {
+          const num1 = getNumericValue(value1Template, input);
+          const num2 = operation !== 'abs' && operation !== 'round' && operation !== 'floor' && operation !== 'ceil' && operation !== 'sqrt' 
+            ? getNumericValue(value2Template, input) 
+            : 0;
+          
+          console.log(`[MATH] num1: ${num1}, num2: ${num2}, precision: ${precision}`);
+          
+          switch (operation) {
+            case 'add': result = roundToPrecision(num1 + num2); break;
+            case 'subtract': result = roundToPrecision(num1 - num2); break;
+            case 'multiply': result = roundToPrecision(num1 * num2); break;
+            case 'divide':
+              if (num2 === 0) throw new Error('Math: Division by zero');
+              result = roundToPrecision(num1 / num2);
+              break;
+            case 'modulo':
+              if (num2 === 0) throw new Error('Math: Modulo by zero');
+              result = roundToPrecision(num1 % num2);
+              break;
+            case 'power': result = roundToPrecision(Math.pow(num1, num2)); break;
+            case 'sqrt':
+              if (num1 < 0) throw new Error('Math: Square root of negative number');
+              result = roundToPrecision(Math.sqrt(num1));
+              break;
+            case 'abs': result = roundToPrecision(Math.abs(num1)); break;
+            case 'round': result = roundToPrecision(Math.round(num1)); break;
+            case 'floor': result = roundToPrecision(Math.floor(num1)); break;
+            case 'ceil': result = roundToPrecision(Math.ceil(num1)); break;
+            case 'min': result = roundToPrecision(Math.min(num1, num2)); break;
+            case 'max': result = roundToPrecision(Math.max(num1, num2)); break;
+            default:
+              throw new Error(`Math: Unknown operation "${operation}"`);
+          }
         }
         
         console.log(`[MATH] Calculated result: ${result} for operation: ${operation}`);
@@ -4324,7 +4585,7 @@ async function executeNode(
     }
 
     case "crypto": {
-      // Crypto: Cryptographic operations
+      // Crypto: Secure cryptographic operations
       const operation = getStringProperty(config, 'operation', 'hash');
       const inputObj = extractInputObject(input);
       const data = getStringProperty(inputObj, 'data', '') || getStringProperty(inputObj, 'text', '') || String(input);
@@ -4334,11 +4595,53 @@ async function executeNode(
         
         switch (operation) {
           case 'hash': {
-            const algorithm = getStringProperty(config, 'algorithm', 'sha256');
+            const algorithm = getStringProperty(config, 'algorithm', 'SHA-256');
+            // Normalize algorithm name (SHA-256, SHA-512, etc.)
+            const algoName = algorithm.toUpperCase().replace('SHA', 'SHA-').replace('SHA--', 'SHA-');
+            const algoMap: Record<string, string> = {
+              'SHA-256': 'SHA-256',
+              'SHA-512': 'SHA-512',
+              'SHA-384': 'SHA-384',
+              'SHA-1': 'SHA-1',
+            };
+            const finalAlgo = algoMap[algoName] || 'SHA-256';
+            
             const encoder = new TextEncoder();
             const dataBuffer = encoder.encode(data);
-            const hashBuffer = await crypto.subtle.digest(algorithm.toUpperCase() as AlgorithmIdentifier, dataBuffer);
+            const hashBuffer = await crypto.subtle.digest(finalAlgo as AlgorithmIdentifier, dataBuffer);
             const hashArray = Array.from(new Uint8Array(hashBuffer));
+            result = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+            break;
+          }
+          case 'hmac': {
+            const algorithm = getStringProperty(config, 'algorithm', 'SHA-256');
+            const secretKey = getStringProperty(config, 'secretKey', '');
+            if (!secretKey) {
+              throw new Error('Crypto: Secret Key is required for HMAC operation');
+            }
+            const algoName = algorithm.toUpperCase().replace('SHA', 'SHA-').replace('SHA--', 'SHA-');
+            const algoMap: Record<string, string> = {
+              'SHA-256': 'HMAC',
+              'SHA-512': 'HMAC',
+              'SHA-384': 'HMAC',
+              'SHA-1': 'HMAC',
+            };
+            const hmacAlgo = algoMap[algoName] || 'HMAC';
+            
+            const encoder = new TextEncoder();
+            const keyData = encoder.encode(secretKey);
+            const messageData = encoder.encode(data);
+            
+            const key = await crypto.subtle.importKey(
+              'raw',
+              keyData,
+              { name: hmacAlgo, hash: algoName },
+              false,
+              ['sign']
+            );
+            
+            const signature = await crypto.subtle.sign(hmacAlgo, key, messageData);
+            const hashArray = Array.from(new Uint8Array(signature));
             result = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
             break;
           }
@@ -4346,13 +4649,20 @@ async function executeNode(
             result = btoa(data);
             break;
           case 'decode_base64':
-            result = atob(data);
+            try {
+              result = atob(data);
+            } catch (error) {
+              throw new Error('Crypto: Invalid Base64 string');
+            }
             break;
           case 'uuid':
             result = crypto.randomUUID();
             break;
           case 'random_string': {
             const length = getNumberProperty(config, 'length', 16);
+            if (length < 1 || length > 256) {
+              throw new Error('Crypto: Length must be between 1 and 256');
+            }
             const charset = getStringProperty(config, 'charset', 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789');
             let randomString = '';
             const randomValues = new Uint8Array(length);
@@ -4373,7 +4683,7 @@ async function executeNode(
           ...inputObj
         };
       } catch (error) {
-          throw new Error(`Crypto: Operation failed. ${error instanceof Error ? error.message : String(error)}`);
+        throw new Error(`Crypto: Operation failed. ${error instanceof Error ? error.message : String(error)}`);
       }
     }
 
@@ -4814,9 +5124,11 @@ async function executeNode(
     }
 
     case "rss_feed_read": {
-      // RSS Feed Read: Parse RSS feed
+      // RSS Feed Read: Safely consume and normalize RSS/Atom feeds
       const feedUrl = getStringProperty(config, 'feedUrl', '');
       const maxItems = getNumberProperty(config, 'maxItems', 10);
+      const detectDuplicates = getBooleanProperty(config, 'detectDuplicates', true);
+      const timeout = getNumberProperty(config, 'timeout', 30000);
       
       if (!feedUrl || feedUrl.trim() === '') {
         throw new Error('RSS Feed Read: Feed URL is required');
@@ -4825,33 +5137,58 @@ async function executeNode(
       validateURL(feedUrl, 'feed URL', 'RSS Feed Read');
       
       try {
-        const response = await fetch(feedUrl);
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), timeout);
+        
+        const response = await fetch(feedUrl, { signal: controller.signal });
+        clearTimeout(timeoutId);
+        
         if (!response.ok) {
           throw new Error(`RSS Feed Read: HTTP ${response.status} ${response.statusText}`);
         }
         
         const xmlText = await response.text();
         
-        // Simple XML parsing (basic implementation)
-        // In production, use a proper XML parser library
+        // Safe XML parsing with basic XXE protection (remove DOCTYPE declarations)
+        const safeXmlText = xmlText.replace(/<!DOCTYPE[^>]*>/gi, '').replace(/<!ENTITY[^>]*>/gi, '');
+        
+        // Parse RSS/Atom feed items
         const items: Array<Record<string, unknown>> = [];
-        const itemRegex = /<item[^>]*>([\s\S]*?)<\/item>/gi;
+        const seenGuids = new Set<string>();
+        
+        // Support both RSS (<item>) and Atom (<entry>)
+        const itemRegex = /<(?:item|entry)[^>]*>([\s\S]*?)<\/(?:item|entry)>/gi;
         let match;
         let count = 0;
         
-        while ((match = itemRegex.exec(xmlText)) !== null && count < maxItems) {
+        while ((match = itemRegex.exec(safeXmlText)) !== null && count < maxItems) {
           const itemXml = match[1];
-          const titleMatch = itemXml.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
-          const linkMatch = itemXml.match(/<link[^>]*>([\s\S]*?)<\/link>/i);
-          const descriptionMatch = itemXml.match(/<description[^>]*>([\s\S]*?)<\/description>/i);
-          const pubDateMatch = itemXml.match(/<pubDate[^>]*>([\s\S]*?)<\/pubDate>/i);
           
-          items.push({
-            title: titleMatch ? titleMatch[1].trim() : '',
-            link: linkMatch ? linkMatch[1].trim() : '',
-            description: descriptionMatch ? descriptionMatch[1].trim() : '',
-            pubDate: pubDateMatch ? pubDateMatch[1].trim() : ''
-          });
+          // Extract common fields (RSS and Atom)
+          const titleMatch = itemXml.match(/<title[^>]*>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/title>/i);
+          const linkMatch = itemXml.match(/<link[^>]*(?:href=['"]([^'"]+)['"]|>([^<]+)<\/link>)/i) || itemXml.match(/<link[^>]*>([\s\S]*?)<\/link>/i);
+          const descriptionMatch = itemXml.match(/<(?:description|summary|content)[^>]*>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/(?:description|summary|content)>/i);
+          const pubDateMatch = itemXml.match(/<(?:pubDate|published|updated)[^>]*>([\s\S]*?)<\/(?:pubDate|published|updated)>/i);
+          const guidMatch = itemXml.match(/<(?:guid|id)[^>]*>([\s\S]*?)<\/(?:guid|id)>/i);
+          
+          const guid = guidMatch ? guidMatch[1].trim() : (linkMatch ? (linkMatch[1] || linkMatch[2] || '').trim() : '');
+          const link = linkMatch ? (linkMatch[1] || linkMatch[2] || '').trim() : '';
+          
+          // Duplicate detection
+          if (detectDuplicates && guid && seenGuids.has(guid)) {
+            continue;
+          }
+          if (guid) seenGuids.add(guid);
+          
+          const item: Record<string, unknown> = {
+            title: titleMatch ? titleMatch[1].replace(/<!\[CDATA\[|\]\]>/g, '').trim() : '',
+            link: link,
+            description: descriptionMatch ? descriptionMatch[1].replace(/<!\[CDATA\[|\]\]>/g, '').trim() : '',
+            pubDate: pubDateMatch ? pubDateMatch[1].trim() : '',
+            guid: guid
+          };
+          
+          items.push(item);
           count++;
         }
         
@@ -4860,17 +5197,26 @@ async function executeNode(
           items,
           count: items.length,
           feedUrl,
+          duplicatesFiltered: detectDuplicates ? (count - items.length) : 0,
           ...inputObj
         };
       } catch (error) {
+        if (error instanceof Error && error.name === 'AbortError') {
+          throw new Error(`RSS Feed Read: Request timeout after ${timeout}ms`);
+        }
         throw new Error(`RSS Feed Read: Failed to read feed. ${error instanceof Error ? error.message : String(error)}`);
       }
     }
 
     case "html_extract": {
-      // HTML Extract: Extract content from HTML
+      // HTML Extract: Safely extract structured data from HTML
       const selector = getStringProperty(config, 'selector', '');
       const htmlConfig = getStringProperty(config, 'html', '');
+      const sanitize = getBooleanProperty(config, 'sanitize', true);
+      const stripScripts = getBooleanProperty(config, 'stripScripts', true);
+      const extractText = getBooleanProperty(config, 'extractText', false);
+      const maxSize = getNumberProperty(config, 'maxSize', 10485760); // 10MB default
+      
       let html: string;
       
       if (htmlConfig && htmlConfig.trim() !== '') {
@@ -4891,29 +5237,74 @@ async function executeNode(
         throw new Error('HTML Extract: HTML content is required. Provide HTML in config or input data.');
       }
       
+      // Check size limit
+      if (html.length > maxSize) {
+        throw new Error(`HTML Extract: HTML content exceeds maximum size of ${maxSize} bytes`);
+      }
+      
+      // Sanitize HTML: Remove scripts and styles if requested
+      if (sanitize || stripScripts) {
+        // Remove script tags and their content
+        if (stripScripts) {
+          html = html.replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '');
+          html = html.replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '');
+          html = html.replace(/on\w+\s*=\s*["'][^"']*["']/gi, ''); // Remove event handlers
+        }
+        
+        // Basic sanitization: Remove potentially dangerous tags
+        if (sanitize) {
+          html = html.replace(/<iframe[^>]*>[\s\S]*?<\/iframe>/gi, '');
+          html = html.replace(/<object[^>]*>[\s\S]*?<\/object>/gi, '');
+          html = html.replace(/<embed[^>]*>/gi, '');
+        }
+      }
+      
       if (!selector || selector.trim() === '') {
-        // Return entire HTML if no selector
+        // Return sanitized HTML if no selector
+        const sanitizedHtml = extractText ? html.replace(/<[^>]+>/g, '').trim() : html;
         const inputObj = extractInputObject(input);
         return {
-          html,
-          extracted: html,
+          html: sanitizedHtml,
+          extracted: sanitizedHtml,
+          sanitized: sanitize || stripScripts,
           ...inputObj
         };
       }
       
       // Basic HTML extraction using regex (simple implementation)
-      // In production, use a proper HTML parser
+      // Note: For production, consider using a proper HTML parser library
       try {
-        const regex = new RegExp(`<${selector}[^>]*>([\\s\\S]*?)<\\/${selector}>`, 'gi');
+        // Handle different selector types
+        let regex: RegExp;
+        if (selector.startsWith('.') || selector.startsWith('#')) {
+          // Class or ID selector - simplified matching
+          const className = selector.startsWith('.') ? selector.substring(1) : '';
+          const idName = selector.startsWith('#') ? selector.substring(1) : '';
+          if (className) {
+            regex = new RegExp(`<[^>]*class=['"][^'"]*${className}[^'"]*['"][^>]*>([\\s\\S]*?)<\\/[^>]+>`, 'gi');
+          } else if (idName) {
+            regex = new RegExp(`<[^>]*id=['"]${idName}['"][^>]*>([\\s\\S]*?)<\\/[^>]+>`, 'gi');
+          } else {
+            regex = new RegExp(`<${selector}[^>]*>([\\s\\S]*?)<\\/${selector}>`, 'gi');
+          }
+        } else {
+          // Tag name selector
+          regex = new RegExp(`<${selector}[^>]*>([\\s\\S]*?)<\\/${selector}>`, 'gi');
+        }
+        
         const matches = html.match(regex) || [];
-        const extracted = matches.map(match => match.replace(/<[^>]+>/g, '').trim());
+        const extracted = matches.map(match => {
+          const content = extractText ? match.replace(/<[^>]+>/g, '').trim() : match;
+          return content;
+        });
         
         const inputObj = extractInputObject(input);
         return {
-          html,
+          html: extractText ? html.replace(/<[^>]+>/g, '').trim() : html,
           extracted: extracted.length === 1 ? extracted[0] : extracted,
           count: extracted.length,
           selector,
+          sanitized: sanitize || stripScripts,
           ...inputObj
         };
       } catch (error) {
@@ -4922,9 +5313,12 @@ async function executeNode(
     }
 
     case "xml": {
-      // XML: Parse and extract from XML
+      // XML: Secure XML parsing and manipulation with XXE protection
       const operation = getStringProperty(config, 'operation', 'parse');
       const xmlConfig = getStringProperty(config, 'xml', '');
+      const safeMode = getBooleanProperty(config, 'safeMode', true);
+      const maxSize = getNumberProperty(config, 'maxSize', 10485760); // 10MB default
+      
       let xmlContent: string;
       
       if (xmlConfig && xmlConfig.trim() !== '') {
@@ -4945,23 +5339,45 @@ async function executeNode(
         throw new Error('XML: XML content is required. Provide XML in config or input data.');
       }
       
+      // Check size limit
+      if (xmlContent.length > maxSize) {
+        throw new Error(`XML: XML content exceeds maximum size of ${maxSize} bytes`);
+      }
+      
+      // XXE Protection: Remove DOCTYPE declarations and entity definitions
+      if (safeMode) {
+        xmlContent = xmlContent.replace(/<!DOCTYPE[^>]*>/gi, '');
+        xmlContent = xmlContent.replace(/<!ENTITY[^>]*>/gi, '');
+        // Remove external entity references
+        xmlContent = xmlContent.replace(/&[a-zA-Z][a-zA-Z0-9]*;/g, (match) => {
+          // Allow common entities but block others
+          const allowedEntities = ['lt', 'gt', 'amp', 'quot', 'apos'];
+          const entityName = match.substring(1, match.length - 1);
+          return allowedEntities.includes(entityName) ? match : '';
+        });
+      }
+      
       try {
         if (operation === 'parse') {
           // Simple XML parsing (basic implementation)
+          // Note: For production, consider using a proper XML parser library with full XXE protection
           const result: Record<string, unknown> = {};
-          const tagRegex = /<([^>]+)>([\s\S]*?)<\/\1>/g;
+          const tagRegex = /<([^>\s]+)[^>]*>([\s\S]*?)<\/\1>/g;
           let match;
           
           while ((match = tagRegex.exec(xmlContent)) !== null) {
             const tagName = match[1];
             const tagContent = match[2].trim();
-            result[tagName] = tagContent;
+            // Handle CDATA sections
+            const cleanContent = tagContent.replace(/<!\[CDATA\[|\]\]>/g, '');
+            result[tagName] = cleanContent;
           }
           
           const inputObj = extractInputObject(input);
           return {
             parsed: result,
             xml: xmlContent,
+            safeMode,
             ...inputObj
           };
         } else if (operation === 'extract') {
@@ -4970,10 +5386,64 @@ async function executeNode(
             throw new Error('XML: XPath expression required for extract operation');
           }
           
+          // Simplified XPath extraction (basic implementation)
+          // Note: For production, use a proper XPath library
+          const parts = xpath.split('/').filter(p => p.trim() !== '');
+          let currentContent = xmlContent;
+          
+          for (const part of parts) {
+            const tagRegex = new RegExp(`<${part}[^>]*>([\\s\\S]*?)<\\/${part}>`, 'i');
+            const match = currentContent.match(tagRegex);
+            if (match) {
+              currentContent = match[1];
+            } else {
+              throw new Error(`XML: XPath element "${part}" not found`);
+            }
+          }
+          
           const inputObj = extractInputObject(input);
           return {
-            extracted: xmlContent,
+            extracted: currentContent,
             xpath,
+            safeMode,
+            ...inputObj
+          };
+        } else if (operation === 'validate') {
+          // Basic XML validation - check for well-formed XML
+          const openTags: string[] = [];
+          const tagRegex = /<\/?([^>\s]+)[^>]*>/g;
+          let match;
+          let isValid = true;
+          let errorMessage = '';
+          
+          while ((match = tagRegex.exec(xmlContent)) !== null) {
+            const fullTag = match[0];
+            const tagName = match[1];
+            
+            if (fullTag.startsWith('</')) {
+              // Closing tag
+              if (openTags.length === 0 || openTags[openTags.length - 1] !== tagName) {
+                isValid = false;
+                errorMessage = `Mismatched closing tag: </${tagName}>`;
+                break;
+              }
+              openTags.pop();
+            } else if (!fullTag.endsWith('/>')) {
+              // Opening tag (not self-closing)
+              openTags.push(tagName);
+            }
+          }
+          
+          if (isValid && openTags.length > 0) {
+            isValid = false;
+            errorMessage = `Unclosed tags: ${openTags.join(', ')}`;
+          }
+          
+          const inputObj = extractInputObject(input);
+          return {
+            valid: isValid,
+            error: errorMessage || null,
+            safeMode,
             ...inputObj
           };
         }
@@ -4981,6 +5451,120 @@ async function executeNode(
         throw new Error(`XML: Unknown operation "${operation}"`);
       } catch (error) {
         throw new Error(`XML: Operation failed. ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+
+    case "pdf": {
+      // PDF: Binary-safe PDF document processing
+      const operation = getStringProperty(config, 'operation', 'extractText');
+      const pdfUrl = getStringProperty(config, 'pdfUrl', '');
+      const maxSize = getNumberProperty(config, 'maxSize', 10485760); // 10MB default
+      
+      let pdfData: Uint8Array;
+      
+      try {
+        if (!pdfUrl || pdfUrl.trim() === '') {
+          // Try to get PDF from input
+          const inputData = extractDataFromInput(input);
+          if (inputData && typeof inputData === 'string') {
+            // Check if it's base64
+            if (inputData.startsWith('data:application/pdf;base64,')) {
+              const base64Data = inputData.split(',')[1];
+              const binaryString = atob(base64Data);
+              pdfData = new Uint8Array(binaryString.length);
+              for (let i = 0; i < binaryString.length; i++) {
+                pdfData[i] = binaryString.charCodeAt(i);
+              }
+            } else {
+              throw new Error('PDF: PDF URL or base64-encoded PDF data is required');
+            }
+          } else {
+            throw new Error('PDF: PDF URL or base64-encoded PDF data is required');
+          }
+        } else if (pdfUrl.startsWith('data:application/pdf;base64,')) {
+          // Base64 encoded PDF
+          const base64Data = pdfUrl.split(',')[1];
+          const binaryString = atob(base64Data);
+          pdfData = new Uint8Array(binaryString.length);
+          for (let i = 0; i < binaryString.length; i++) {
+            pdfData[i] = binaryString.charCodeAt(i);
+          }
+        } else {
+          // URL - fetch PDF
+          validateURL(pdfUrl, 'PDF URL', 'PDF');
+          const response = await fetch(pdfUrl);
+          if (!response.ok) {
+            throw new Error(`PDF: HTTP ${response.status} ${response.statusText}`);
+          }
+          const arrayBuffer = await response.arrayBuffer();
+          pdfData = new Uint8Array(arrayBuffer);
+        }
+        
+        // Check size limit
+        if (pdfData.length > maxSize) {
+          throw new Error(`PDF: PDF file exceeds maximum size of ${maxSize} bytes`);
+        }
+        
+        const inputObj = extractInputObject(input);
+        
+        if (operation === 'extractText') {
+          // Note: PDF text extraction requires a PDF parsing library
+          // For Deno Edge Functions, this would typically require an external service
+          // or a lightweight PDF parser. This is a placeholder implementation.
+          throw new Error('PDF: Text extraction requires a PDF parsing library. For production use, integrate a PDF parsing service (e.g., PDF.js, pdf-parse) or use an external API.');
+        } else if (operation === 'readMetadata') {
+          // Basic PDF metadata extraction from PDF header
+          // PDF files start with %PDF- and contain metadata in the header
+          const pdfString = new TextDecoder('utf-8', { fatal: false }).decode(pdfData.slice(0, 1024));
+          const versionMatch = pdfString.match(/%PDF-(\d+\.\d+)/);
+          
+          const metadata: Record<string, unknown> = {
+            size: pdfData.length,
+            version: versionMatch ? versionMatch[1] : 'unknown',
+          };
+          
+          return {
+            metadata,
+            size: pdfData.length,
+            operation,
+            ...inputObj
+          };
+        } else {
+          throw new Error(`PDF: Unknown operation "${operation}"`);
+        }
+      } catch (error) {
+        throw new Error(`PDF: Operation failed. ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+
+    case "image_manipulation": {
+      // Image Manipulation: Efficient and safe image processing
+      const operation = getStringProperty(config, 'operation', 'resize');
+      const imageUrl = getStringProperty(config, 'imageUrl', '');
+      const maxSize = getNumberProperty(config, 'maxSize', 10485760); // 10MB default
+      const preserveMetadata = getBooleanProperty(config, 'preserveMetadata', true);
+      
+      try {
+        if (!imageUrl || imageUrl.trim() === '') {
+          // Try to get image from input
+          const inputData = extractDataFromInput(input);
+          if (inputData && typeof inputData === 'string' && inputData.startsWith('data:image/')) {
+            // Image data already provided
+            // Continue with processing
+          } else {
+            throw new Error('Image Manipulation: Image URL or base64-encoded image data is required');
+          }
+        }
+        
+        // Note: Image manipulation requires image processing libraries
+        // For Deno Edge Functions, this would typically require:
+        // - Canvas API (not available in Edge Functions)
+        // - Image processing library (e.g., sharp, jimp - Node.js only)
+        // - External image processing service
+        // This is a placeholder implementation.
+        throw new Error('Image Manipulation: Image processing requires an image manipulation library. For production use, integrate an image processing service (e.g., Cloudinary, Imgix) or use a server-side image processing API.');
+      } catch (error) {
+        throw new Error(`Image Manipulation: Operation failed. ${error instanceof Error ? error.message : String(error)}`);
       }
     }
 
@@ -8429,6 +9013,1046 @@ async function executeNode(
       }
     }
 
+    // ============================================
+    // CRM & MARKETING NODES
+    // ============================================
+    case "hubspot": {
+      // HubSpot CRM operations
+      const authType = getStringProperty(config, 'authType', 'apikey');
+      const apiKey = getStringProperty(config, 'apiKey', '');
+      const accessToken = getStringProperty(config, 'accessToken', '');
+      const resource = getStringProperty(config, 'resource', 'contact');
+      const operation = getStringProperty(config, 'operation', 'get');
+      const idTemplate = getStringProperty(config, 'id', '');
+      const id = idTemplate ? replaceTemplates(idTemplate, input) : '';
+      const propertiesStr = getStringProperty(config, 'properties', '{}');
+      const searchQueryTemplate = getStringProperty(config, 'searchQuery', '');
+      const searchQuery = searchQueryTemplate ? replaceTemplates(searchQueryTemplate, input) : '';
+      const limit = getNumberProperty(config, 'limit', 100);
+      const afterTemplate = getStringProperty(config, 'after', '');
+      const after = afterTemplate ? replaceTemplates(afterTemplate, input) : '';
+
+      // Authentication
+      // Private App Tokens (PAT) start with "pat-" and use Bearer auth
+      // Legacy API keys use hapikey query parameter
+      const isPrivateAppToken = apiKey && apiKey.startsWith('pat-');
+      
+      const authHeader = authType === 'oauth' && accessToken
+        ? `Bearer ${accessToken}`
+        : isPrivateAppToken
+        ? `Bearer ${apiKey}`
+        : apiKey
+        ? apiKey
+        : null;
+
+      if (!authHeader) {
+        throw new Error('HubSpot: API Key or OAuth Access Token is required');
+      }
+
+      const baseUrl = 'https://api.hubapi.com';
+      const headers: Record<string, string> = (authType === 'oauth' || isPrivateAppToken)
+        ? { 'Authorization': authHeader, 'Content-Type': 'application/json' }
+        : { 'Content-Type': 'application/json' };
+
+      try {
+        if (operation === 'get') {
+          if (!id) throw new Error('HubSpot: Resource ID is required for get operation');
+          const url = `${baseUrl}/crm/v3/objects/${resource}/${id}${!isPrivateAppToken && authType === 'apikey' && apiKey ? `?hapikey=${apiKey}` : ''}`;
+          const response = await fetch(url, { headers });
+          if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`HubSpot API error: ${response.status} - ${errorText}`);
+          }
+          const data = await response.json();
+          return data;
+        } else if (operation === 'getMany') {
+          const params = new URLSearchParams();
+          if (!isPrivateAppToken && authType === 'apikey' && apiKey) params.append('hapikey', apiKey);
+          if (limit) params.append('limit', String(limit));
+          if (after) params.append('after', after);
+          const url = `${baseUrl}/crm/v3/objects/${resource}${params.toString() ? `?${params}` : ''}`;
+          const response = await fetch(url, { headers });
+          if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`HubSpot API error: ${response.status} - ${errorText}`);
+          }
+          const data = await response.json();
+          return data;
+        } else if (operation === 'create') {
+          // Process properties template if it contains template variables
+          const processedPropertiesStr = propertiesStr ? replaceTemplates(propertiesStr, input) : '{}';
+          const properties = parseJSONSafe(processedPropertiesStr, 'properties') as Record<string, unknown>;
+          const url = `${baseUrl}/crm/v3/objects/${resource}${!isPrivateAppToken && authType === 'apikey' && apiKey ? `?hapikey=${apiKey}` : ''}`;
+          const response = await fetch(url, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({ properties }),
+          });
+          if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`HubSpot API error: ${response.status} - ${errorText}`);
+          }
+          const data = await response.json();
+          return data;
+        } else if (operation === 'update') {
+          if (!id) throw new Error('HubSpot: Resource ID is required for update operation');
+          // Process properties template if it contains template variables
+          const processedPropertiesStr = propertiesStr ? replaceTemplates(propertiesStr, input) : '{}';
+          const properties = parseJSONSafe(processedPropertiesStr, 'properties') as Record<string, unknown>;
+          const url = `${baseUrl}/crm/v3/objects/${resource}/${id}${!isPrivateAppToken && authType === 'apikey' && apiKey ? `?hapikey=${apiKey}` : ''}`;
+          const response = await fetch(url, {
+            method: 'PATCH',
+            headers,
+            body: JSON.stringify({ properties }),
+          });
+          if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`HubSpot API error: ${response.status} - ${errorText}`);
+          }
+          const data = await response.json();
+          return data;
+        } else if (operation === 'delete') {
+          if (!id) throw new Error('HubSpot: Resource ID is required for delete operation');
+          const url = `${baseUrl}/crm/v3/objects/${resource}/${id}${!isPrivateAppToken && authType === 'apikey' && apiKey ? `?hapikey=${apiKey}` : ''}`;
+          const response = await fetch(url, { method: 'DELETE', headers });
+          if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`HubSpot API error: ${response.status} - ${errorText}`);
+          }
+          return { success: true, id };
+        } else if (operation === 'search') {
+          if (!searchQuery) throw new Error('HubSpot: Search Query is required for search operation');
+          const url = `${baseUrl}/crm/v3/objects/${resource}/search${!isPrivateAppToken && authType === 'apikey' && apiKey ? `?hapikey=${apiKey}` : ''}`;
+          const response = await fetch(url, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({ query: searchQuery, limit }),
+          });
+          if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`HubSpot API error: ${response.status} - ${errorText}`);
+          }
+          const data = await response.json();
+          return data;
+        } else if (operation === 'batchCreate' || operation === 'batchUpdate' || operation === 'batchDelete') {
+          const recordsStr = getStringProperty(config, 'records', '[]');
+          const records = parseJSONSafe(recordsStr, 'records') as Array<unknown>;
+          const method = operation === 'batchCreate' ? 'POST' : operation === 'batchUpdate' ? 'PATCH' : 'DELETE';
+          const url = `${baseUrl}/crm/v3/objects/${resource}/batch/${operation.replace('batch', '').toLowerCase()}${!isPrivateAppToken && authType === 'apikey' && apiKey ? `?hapikey=${apiKey}` : ''}`;
+          const response = await fetch(url, {
+            method,
+            headers,
+            body: JSON.stringify({ inputs: records }),
+          });
+          if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`HubSpot API error: ${response.status} - ${errorText}`);
+          }
+          const data = await response.json();
+          return data;
+        } else {
+          throw new Error(`HubSpot: Unknown operation "${operation}"`);
+        }
+      } catch (error) {
+        throw new Error(`HubSpot: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+
+    case "salesforce": {
+      // Salesforce CRM operations
+      const instanceUrl = getStringProperty(config, 'instanceUrl', '');
+      const accessToken = getStringProperty(config, 'accessToken', '');
+      let resource = getStringProperty(config, 'resource', 'Contact');
+      const customObject = getStringProperty(config, 'customObject', '');
+      const operation = getStringProperty(config, 'operation', 'query');
+      const soql = getStringProperty(config, 'soql', '');
+      const sosl = getStringProperty(config, 'sosl', '');
+      const id = getStringProperty(config, 'id', '');
+      const fieldsStr = getStringProperty(config, 'fields', '{}');
+      const externalIdField = getStringProperty(config, 'externalIdField', '');
+      const externalIdValue = getStringProperty(config, 'externalIdValue', '');
+      const recordsStr = getStringProperty(config, 'records', '[]');
+
+      if (!instanceUrl || !accessToken) {
+        throw new Error('Salesforce: Instance URL and Access Token are required');
+      }
+
+      if (resource === 'custom' && !customObject) {
+        throw new Error('Salesforce: Custom Object API Name is required when Resource is Custom Object');
+      }
+
+      if (resource === 'custom') {
+        resource = customObject;
+      }
+
+      const baseUrl = instanceUrl.replace(/\/$/, '');
+      const headers = {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      };
+
+      try {
+        if (operation === 'query') {
+          if (!soql) throw new Error('Salesforce: SOQL Query is required for query operation');
+          const url = `${baseUrl}/services/data/v58.0/query?q=${encodeURIComponent(soql)}`;
+          const response = await fetch(url, { headers });
+          if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Salesforce API error: ${response.status} - ${errorText}`);
+          }
+          const data = await response.json();
+          return data;
+        } else if (operation === 'search') {
+          if (!sosl) throw new Error('Salesforce: SOSL Search Query is required for search operation');
+          const url = `${baseUrl}/services/data/v58.0/search?q=${encodeURIComponent(sosl)}`;
+          const response = await fetch(url, { headers });
+          if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Salesforce API error: ${response.status} - ${errorText}`);
+          }
+          const data = await response.json();
+          return data;
+        } else if (operation === 'get') {
+          if (!id) throw new Error('Salesforce: Record ID is required for get operation');
+          const url = `${baseUrl}/services/data/v58.0/sobjects/${resource}/${id}`;
+          const response = await fetch(url, { headers });
+          if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Salesforce API error: ${response.status} - ${errorText}`);
+          }
+          const data = await response.json();
+          return data;
+        } else if (operation === 'create') {
+          const fields = parseJSONSafe(fieldsStr, 'fields') as Record<string, unknown>;
+          const url = `${baseUrl}/services/data/v58.0/sobjects/${resource}`;
+          const response = await fetch(url, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify(fields),
+          });
+          if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Salesforce API error: ${response.status} - ${errorText}`);
+          }
+          const data = await response.json();
+          return data;
+        } else if (operation === 'update') {
+          if (!id) throw new Error('Salesforce: Record ID is required for update operation');
+          const fields = parseJSONSafe(fieldsStr, 'fields') as Record<string, unknown>;
+          const url = `${baseUrl}/services/data/v58.0/sobjects/${resource}/${id}`;
+          const response = await fetch(url, {
+            method: 'PATCH',
+            headers,
+            body: JSON.stringify(fields),
+          });
+          if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Salesforce API error: ${response.status} - ${errorText}`);
+          }
+          return { success: true, id };
+        } else if (operation === 'delete') {
+          if (!id) throw new Error('Salesforce: Record ID is required for delete operation');
+          const url = `${baseUrl}/services/data/v58.0/sobjects/${resource}/${id}`;
+          const response = await fetch(url, { method: 'DELETE', headers });
+          if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Salesforce API error: ${response.status} - ${errorText}`);
+          }
+          return { success: true, id };
+        } else if (operation === 'upsert') {
+          if (!externalIdField || !externalIdValue) {
+            throw new Error('Salesforce: External ID Field and Value are required for upsert operation');
+          }
+          const fields = parseJSONSafe(fieldsStr, 'fields') as Record<string, unknown>;
+          const url = `${baseUrl}/services/data/v58.0/sobjects/${resource}/${externalIdField}/${encodeURIComponent(externalIdValue)}`;
+          const response = await fetch(url, {
+            method: 'PATCH',
+            headers,
+            body: JSON.stringify(fields),
+          });
+          if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Salesforce API error: ${response.status} - ${errorText}`);
+          }
+          const data = await response.json();
+          return data;
+        } else if (operation.startsWith('bulk')) {
+          const records = parseJSONSafe(recordsStr, 'records') as Array<Record<string, unknown>>;
+          const bulkType = operation.replace('bulk', '').toLowerCase();
+          const url = `${baseUrl}/services/data/v58.0/composite/sobjects${bulkType === 'upsert' ? `/${resource}/${externalIdField}` : ''}`;
+          const response = await fetch(url, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({
+              allOrNone: false,
+              records: records.map(rec => ({
+                attributes: { type: resource },
+                ...rec,
+              })),
+            }),
+          });
+          if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Salesforce API error: ${response.status} - ${errorText}`);
+          }
+          const data = await response.json();
+          return data;
+        } else {
+          throw new Error(`Salesforce: Unknown operation "${operation}"`);
+        }
+      } catch (error) {
+        throw new Error(`Salesforce: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+
+    case "zoho_crm": {
+      // Zoho CRM operations
+      const accessToken = getStringProperty(config, 'accessToken', '');
+      const apiDomain = getStringProperty(config, 'apiDomain', 'https://www.zohoapis.com');
+      let module = getStringProperty(config, 'module', 'Contacts');
+      const customModule = getStringProperty(config, 'customModule', '');
+      const operation = getStringProperty(config, 'operation', 'get');
+      const id = getStringProperty(config, 'id', '');
+      const dataStr = getStringProperty(config, 'data', '{}');
+      const criteria = getStringProperty(config, 'criteria', '');
+      const fields = getStringProperty(config, 'fields', '');
+      const page = getNumberProperty(config, 'page', 1);
+      const perPage = getNumberProperty(config, 'perPage', 200);
+
+      if (!accessToken) {
+        throw new Error('Zoho CRM: Access Token is required');
+      }
+
+      if (module === 'custom' && !customModule) {
+        throw new Error('Zoho CRM: Custom Module API Name is required when Module is Custom Module');
+      }
+
+      if (module === 'custom') {
+        module = customModule;
+      }
+
+      const baseUrl = `${apiDomain.replace(/\/$/, '')}/crm/v3`;
+      const headers = {
+        'Authorization': `Zoho-oauthtoken ${accessToken}`,
+        'Content-Type': 'application/json',
+      };
+
+      try {
+        if (operation === 'get') {
+          if (!id) throw new Error('Zoho CRM: Record ID is required for get operation');
+          const url = `${baseUrl}/${module}/${id}${fields ? `?fields=${encodeURIComponent(fields)}` : ''}`;
+          const response = await fetch(url, { headers });
+          if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Zoho CRM API error: ${response.status} - ${errorText}`);
+          }
+          const data = await response.json();
+          return data;
+        } else if (operation === 'getMany') {
+          const params = new URLSearchParams();
+          if (fields) params.append('fields', fields);
+          if (page) params.append('page', String(page));
+          if (perPage) params.append('per_page', String(Math.min(perPage, 200)));
+          const url = `${baseUrl}/${module}?${params}`;
+          const response = await fetch(url, { headers });
+          if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Zoho CRM API error: ${response.status} - ${errorText}`);
+          }
+          const data = await response.json();
+          return data;
+        } else if (operation === 'create') {
+          const recordData = parseJSONSafe(dataStr, 'data') as Record<string, unknown>;
+          const url = `${baseUrl}/${module}`;
+          const response = await fetch(url, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({ data: [recordData] }),
+          });
+          if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Zoho CRM API error: ${response.status} - ${errorText}`);
+          }
+          const data = await response.json();
+          return data;
+        } else if (operation === 'update') {
+          if (!id) throw new Error('Zoho CRM: Record ID is required for update operation');
+          const recordData = parseJSONSafe(dataStr, 'data') as Record<string, unknown>;
+          const url = `${baseUrl}/${module}/${id}`;
+          const response = await fetch(url, {
+            method: 'PUT',
+            headers,
+            body: JSON.stringify({ data: [recordData] }),
+          });
+          if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Zoho CRM API error: ${response.status} - ${errorText}`);
+          }
+          const data = await response.json();
+          return data;
+        } else if (operation === 'delete') {
+          if (!id) throw new Error('Zoho CRM: Record ID is required for delete operation');
+          const url = `${baseUrl}/${module}/${id}`;
+          const response = await fetch(url, { method: 'DELETE', headers });
+          if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Zoho CRM API error: ${response.status} - ${errorText}`);
+          }
+          return { success: true, id };
+        } else if (operation === 'search') {
+          if (!criteria) throw new Error('Zoho CRM: Search Criteria is required for search operation');
+          const url = `${baseUrl}/${module}/search?criteria=${encodeURIComponent(criteria)}`;
+          const response = await fetch(url, { headers });
+          if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Zoho CRM API error: ${response.status} - ${errorText}`);
+          }
+          const data = await response.json();
+          return data;
+        } else if (operation === 'upsert') {
+          const recordData = parseJSONSafe(dataStr, 'data') as Record<string, unknown>;
+          const url = `${baseUrl}/${module}/upsert`;
+          const response = await fetch(url, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({ data: [recordData] }),
+          });
+          if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Zoho CRM API error: ${response.status} - ${errorText}`);
+          }
+          const data = await response.json();
+          return data;
+        } else if (operation === 'bulkCreate' || operation === 'bulkUpdate') {
+          const recordsStr = getStringProperty(config, 'records', '[]');
+          const records = parseJSONSafe(recordsStr, 'records') as Array<Record<string, unknown>>;
+          const url = `${baseUrl}/${module}${operation === 'bulkUpdate' ? '' : ''}`;
+          const response = await fetch(url, {
+            method: operation === 'bulkCreate' ? 'POST' : 'PUT',
+            headers,
+            body: JSON.stringify({ data: records }),
+          });
+          if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Zoho CRM API error: ${response.status} - ${errorText}`);
+          }
+          const data = await response.json();
+          return data;
+        } else {
+          throw new Error(`Zoho CRM: Unknown operation "${operation}"`);
+        }
+      } catch (error) {
+        throw new Error(`Zoho CRM: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+
+    case "pipedrive": {
+      // Pipedrive CRM operations
+      const apiToken = getStringProperty(config, 'apiToken', '');
+      const companyDomain = getStringProperty(config, 'companyDomain', '');
+      const resource = getStringProperty(config, 'resource', 'person');
+      const operation = getStringProperty(config, 'operation', 'get');
+      const id = getStringProperty(config, 'id', '');
+      const dataStr = getStringProperty(config, 'data', '{}');
+      const term = getStringProperty(config, 'term', '');
+      const fields = getStringProperty(config, 'fields', '');
+      const limit = getNumberProperty(config, 'limit', 100);
+      const start = getNumberProperty(config, 'start', 0);
+
+      if (!apiToken || !companyDomain) {
+        throw new Error('Pipedrive: API Token and Company Domain are required');
+      }
+
+      const baseUrl = `https://${companyDomain}.pipedrive.com/api/v1`;
+      const params = new URLSearchParams({ api_token: apiToken });
+
+      try {
+        if (operation === 'get') {
+          if (!id) throw new Error('Pipedrive: Resource ID is required for get operation');
+          if (fields) params.append('fields', fields);
+          const url = `${baseUrl}/${resource}s/${id}?${params}`;
+          const response = await fetch(url);
+          if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Pipedrive API error: ${response.status} - ${errorText}`);
+          }
+          const data = await response.json();
+          return data.data || data;
+        } else if (operation === 'getMany') {
+          if (fields) params.append('fields', fields);
+          if (limit) params.append('limit', String(limit));
+          if (start) params.append('start', String(start));
+          const url = `${baseUrl}/${resource}s?${params}`;
+          const response = await fetch(url);
+          if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Pipedrive API error: ${response.status} - ${errorText}`);
+          }
+          const data = await response.json();
+          return data;
+        } else if (operation === 'create') {
+          const recordData = parseJSONSafe(dataStr, 'data') as Record<string, unknown>;
+          const url = `${baseUrl}/${resource}s?${params}`;
+          const response = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(recordData),
+          });
+          if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Pipedrive API error: ${response.status} - ${errorText}`);
+          }
+          const data = await response.json();
+          return data.data || data;
+        } else if (operation === 'update') {
+          if (!id) throw new Error('Pipedrive: Resource ID is required for update operation');
+          const recordData = parseJSONSafe(dataStr, 'data') as Record<string, unknown>;
+          const url = `${baseUrl}/${resource}s/${id}?${params}`;
+          const response = await fetch(url, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(recordData),
+          });
+          if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Pipedrive API error: ${response.status} - ${errorText}`);
+          }
+          const data = await response.json();
+          return data.data || data;
+        } else if (operation === 'delete') {
+          if (!id) throw new Error('Pipedrive: Resource ID is required for delete operation');
+          const url = `${baseUrl}/${resource}s/${id}?${params}`;
+          const response = await fetch(url, { method: 'DELETE' });
+          if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Pipedrive API error: ${response.status} - ${errorText}`);
+          }
+          const data = await response.json();
+          return data;
+        } else if (operation === 'search') {
+          if (!term) throw new Error('Pipedrive: Search Term is required for search operation');
+          params.append('term', term);
+          params.append('fields', fields || 'id,name');
+          const url = `${baseUrl}/${resource}s/search?${params}`;
+          const response = await fetch(url);
+          if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Pipedrive API error: ${response.status} - ${errorText}`);
+          }
+          const data = await response.json();
+          return data;
+        } else {
+          throw new Error(`Pipedrive: Unknown operation "${operation}"`);
+        }
+      } catch (error) {
+        throw new Error(`Pipedrive: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+
+    case "freshdesk": {
+      // Freshdesk support operations
+      const apiKey = getStringProperty(config, 'apiKey', '');
+      const domain = getStringProperty(config, 'domain', '');
+      const resource = getStringProperty(config, 'resource', 'ticket');
+      const operation = getStringProperty(config, 'operation', 'list');
+      const id = getStringProperty(config, 'id', '');
+      const dataStr = getStringProperty(config, 'data', '{}');
+      const query = getStringProperty(config, 'query', '');
+      const page = getNumberProperty(config, 'page', 1);
+      const perPage = getNumberProperty(config, 'perPage', 30);
+
+      if (!apiKey || !domain) {
+        throw new Error('Freshdesk: API Key and Domain are required');
+      }
+
+      const baseUrl = `https://${domain}.freshdesk.com/api/v2`;
+      const auth = btoa(`${apiKey}:X`);
+      const headers = {
+        'Authorization': `Basic ${auth}`,
+        'Content-Type': 'application/json',
+      };
+
+      try {
+        if (operation === 'list') {
+          const params = new URLSearchParams();
+          if (page) params.append('page', String(page));
+          if (perPage) params.append('per_page', String(perPage));
+          const url = `${baseUrl}/${resource}s${params.toString() ? `?${params}` : ''}`;
+          const response = await fetch(url, { headers });
+          if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Freshdesk API error: ${response.status} - ${errorText}`);
+          }
+          const data = await response.json();
+          return data;
+        } else if (operation === 'get') {
+          if (!id) throw new Error('Freshdesk: Resource ID is required for get operation');
+          const url = `${baseUrl}/${resource}s/${id}`;
+          const response = await fetch(url, { headers });
+          if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Freshdesk API error: ${response.status} - ${errorText}`);
+          }
+          const data = await response.json();
+          return data;
+        } else if (operation === 'create') {
+          const recordData = parseJSONSafe(dataStr, 'data') as Record<string, unknown>;
+          const url = `${baseUrl}/${resource}s`;
+          const response = await fetch(url, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify(recordData),
+          });
+          if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Freshdesk API error: ${response.status} - ${errorText}`);
+          }
+          const data = await response.json();
+          return data;
+        } else if (operation === 'update') {
+          if (!id) throw new Error('Freshdesk: Resource ID is required for update operation');
+          const recordData = parseJSONSafe(dataStr, 'data') as Record<string, unknown>;
+          const url = `${baseUrl}/${resource}s/${id}`;
+          const response = await fetch(url, {
+            method: 'PUT',
+            headers,
+            body: JSON.stringify(recordData),
+          });
+          if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Freshdesk API error: ${response.status} - ${errorText}`);
+          }
+          const data = await response.json();
+          return data;
+        } else if (operation === 'delete') {
+          if (!id) throw new Error('Freshdesk: Resource ID is required for delete operation');
+          const url = `${baseUrl}/${resource}s/${id}`;
+          const response = await fetch(url, { method: 'DELETE', headers });
+          if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Freshdesk API error: ${response.status} - ${errorText}`);
+          }
+          return { success: true, id };
+        } else if (operation === 'search') {
+          if (!query) throw new Error('Freshdesk: Search Query is required for search operation');
+          const url = `${baseUrl}/search?query="${encodeURIComponent(query)}"`;
+          const response = await fetch(url, { headers });
+          if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Freshdesk API error: ${response.status} - ${errorText}`);
+          }
+          const data = await response.json();
+          return data;
+        } else {
+          throw new Error(`Freshdesk: Unknown operation "${operation}"`);
+        }
+      } catch (error) {
+        throw new Error(`Freshdesk: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+
+    case "intercom": {
+      // Intercom conversational CRM
+      const accessToken = getStringProperty(config, 'accessToken', '');
+      const resource = getStringProperty(config, 'resource', 'contact');
+      const operation = getStringProperty(config, 'operation', 'get');
+      const id = getStringProperty(config, 'id', '');
+      const dataStr = getStringProperty(config, 'data', '{}');
+      const query = getStringProperty(config, 'query', '');
+      const perPage = getNumberProperty(config, 'perPage', 50);
+      const startingAfter = getStringProperty(config, 'startingAfter', '');
+
+      if (!accessToken) {
+        throw new Error('Intercom: Access Token is required');
+      }
+
+      const baseUrl = 'https://api.intercom.io';
+      const headers = {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+        'Intercom-Version': '2.9',
+      };
+
+      try {
+        if (operation === 'get') {
+          if (!id) throw new Error('Intercom: Resource ID is required for get operation');
+          const url = `${baseUrl}/${resource}s/${id}`;
+          const response = await fetch(url, { headers });
+          if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Intercom API error: ${response.status} - ${errorText}`);
+          }
+          const data = await response.json();
+          return data;
+        } else if (operation === 'list') {
+          const params = new URLSearchParams();
+          if (perPage) params.append('per_page', String(perPage));
+          if (startingAfter) params.append('starting_after', startingAfter);
+          const url = `${baseUrl}/${resource}s?${params}`;
+          const response = await fetch(url, { headers });
+          if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Intercom API error: ${response.status} - ${errorText}`);
+          }
+          const data = await response.json();
+          return data;
+        } else if (operation === 'create') {
+          const recordData = parseJSONSafe(dataStr, 'data') as Record<string, unknown>;
+          const url = `${baseUrl}/${resource}s`;
+          const response = await fetch(url, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify(recordData),
+          });
+          if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Intercom API error: ${response.status} - ${errorText}`);
+          }
+          const data = await response.json();
+          return data;
+        } else if (operation === 'update') {
+          if (!id) throw new Error('Intercom: Resource ID is required for update operation');
+          const recordData = parseJSONSafe(dataStr, 'data') as Record<string, unknown>;
+          const url = `${baseUrl}/${resource}s/${id}`;
+          const response = await fetch(url, {
+            method: 'PUT',
+            headers,
+            body: JSON.stringify(recordData),
+          });
+          if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Intercom API error: ${response.status} - ${errorText}`);
+          }
+          const data = await response.json();
+          return data;
+        } else if (operation === 'delete') {
+          if (!id) throw new Error('Intercom: Resource ID is required for delete operation');
+          const url = `${baseUrl}/${resource}s/${id}`;
+          const response = await fetch(url, { method: 'DELETE', headers });
+          if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Intercom API error: ${response.status} - ${errorText}`);
+          }
+          return { success: true, id };
+        } else if (operation === 'search') {
+          if (!query) throw new Error('Intercom: Search Query is required for search operation');
+          const url = `${baseUrl}/${resource}s/search`;
+          const response = await fetch(url, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({ query }),
+          });
+          if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Intercom API error: ${response.status} - ${errorText}`);
+          }
+          const data = await response.json();
+          return data;
+        } else {
+          throw new Error(`Intercom: Unknown operation "${operation}"`);
+        }
+      } catch (error) {
+        throw new Error(`Intercom: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+
+    case "mailchimp": {
+      // Mailchimp email marketing
+      const apiKey = getStringProperty(config, 'apiKey', '');
+      const dataCenter = getStringProperty(config, 'dataCenter', '');
+      const resource = getStringProperty(config, 'resource', 'audience');
+      const operation = getStringProperty(config, 'operation', 'list');
+      const listId = getStringProperty(config, 'listId', '');
+      const memberEmail = getStringProperty(config, 'memberEmail', '');
+      const dataStr = getStringProperty(config, 'data', '{}');
+      const memberDataStr = getStringProperty(config, 'memberData', '{}');
+      const count = getNumberProperty(config, 'count', 10);
+      const offset = getNumberProperty(config, 'offset', 0);
+
+      if (!apiKey || !dataCenter) {
+        throw new Error('Mailchimp: API Key and Data Center are required');
+      }
+
+      const baseUrl = `https://${dataCenter}.api.mailchimp.com/3.0`;
+      const auth = btoa(`apikey:${apiKey}`);
+      const headers = {
+        'Authorization': `Basic ${auth}`,
+        'Content-Type': 'application/json',
+      };
+
+      try {
+        if (operation === 'list') {
+          const params = new URLSearchParams();
+          if (count) params.append('count', String(count));
+          if (offset) params.append('offset', String(offset));
+          const resourcePath = resource === 'audience' ? 'lists' : resource === 'member' ? `lists/${listId}/members` : resource === 'campaign' ? 'campaigns' : resource === 'automation' ? 'automations' : 'lists';
+          const url = `${baseUrl}/${resourcePath}?${params}`;
+          const response = await fetch(url, { headers });
+          if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Mailchimp API error: ${response.status} - ${errorText}`);
+          }
+          const data = await response.json();
+          return data;
+        } else if (operation === 'get') {
+          if (!listId && resource !== 'campaign' && resource !== 'automation') {
+            throw new Error('Mailchimp: List ID is required for this operation');
+          }
+          const resourcePath = resource === 'audience' ? `lists/${listId}` : resource === 'campaign' ? `campaigns/${listId}` : resource === 'automation' ? `automations/${listId}` : `lists/${listId}`;
+          const url = `${baseUrl}/${resourcePath}`;
+          const response = await fetch(url, { headers });
+          if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Mailchimp API error: ${response.status} - ${errorText}`);
+          }
+          const data = await response.json();
+          return data;
+        } else if (operation === 'create') {
+          const recordData = parseJSONSafe(dataStr, 'data') as Record<string, unknown>;
+          const resourcePath = resource === 'audience' ? 'lists' : resource === 'campaign' ? 'campaigns' : 'automations';
+          const url = `${baseUrl}/${resourcePath}`;
+          const response = await fetch(url, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify(recordData),
+          });
+          if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Mailchimp API error: ${response.status} - ${errorText}`);
+          }
+          const data = await response.json();
+          return data;
+        } else if (operation === 'update') {
+          if (!listId) throw new Error('Mailchimp: List ID is required for update operation');
+          const recordData = parseJSONSafe(dataStr, 'data') as Record<string, unknown>;
+          const resourcePath = resource === 'audience' ? `lists/${listId}` : resource === 'campaign' ? `campaigns/${listId}` : `automations/${listId}`;
+          const url = `${baseUrl}/${resourcePath}`;
+          const response = await fetch(url, {
+            method: 'PATCH',
+            headers,
+            body: JSON.stringify(recordData),
+          });
+          if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Mailchimp API error: ${response.status} - ${errorText}`);
+          }
+          const data = await response.json();
+          return data;
+        } else if (operation === 'delete') {
+          if (!listId) throw new Error('Mailchimp: List ID is required for delete operation');
+          const resourcePath = resource === 'audience' ? `lists/${listId}` : resource === 'campaign' ? `campaigns/${listId}` : `automations/${listId}`;
+          const url = `${baseUrl}/${resourcePath}`;
+          const response = await fetch(url, { method: 'DELETE', headers });
+          if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Mailchimp API error: ${response.status} - ${errorText}`);
+          }
+          return { success: true, id: listId };
+        } else if (operation === 'addMember') {
+          if (!listId || !memberEmail) {
+            throw new Error('Mailchimp: List ID and Member Email are required for addMember operation');
+          }
+          const memberData = parseJSONSafe(memberDataStr, 'memberData') as Record<string, unknown>;
+          const url = `${baseUrl}/lists/${listId}/members`;
+          const response = await fetch(url, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify(memberData),
+          });
+          if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Mailchimp API error: ${response.status} - ${errorText}`);
+          }
+          const data = await response.json();
+          return data;
+        } else if (operation === 'updateMember') {
+          if (!listId || !memberEmail) {
+            throw new Error('Mailchimp: List ID and Member Email are required for updateMember operation');
+          }
+          const memberData = parseJSONSafe(memberDataStr, 'memberData') as Record<string, unknown>;
+          const emailHash = btoa(memberEmail.toLowerCase()).replace(/[+/=]/g, '').substring(0, 32);
+          const url = `${baseUrl}/lists/${listId}/members/${emailHash}`;
+          const response = await fetch(url, {
+            method: 'PATCH',
+            headers,
+            body: JSON.stringify(memberData),
+          });
+          if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Mailchimp API error: ${response.status} - ${errorText}`);
+          }
+          const data = await response.json();
+          return data;
+        } else if (operation === 'deleteMember') {
+          if (!listId || !memberEmail) {
+            throw new Error('Mailchimp: List ID and Member Email are required for deleteMember operation');
+          }
+          const emailHash = btoa(memberEmail.toLowerCase()).replace(/[+/=]/g, '').substring(0, 32);
+          const url = `${baseUrl}/lists/${listId}/members/${emailHash}`;
+          const response = await fetch(url, { method: 'DELETE', headers });
+          if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Mailchimp API error: ${response.status} - ${errorText}`);
+          }
+          return { success: true, email: memberEmail };
+        } else {
+          throw new Error(`Mailchimp: Unknown operation "${operation}"`);
+        }
+      } catch (error) {
+        throw new Error(`Mailchimp: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+
+    case "activecampaign": {
+      // ActiveCampaign automation CRM
+      const apiKey = getStringProperty(config, 'apiKey', '');
+      const apiUrl = getStringProperty(config, 'apiUrl', '');
+      const resource = getStringProperty(config, 'resource', 'contact');
+      const operation = getStringProperty(config, 'operation', 'get');
+      const id = getStringProperty(config, 'id', '');
+      const email = getStringProperty(config, 'email', '');
+      const dataStr = getStringProperty(config, 'data', '{}');
+      const tagId = getStringProperty(config, 'tagId', '');
+      const limit = getNumberProperty(config, 'limit', 100);
+      const offset = getNumberProperty(config, 'offset', 0);
+
+      if (!apiKey || !apiUrl) {
+        throw new Error('ActiveCampaign: API Key and API URL are required');
+      }
+
+      const baseUrl = apiUrl.replace(/\/$/, '');
+      const headers = {
+        'Api-Token': apiKey,
+        'Content-Type': 'application/json',
+      };
+
+      try {
+        const resourceMap: Record<string, string> = {
+          'contact': 'contacts',
+          'list': 'lists',
+          'automation': 'automations',
+          'campaign': 'campaigns',
+          'deal': 'deals',
+          'tag': 'tags',
+          'field': 'fields',
+        };
+
+        const resourcePath = resourceMap[resource] || resource;
+
+        if (operation === 'get') {
+          if (!id) throw new Error('ActiveCampaign: Resource ID is required for get operation');
+          const url = `${baseUrl}/api/3/${resourcePath}/${id}`;
+          const response = await fetch(url, { headers });
+          if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`ActiveCampaign API error: ${response.status} - ${errorText}`);
+          }
+          const data = await response.json();
+          return data;
+        } else if (operation === 'list') {
+          const params = new URLSearchParams();
+          if (limit) params.append('limit', String(limit));
+          if (offset) params.append('offset', String(offset));
+          const url = `${baseUrl}/api/3/${resourcePath}?${params}`;
+          const response = await fetch(url, { headers });
+          if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`ActiveCampaign API error: ${response.status} - ${errorText}`);
+          }
+          const data = await response.json();
+          return data;
+        } else if (operation === 'create') {
+          const recordData = parseJSONSafe(dataStr, 'data') as Record<string, unknown>;
+          const url = `${baseUrl}/api/3/${resourcePath}`;
+          const response = await fetch(url, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify(recordData),
+          });
+          if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`ActiveCampaign API error: ${response.status} - ${errorText}`);
+          }
+          const data = await response.json();
+          return data;
+        } else if (operation === 'update') {
+          if (!id) throw new Error('ActiveCampaign: Resource ID is required for update operation');
+          const recordData = parseJSONSafe(dataStr, 'data') as Record<string, unknown>;
+          const url = `${baseUrl}/api/3/${resourcePath}/${id}`;
+          const response = await fetch(url, {
+            method: 'PUT',
+            headers,
+            body: JSON.stringify(recordData),
+          });
+          if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`ActiveCampaign API error: ${response.status} - ${errorText}`);
+          }
+          const data = await response.json();
+          return data;
+        } else if (operation === 'delete') {
+          if (!id) throw new Error('ActiveCampaign: Resource ID is required for delete operation');
+          const url = `${baseUrl}/api/3/${resourcePath}/${id}`;
+          const response = await fetch(url, { method: 'DELETE', headers });
+          if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`ActiveCampaign API error: ${response.status} - ${errorText}`);
+          }
+          return { success: true, id };
+        } else if (operation === 'sync') {
+          if (!email) throw new Error('ActiveCampaign: Email is required for sync operation');
+          const recordData = parseJSONSafe(dataStr, 'data') as Record<string, unknown>;
+          const url = `${baseUrl}/api/3/contact/sync`;
+          const response = await fetch(url, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({ contact: { email, ...recordData } }),
+          });
+          if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`ActiveCampaign API error: ${response.status} - ${errorText}`);
+          }
+          const data = await response.json();
+          return data;
+        } else if (operation === 'tag') {
+          if (!email || !tagId) {
+            throw new Error('ActiveCampaign: Email and Tag ID are required for tag operation');
+          }
+          const url = `${baseUrl}/api/3/contactTags`;
+          const response = await fetch(url, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({ contactTag: { contact: email, tag: tagId } }),
+          });
+          if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`ActiveCampaign API error: ${response.status} - ${errorText}`);
+          }
+          const data = await response.json();
+          return data;
+        } else if (operation === 'untag') {
+          if (!email || !tagId) {
+            throw new Error('ActiveCampaign: Email and Tag ID are required for untag operation');
+          }
+          const url = `${baseUrl}/api/3/contactTags`;
+          const response = await fetch(url, {
+            method: 'DELETE',
+            headers,
+            body: JSON.stringify({ contactTag: { contact: email, tag: tagId } }),
+          });
+          if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`ActiveCampaign API error: ${response.status} - ${errorText}`);
+          }
+          return { success: true, email, tagId };
+        } else {
+          throw new Error(`ActiveCampaign: Unknown operation "${operation}"`);
+        }
+      } catch (error) {
+        throw new Error(`ActiveCampaign: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+
     default:
       console.log(`Node type ${type} executed with passthrough`);
       return input;
@@ -8778,6 +10402,11 @@ function replaceTemplates(template: unknown, input: unknown): string {
 
 function extractValue(expression: string, input: unknown): unknown {
   if (!expression) return input;
+  
+  // Ensure expression is a string
+  if (typeof expression !== 'string') {
+    throw new Error(`extractValue: expression must be a string, got ${typeof expression}`);
+  }
 
   // Handle {{input}} and {{input.field}} patterns
   const cleanExpr = expression.replace(/^\$\.?/, "").replace(/^input\.?/, "");
