@@ -10,7 +10,7 @@ import {
   CheckCircle, XCircle, Loader2,
   FileText, DatabaseZap, Calendar, Users,
   Layers, Edit, Edit3, Tag, Code2, ListChecks,
-  ArrowUpDown, List, Terminal, Calculator, Lock, Rss
+  ArrowUpDown, List, Terminal, Calculator, Lock, Rss, Target
 } from 'lucide-react';
 
 const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
@@ -18,8 +18,8 @@ const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
   GitMerge, Repeat, Timer, ShieldAlert, Code, Braces, Table, Type,
   Combine, Send, Mail, MessageSquare, Database, Box, FileText, DatabaseZap,
   Calendar, CheckCircle, Users,
-  XCircle, Layers, Edit, Edit3, Tag, Function: Code2, ListChecks, ArrowUpDown, List, Terminal,
-  Calculator, Lock, Rss
+  XCircle, Layers, Edit, Edit3, Tag, Code2, ListChecks, ArrowUpDown, List, Terminal,
+  Calculator, Lock, Rss, Target
 };
 
 type WorkflowNodeProps = Node<NodeData>;

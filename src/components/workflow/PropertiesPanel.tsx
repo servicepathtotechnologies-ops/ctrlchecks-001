@@ -18,7 +18,7 @@ import {
   Type, Combine, Send, Mail, MessageSquare, Database, Box, FileText, Heart,
   Filter, Variable, Hash, MessageCircle, DatabaseZap, FileOutput, HelpCircle,
   XCircle, Layers, Edit, Edit3, Tag, Code2, ListChecks, ArrowUpDown, List, Terminal,
-  Calculator, Lock, Rss
+  Calculator, Lock, Rss, Target
 } from 'lucide-react';
 
 const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
@@ -26,8 +26,8 @@ const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
   GitMerge, Repeat, Timer, ShieldAlert, Code, Braces, Table, Type,
   Combine, Send, Mail, MessageSquare, Database, Box, FileText, Heart,
   Filter, Variable, Hash, MessageCircle, DatabaseZap, FileOutput,
-  XCircle, Layers, Edit, Edit3, Tag, Function: Code2, ListChecks, ArrowUpDown, List, Terminal,
-  Calculator, Lock, Rss
+  XCircle, Layers, Edit, Edit3, Tag, Code2, ListChecks, ArrowUpDown, List, Terminal,
+  Calculator, Lock, Rss, Target
 };
 
 export default function PropertiesPanel() {
