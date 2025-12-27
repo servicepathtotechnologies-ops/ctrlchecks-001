@@ -1,5 +1,5 @@
 // Webhook URL
-const WEBHOOK_URL = 'https://nvrrqvlqnnvlihtlgmzn.supabase.co/functions/v1/webhook-trigger/7b82ee69-5c91-4fcc-bdf0-d3d00ac5b65e';
+const WEBHOOK_URL = 'https://nvrrqvlqnnvlihtlgmzn.supabase.co/functions/v1/webhook-trigger/d658012a-f9ce-4491-97b8-66708bd039f7';
 
 // Copy to clipboard function
 function copyToClipboard() {
