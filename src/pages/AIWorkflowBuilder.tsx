@@ -234,12 +234,51 @@ export default function AIWorkflowBuilder() {
   const [requirements, setRequirements] = useState<Requirement[]>([]);
   const [config, setConfig] = useState<Record<string, string>>({});
   const [selectedHelp, setSelectedHelp] = useState<string | null>(null);
+  const [generationProgress, setGenerationProgress] = useState<{
+    status: 'generating' | 'completed' | 'error';
+    estimated_time_seconds: number;
+    elapsed_time_seconds: number;
+    progress_percentage: number;
+    current_phase: string;
+  } | null>(null);
 
   useEffect(() => {
     if (!authLoading && !user) {
       navigate('/signin');
     }
   }, [user, authLoading, navigate]);
+
+  // Continuous timer update while generating
+  useEffect(() => {
+    if (step !== 'generating' || !generationProgress) return;
+
+    const interval = setInterval(() => {
+      setGenerationProgress(prev => {
+        if (!prev || prev.status !== 'generating') return prev;
+        
+        // Increment elapsed time
+        const newElapsed = prev.elapsed_time_seconds + 0.1;
+        
+        // Update progress percentage based on elapsed vs estimated time
+        let newProgress = prev.progress_percentage;
+        if (prev.estimated_time_seconds > 0) {
+          const calculatedProgress = Math.min(95, Math.floor((newElapsed / prev.estimated_time_seconds) * 100));
+          // Only update if it's higher (don't decrease progress)
+          if (calculatedProgress > newProgress) {
+            newProgress = calculatedProgress;
+          }
+        }
+        
+        return {
+          ...prev,
+          elapsed_time_seconds: Math.round(newElapsed * 10) / 10,
+          progress_percentage: newProgress,
+        };
+      });
+    }, 100); // Update every 100ms for smooth timer
+
+    return () => clearInterval(interval);
+  }, [step, generationProgress]);
 
   const analyzeRequirements = async () => {
     if (!prompt.trim()) {
@@ -311,6 +350,28 @@ export default function AIWorkflowBuilder() {
 
   const generateWorkflow = async (finalConfig: Record<string, string>) => {
     setStep('generating');
+    
+    // Initialize progress immediately with estimated time
+    const goalLower = prompt.toLowerCase();
+    let estimatedTime = 15;
+    const hasSheets = goalLower.includes('google sheet') || goalLower.includes('sheets');
+    const hasDoc = goalLower.includes('google doc') || goalLower.includes('document');
+    const hasGmail = goalLower.includes('gmail') || goalLower.includes('email');
+    const hasSlack = goalLower.includes('slack');
+    const integrations = [hasSheets, hasDoc, hasGmail, hasSlack].filter(Boolean).length;
+    estimatedTime += integrations * 3;
+    if (hasSheets) estimatedTime += 2;
+    if (hasSheets && hasDoc) estimatedTime += 2;
+    if (hasGmail && hasSlack) estimatedTime += 2;
+    estimatedTime = Math.max(12, Math.min(45, estimatedTime));
+    
+    setGenerationProgress({
+      status: 'generating',
+      estimated_time_seconds: estimatedTime,
+      elapsed_time_seconds: 0,
+      progress_percentage: 0,
+      current_phase: 'Initializing...',
+    });
 
     // Process config to extract IDs if needed
     const processedConfig = { ...finalConfig };
@@ -330,24 +391,172 @@ export default function AIWorkflowBuilder() {
       let responseData: WorkflowGenerationResponse;
 
       try {
-        response = await fetch(functionUrl, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': session ? `Bearer ${session.access_token}` : '',
-            'apikey': import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || '',
-          },
-          body: JSON.stringify({
-            prompt: prompt.trim(),
-            config: processedConfig
-          }),
-        });
-
-        const responseText = await response.text();
+        // Try streaming first, fallback to regular if it fails
+        let useStreaming = true;
+        let response: Response;
+        
         try {
-          responseData = JSON.parse(responseText);
-        } catch {
-          responseData = { error: responseText || 'Invalid response from server' };
+          response = await fetch(functionUrl, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': session ? `Bearer ${session.access_token}` : '',
+              'apikey': import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || '',
+              'x-stream-progress': 'true', // Request streaming progress
+            },
+            body: JSON.stringify({
+              prompt: prompt.trim(),
+              config: processedConfig
+            }),
+          });
+        } catch (fetchError) {
+          // If streaming fails due to CORS or other issues, retry without streaming
+          console.warn('Streaming request failed, falling back to regular request:', fetchError);
+          useStreaming = false;
+          response = await fetch(functionUrl, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': session ? `Bearer ${session.access_token}` : '',
+              'apikey': import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || '',
+            },
+            body: JSON.stringify({
+              prompt: prompt.trim(),
+              config: processedConfig
+            }),
+          });
+        }
+
+        // Handle streaming response
+        if (useStreaming && response.body) {
+          try {
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+            let finalWorkflow: any = null;
+
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+
+              buffer += decoder.decode(value, { stream: true });
+              const lines = buffer.split('\n');
+              buffer = lines.pop() || '';
+
+              for (const line of lines) {
+                if (!line.trim()) continue;
+                
+                try {
+                  const parsed = JSON.parse(line);
+                  
+                  // Handle progress updates
+                  if (parsed.status === 'generating' || parsed.progress_percentage !== undefined) {
+                    setGenerationProgress(parsed);
+                    continue;
+                  }
+                  
+                  // Handle completion
+                  if (parsed.status === 'completed') {
+                    if (parsed.workflow) {
+                      finalWorkflow = parsed.workflow;
+                    }
+                    setGenerationProgress({
+                      status: 'completed',
+                      estimated_time_seconds: parsed.estimated_time_seconds || 0,
+                      elapsed_time_seconds: parsed.elapsed_time_seconds || 0,
+                      progress_percentage: 100,
+                      current_phase: 'Completed',
+                    });
+                    if (parsed.workflow) {
+                      break; // Only break if we have the workflow
+                    }
+                  }
+                  
+                  // Handle errors
+                  if (parsed.status === 'error') {
+                    throw new Error(parsed.error || 'Generation failed');
+                  }
+                } catch (parseError) {
+                  // Skip invalid JSON lines
+                  console.warn('Failed to parse progress line:', line, parseError);
+                }
+              }
+            }
+
+            if (finalWorkflow) {
+              responseData = finalWorkflow;
+            } else {
+              throw new Error('No workflow received from server');
+            }
+          } catch (streamError) {
+            // If streaming fails, fallback to regular response parsing
+            console.warn('Streaming failed, falling back to regular response:', streamError);
+            const responseText = await response.text();
+            try {
+              responseData = JSON.parse(responseText);
+            } catch (parseError) {
+              throw new Error('Failed to parse response from server');
+            }
+          }
+        } else {
+          // Fallback to non-streaming response
+          // Show initial progress estimate
+          const goalLower = prompt.toLowerCase();
+          let estimatedTime = 15;
+          const hasSheets = goalLower.includes('google sheet') || goalLower.includes('sheets');
+          const hasDoc = goalLower.includes('google doc') || goalLower.includes('document');
+          const hasGmail = goalLower.includes('gmail') || goalLower.includes('email');
+          const hasSlack = goalLower.includes('slack');
+          const integrations = [hasSheets, hasDoc, hasGmail, hasSlack].filter(Boolean).length;
+          estimatedTime += integrations * 3;
+          if (hasSheets) estimatedTime += 2;
+          if (hasSheets && hasDoc) estimatedTime += 2;
+          if (hasGmail && hasSlack) estimatedTime += 2;
+          estimatedTime = Math.max(12, Math.min(45, estimatedTime));
+          
+          const progressStartTime = Date.now();
+          setGenerationProgress({
+            status: 'generating',
+            estimated_time_seconds: estimatedTime,
+            elapsed_time_seconds: 0,
+            progress_percentage: 0,
+            current_phase: 'Initializing...',
+          });
+          
+          // Simulate progress updates while waiting
+          const progressInterval = setInterval(() => {
+            setGenerationProgress(prev => {
+              if (!prev) return null;
+              const elapsed = (Date.now() - progressStartTime) / 1000;
+              const progress = Math.min(95, Math.floor((elapsed / prev.estimated_time_seconds) * 100));
+              return {
+                ...prev,
+                elapsed_time_seconds: Math.round(elapsed * 10) / 10,
+                progress_percentage: progress,
+                current_phase: progress < 20 ? 'Understanding & Planning' :
+                              progress < 50 ? 'Workflow Design' :
+                              progress < 75 ? 'Node Configuration' :
+                              progress < 90 ? 'Validation & Simulation' :
+                              'Final Optimization',
+              };
+            });
+          }, 500);
+          
+          try {
+            const responseText = await response.text();
+            clearInterval(progressInterval);
+            
+            try {
+              responseData = JSON.parse(responseText);
+            } catch (parseError) {
+              // If parsing fails, try to extract error message
+              console.error('Failed to parse response:', parseError);
+              responseData = { error: responseText || 'Invalid response from server' };
+            }
+          } catch (error) {
+            clearInterval(progressInterval);
+            throw error;
+          }
         }
 
         if (!response.ok) {
@@ -371,10 +580,27 @@ export default function AIWorkflowBuilder() {
         setWorkflowName(workflowName);
 
         const nodes: WorkflowNode[] = (data.nodes || []).map((nodeData: NodeDataRaw, index: number) => {
+          // CRITICAL FIX: Replace email_resend with google_gmail (email_resend doesn't exist in node library)
+          let nodeTypeId = nodeData.type;
+          if (nodeTypeId === 'email_resend') {
+            console.warn(`[AIWorkflowBuilder] Replacing email_resend with google_gmail for node ${nodeData.id}`);
+            nodeTypeId = 'google_gmail';
+            // Update config to match google_gmail format
+            if (nodeData.config) {
+              nodeData.config = {
+                ...nodeData.config,
+                operation: 'send',
+                to: nodeData.config.to || '',
+                subject: nodeData.config.subject || nodeData.config.subject || 'Message from Workflow',
+                body: nodeData.config.body || nodeData.config.text || '',
+              };
+            }
+          }
+          
           // Backward compatibility: map old 'webhook_trigger_response' to new 'webhook'
-          const nodeTypeId = nodeData.type === 'webhook_trigger_response' ? 'webhook' : nodeData.type;
+          nodeTypeId = nodeTypeId === 'webhook_trigger_response' ? 'webhook' : nodeTypeId;
           const nodeType = NODE_TYPES.find(nt => nt.type === nodeTypeId);
-          if (!nodeType) throw new Error(`Unknown node type: ${nodeData.type}`);
+          if (!nodeType) throw new Error(`Unknown node type: ${nodeData.type} (mapped to ${nodeTypeId})`);
           
           // Use the mapped type
           const finalType = nodeTypeId;
@@ -572,10 +798,62 @@ export default function AIWorkflowBuilder() {
                 </div>
               </div>
             ) : (
-              <div className="flex flex-col items-center justify-center py-12 space-y-4">
+              <div className="flex flex-col items-center justify-center py-12 space-y-6">
                 <Loader2 className="h-10 w-10 animate-spin text-primary" />
-                <p className="text-lg font-medium">Generating your workflow...</p>
-                <p className="text-sm text-muted-foreground">This may take a few moments</p>
+                <div className="text-center space-y-4 w-full max-w-md mx-auto">
+                  <div>
+                    <p className="text-lg font-medium">Generating your workflow...</p>
+                    {generationProgress && (
+                      <p className="text-sm text-muted-foreground mt-1">{generationProgress.current_phase}</p>
+                    )}
+                  </div>
+                  
+                  {/* Timer Display */}
+                  {generationProgress ? (
+                    <div className="bg-muted/50 rounded-lg p-4 space-y-3">
+                      <div className="flex items-center justify-center gap-4">
+                        <div className="text-center">
+                          <div className="text-2xl font-bold text-primary tabular-nums">
+                            {Math.floor(generationProgress.elapsed_time_seconds)}s
+                          </div>
+                          <div className="text-xs text-muted-foreground mt-0.5">Elapsed</div>
+                        </div>
+                        <div className="text-muted-foreground">/</div>
+                        <div className="text-center">
+                          <div className="text-2xl font-bold text-muted-foreground tabular-nums">
+                            ~{Math.ceil(generationProgress.estimated_time_seconds)}s
+                          </div>
+                          <div className="text-xs text-muted-foreground mt-0.5">Estimated</div>
+                        </div>
+                      </div>
+                      
+                      {/* Progress Bar */}
+                      <div className="w-full bg-muted rounded-full h-3 overflow-hidden">
+                        <div
+                          className="h-full bg-gradient-to-r from-primary to-primary/80 transition-all duration-300 ease-out flex items-center justify-end pr-2"
+                          style={{ width: `${generationProgress.progress_percentage}%` }}
+                        >
+                          {generationProgress.progress_percentage > 10 && (
+                            <span className="text-[10px] font-medium text-primary-foreground">
+                              {generationProgress.progress_percentage}%
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      
+                      {/* Progress Percentage */}
+                      <div className="text-center">
+                        <span className="text-sm font-medium text-foreground">
+                          {generationProgress.progress_percentage}% Complete
+                        </span>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="bg-muted/50 rounded-lg p-4">
+                      <p className="text-sm text-muted-foreground">Initializing workflow generation...</p>
+                    </div>
+                  )}
+                </div>
               </div>
             )}
           </CardContent>
