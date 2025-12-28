@@ -1,0 +1,15 @@
+{
+    "oauth2_validate_token_correct": {
+      "type": "oauth2",
+      "label": "OAuth2 - Validate Token (CORRECT)",
+      "category": "authentication",
+      "config": {
+        "operation": "validate_token",
+        "grantType": "authorization_code",
+        "clientId": "dummy-client-id",
+        "clientSecret": "dummy-secret",
+        "tokenUrl": "https://dummy.com/token",
+        "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ1c2VyMTIzIiwiZXhwIjoxNzM1Njg5NjAwLCJpYXQiOjE3MzU2ODYwMDB9.test-signature-here"
+      },
+      "note": "For validate_token operation, you DO NOT need authorization code. Only the token field is used."
+    }}

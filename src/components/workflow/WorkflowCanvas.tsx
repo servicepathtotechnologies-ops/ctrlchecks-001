@@ -21,7 +21,7 @@ const nodeTypes = {
 
 function WorkflowCanvasInner() {
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
-  const { screenToFlowPosition } = useReactFlow();
+  const { screenToFlowPosition, fitView } = useReactFlow();
   const {
     nodes,
     edges,
@@ -147,6 +147,16 @@ function WorkflowCanvasInner() {
     selectNode(null);
   }, [selectNode]);
 
+  // Only fit view when there are multiple nodes, not for the first node
+  useEffect(() => {
+    if (nodes.length > 1) {
+      // Small delay to ensure nodes are rendered
+      setTimeout(() => {
+        fitView({ padding: 0.2, duration: 300 });
+      }, 100);
+    }
+  }, [nodes.length, fitView]);
+
   return (
     <div ref={reactFlowWrapper} className="flex-1 h-full">
       <ReactFlow
@@ -162,7 +172,7 @@ function WorkflowCanvasInner() {
         onEdgeClick={onEdgeClick}
         onPaneClick={onPaneClick}
         nodeTypes={nodeTypes}
-        fitView
+        defaultViewport={{ x: 0, y: 0, zoom: 0.8 }}
         snapToGrid
         snapGrid={[16, 16]}
         className="bg-muted/30"

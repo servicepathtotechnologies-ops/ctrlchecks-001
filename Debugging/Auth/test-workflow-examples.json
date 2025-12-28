@@ -1,0 +1,324 @@
+{
+  "description": "Complete workflow JSON examples ready to import and test",
+  "workflows": {
+    "http_request_get_example": {
+      "name": "HTTP Request GET Test",
+      "description": "Test HTTP GET request with JSONPlaceholder API",
+      "nodes": [
+        {
+          "id": "1",
+          "type": "manual_trigger",
+          "position": { "x": 100, "y": 100 },
+          "data": {
+            "label": "Manual Trigger",
+            "type": "manual_trigger",
+            "category": "triggers"
+          }
+        },
+        {
+          "id": "2",
+          "type": "http_request",
+          "position": { "x": 300, "y": 100 },
+          "data": {
+            "label": "HTTP Request",
+            "type": "http_request",
+            "category": "http_api",
+            "config": {
+              "url": "https://jsonplaceholder.typicode.com/posts/1",
+              "method": "GET",
+              "headers": "{}",
+              "timeout": 30000
+            }
+          }
+        }
+      ],
+      "edges": [
+        {
+          "id": "e1-2",
+          "source": "1",
+          "target": "2"
+        }
+      ]
+    },
+    "jwt_decode_example": {
+      "name": "JWT Decode Test",
+      "description": "Test JWT decode operation",
+      "nodes": [
+        {
+          "id": "1",
+          "type": "manual_trigger",
+          "position": { "x": 100, "y": 100 },
+          "data": {
+            "label": "Manual Trigger",
+            "type": "manual_trigger",
+            "category": "triggers"
+          }
+        },
+        {
+          "id": "2",
+          "type": "jwt",
+          "position": { "x": 300, "y": 100 },
+          "data": {
+            "label": "JWT",
+            "type": "jwt",
+            "category": "authentication",
+            "config": {
+              "operation": "decode",
+              "algorithm": "HS256",
+              "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c"
+            }
+          }
+        }
+      ],
+      "edges": [
+        {
+          "id": "e1-2",
+          "source": "1",
+          "target": "2"
+        }
+      ]
+    },
+    "set_and_text_formatter_example": {
+      "name": "Set and Text Formatter Test",
+      "description": "Test Set node and Text Formatter together",
+      "nodes": [
+        {
+          "id": "1",
+          "type": "manual_trigger",
+          "position": { "x": 100, "y": 100 },
+          "data": {
+            "label": "Manual Trigger",
+            "type": "manual_trigger",
+            "category": "triggers"
+          }
+        },
+        {
+          "id": "2",
+          "type": "set",
+          "position": { "x": 300, "y": 100 },
+          "data": {
+            "label": "Set",
+            "type": "set",
+            "category": "data",
+            "config": {
+              "fields": "{\"name\": \"John\", \"orderId\": 12345, \"total\": 99.99}"
+            }
+          }
+        },
+        {
+          "id": "3",
+          "type": "text_formatter",
+          "position": { "x": 500, "y": 100 },
+          "data": {
+            "label": "Text Formatter",
+            "type": "text_formatter",
+            "category": "data",
+            "config": {
+              "template": "Hello {{name}}! Your order #{{orderId}} total is ${{total}}."
+            }
+          }
+        }
+      ],
+      "edges": [
+        {
+          "id": "e1-2",
+          "source": "1",
+          "target": "2"
+        },
+        {
+          "id": "e2-3",
+          "source": "2",
+          "target": "3"
+        }
+      ]
+    },
+    "http_request_to_json_parser_example": {
+      "name": "HTTP Request to JSON Parser",
+      "description": "Fetch data from API and parse it",
+      "nodes": [
+        {
+          "id": "1",
+          "type": "manual_trigger",
+          "position": { "x": 100, "y": 100 },
+          "data": {
+            "label": "Manual Trigger",
+            "type": "manual_trigger",
+            "category": "triggers"
+          }
+        },
+        {
+          "id": "2",
+          "type": "http_request",
+          "position": { "x": 300, "y": 100 },
+          "data": {
+            "label": "HTTP Request",
+            "type": "http_request",
+            "category": "http_api",
+            "config": {
+              "url": "https://jsonplaceholder.typicode.com/posts/1",
+              "method": "GET",
+              "headers": "{}",
+              "timeout": 30000
+            }
+          }
+        },
+        {
+          "id": "3",
+          "type": "json_parser",
+          "position": { "x": 500, "y": 100 },
+          "data": {
+            "label": "JSON Parser",
+            "type": "json_parser",
+            "category": "data",
+            "config": {
+              "expression": "$.title"
+            }
+          }
+        }
+      ],
+      "edges": [
+        {
+          "id": "e1-2",
+          "source": "1",
+          "target": "2"
+        },
+        {
+          "id": "e2-3",
+          "source": "2",
+          "target": "3"
+        }
+      ]
+    },
+    "set_if_else_example": {
+      "name": "Set and If/Else Test",
+      "description": "Test conditional logic with Set node",
+      "nodes": [
+        {
+          "id": "1",
+          "type": "manual_trigger",
+          "position": { "x": 100, "y": 100 },
+          "data": {
+            "label": "Manual Trigger",
+            "type": "manual_trigger",
+            "category": "triggers"
+          }
+        },
+        {
+          "id": "2",
+          "type": "set",
+          "position": { "x": 300, "y": 100 },
+          "data": {
+            "label": "Set",
+            "type": "set",
+            "category": "data",
+            "config": {
+              "fields": "{\"score\": 85, \"passingGrade\": 70}"
+            }
+          }
+        },
+        {
+          "id": "3",
+          "type": "if_else",
+          "position": { "x": 500, "y": 100 },
+          "data": {
+            "label": "If/Else",
+            "type": "if_else",
+            "category": "logic",
+            "config": {
+              "condition": "{{input.score}} > {{input.passingGrade}}"
+            }
+          }
+        }
+      ],
+      "edges": [
+        {
+          "id": "e1-2",
+          "source": "1",
+          "target": "2"
+        },
+        {
+          "id": "e2-3",
+          "source": "2",
+          "target": "3"
+        }
+      ]
+    },
+    "utility_nodes_example": {
+      "name": "Utility Nodes Test",
+      "description": "Test Date/Time, Math, and Crypto nodes",
+      "nodes": [
+        {
+          "id": "1",
+          "type": "manual_trigger",
+          "position": { "x": 100, "y": 100 },
+          "data": {
+            "label": "Manual Trigger",
+            "type": "manual_trigger",
+            "category": "triggers"
+          }
+        },
+        {
+          "id": "2",
+          "type": "date_time",
+          "position": { "x": 300, "y": 50 },
+          "data": {
+            "label": "Date & Time",
+            "type": "date_time",
+            "category": "utility",
+            "config": {
+              "operation": "now",
+              "timezone": "UTC",
+              "format": "ISO"
+            }
+          }
+        },
+        {
+          "id": "3",
+          "type": "math",
+          "position": { "x": 300, "y": 150 },
+          "data": {
+            "label": "Math",
+            "type": "math",
+            "category": "utility",
+            "config": {
+              "operation": "add",
+              "a": 15,
+              "b": 27
+            }
+          }
+        },
+        {
+          "id": "4",
+          "type": "crypto",
+          "position": { "x": 300, "y": 250 },
+          "data": {
+            "label": "Crypto",
+            "type": "crypto",
+            "category": "utility",
+            "config": {
+              "operation": "uuid"
+            }
+          }
+        }
+      ],
+      "edges": [
+        {
+          "id": "e1-2",
+          "source": "1",
+          "target": "2"
+        },
+        {
+          "id": "e1-3",
+          "source": "1",
+          "target": "3"
+        },
+        {
+          "id": "e1-4",
+          "source": "1",
+          "target": "4"
+        }
+      ]
+    }
+  }
+}
+
