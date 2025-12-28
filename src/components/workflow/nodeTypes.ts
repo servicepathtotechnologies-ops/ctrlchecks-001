@@ -53,7 +53,7 @@ export const NODE_CATEGORIES: { id: NodeCategory; label: string; color: string }
 
 export const NODE_TYPES: NodeTypeDefinition[] = [
   // ============================================
-  // 1. TRIGGER NODES (7/7)
+  // 1. TRIGGER NODES (8/8)
   // ============================================
   {
     type: 'chat_trigger',
@@ -164,6 +164,50 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     defaultConfig: { source_workflow_id: '' },
     configFields: [
       { key: 'source_workflow_id', label: 'Source Workflow ID', type: 'text', placeholder: '', required: true, helpText: 'ID of the workflow that will trigger this workflow' },
+    ],
+  },
+  {
+    type: 'form',
+    label: 'Form',
+    category: 'triggers',
+    icon: 'FileText',
+    description: 'Trigger workflow from form submissions (blocks until submission)',
+    defaultConfig: {
+      formTitle: 'Form Submission',
+      formDescription: '',
+      fields: [], // Array of FormField objects, not JSON string
+      submitButtonText: 'Submit',
+      successMessage: 'Thank you for your submission!',
+      redirectUrl: '',
+      waitForSubmission: true,
+    },
+    configFields: [
+      // Form Trigger uses custom inline UI - no config fields in properties panel
+      // Only Form URL is shown in properties panel (readonly)
+      { 
+        key: 'allowMultipleSubmissions', 
+        label: 'Allow Multiple Submissions', 
+        type: 'boolean', 
+        defaultValue: true,
+        required: false,
+        helpText: 'Allow the same user to submit the form multiple times' 
+      },
+      { 
+        key: 'requireAuthentication', 
+        label: 'Require Authentication', 
+        type: 'boolean', 
+        defaultValue: false,
+        required: false,
+        helpText: 'Require users to be authenticated before submitting the form' 
+      },
+      { 
+        key: 'captcha', 
+        label: 'Enable CAPTCHA', 
+        type: 'boolean', 
+        defaultValue: false,
+        required: false,
+        helpText: 'Enable CAPTCHA verification for form submissions' 
+      },
     ],
   },
 

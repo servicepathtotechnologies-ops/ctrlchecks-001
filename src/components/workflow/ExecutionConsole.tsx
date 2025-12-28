@@ -3,9 +3,10 @@ import { supabase } from '@/integrations/supabase/client';
 import { useWorkflowStore } from '@/stores/workflowStore';
 import {
   CheckCircle, XCircle, Loader2, Clock, ChevronDown, ChevronUp,
-  Terminal, RefreshCw, Trash2
+  Terminal, RefreshCw, Trash2, Copy, ExternalLink
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { toast } from '@/hooks/use-toast';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { cn } from '@/lib/utils';
@@ -29,7 +30,7 @@ interface ExecutionConsoleProps {
 }
 
 export default function ExecutionConsole({ isExpanded, onToggle }: ExecutionConsoleProps) {
-  const { workflowId, updateNodeStatus, resetWorkflow, resetAllNodeStatuses } = useWorkflowStore();
+  const { workflowId, updateNodeStatus, resetWorkflow, resetAllNodeStatuses, nodes } = useWorkflowStore();
   const [executions, setExecutions] = useState<Execution[]>([]);
   const [loading, setLoading] = useState(false);
   const [selectedExecution, setSelectedExecution] = useState<Execution | null>(null);
@@ -48,9 +49,14 @@ export default function ExecutionConsole({ isExpanded, onToggle }: ExecutionCons
 
       if (error) {
         // Handle 406 errors gracefully (might be RLS or column issues)
-        if (error.code === 'PGRST116' || error.message?.includes('406')) {
-          console.warn('Executions query returned 406, this might be a permissions issue:', error);
-          // Don't throw, just set empty array
+        // 406 can occur when no rows exist and RLS prevents access
+        const is406Error = error.code === 'PGRST116' || 
+                          error.message?.includes('406') || 
+                          (error as any).status === 406 ||
+                          (error as any).statusCode === 406;
+        
+        if (is406Error) {
+          // Silently handle - this is expected when no executions exist yet
           setExecutions([]);
           return;
         }
@@ -342,6 +348,50 @@ export default function ExecutionConsole({ isExpanded, onToggle }: ExecutionCons
                       Duration: {formatDuration(selectedExecution.duration_ms)}
                     </span>
                   </div>
+
+                  {/* Form URL Display - Show when workflow has form node */}
+                  {(() => {
+                    const formNode = nodes.find((node: any) => node.data?.type === 'form');
+                    if (formNode && workflowId) {
+                      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+                      const formUrl = `${window.location.origin}/form/${workflowId}/${formNode.id}`;
+                      return (
+                        <div className="p-3 rounded-md bg-primary/10 border border-primary/20 mb-4">
+                          <div className="text-xs font-medium text-primary mb-2">📋 Form URL (Readonly)</div>
+                          <div className="flex gap-2 items-center">
+                            <code className="text-xs font-mono break-all flex-1 bg-background p-2 rounded bg-muted/50">
+                              {formUrl}
+                            </code>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-8 px-2 text-xs"
+                              onClick={() => {
+                                navigator.clipboard.writeText(formUrl);
+                                toast.success('Form URL copied to clipboard');
+                              }}
+                            >
+                              <Copy className="h-3 w-3 mr-1" />
+                              Copy
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-8 px-2 text-xs"
+                              onClick={() => window.open(formUrl, '_blank')}
+                            >
+                              <ExternalLink className="h-3 w-3 mr-1" />
+                              Open
+                            </Button>
+                          </div>
+                          <p className="text-xs text-muted-foreground mt-2">
+                            Share this URL to collect form submissions. Form Trigger blocks workflow execution until submission. Submissions will appear in the execution console.
+                          </p>
+                        </div>
+                      );
+                    }
+                    return null;
+                  })()}
 
                   {selectedExecution.error && (
                     <div className="p-3 rounded-md bg-destructive/10 border border-destructive/20">

@@ -18,235 +18,22 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { validateAndFixWorkflow } from "./workflow-validation.ts";
 import { AutonomousWorkflowAgent } from "./autonomous-agent.ts";
+import { LLMAdapter } from "./llm-adapter.ts";
 
-// CORS headers (inlined from _shared/cors.ts)
+// CORS headers - comprehensive configuration for browser access
 const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-stream-progress',
+  'Access-Control-Allow-Origin': '*', // Allow all origins (can be restricted to specific domain in production)
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-stream-progress, accept, x-idempotency-key',
   'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
+  'Access-Control-Max-Age': '86400', // Cache preflight for 24 hours
+  'Access-Control-Allow-Credentials': 'true', // Allow credentials if needed
 };
 
-// LLM Adapter (inlined from _shared/llm-adapter.ts - only Gemini part needed)
-interface LLMMessage {
-  role: 'system' | 'user' | 'assistant';
-  content: string;
-}
-
-interface LLMOptions {
-  model: string;
-  temperature?: number;
-  maxTokens?: number;
-  apiKey?: string;
-  stream?: boolean;
-}
-
-interface LLMResponse {
-  content: string;
-  usage?: {
-    promptTokens: number;
-    completionTokens: number;
-    totalTokens: number;
-  };
-  model?: string;
-  finishReason?: string;
-}
-
-// Simplified LLM Adapter - only Gemini support (what we need)
-class LLMAdapter {
-  async chatGemini(
-    messages: LLMMessage[],
-    options: LLMOptions
-  ): Promise<LLMResponse> {
-    const apiKey = options.apiKey || Deno.env.get('GEMINI_API_KEY');
-    if (!apiKey) {
-      throw new Error('Gemini API key required. Provide apiKey in options or set GEMINI_API_KEY environment variable.');
-    }
-
-    // Map model names to actual Gemini API model identifiers
-    // Use gemini-2.5-flash as default (user's preferred model)
-    const modelMap: Record<string, string> = {
-      'gemini-2.5-flash': 'gemini-2.5-flash', // Try exact name first
-      'gemini-2.5-pro': 'gemini-2.5-pro',
-      'gemini-2.5-flash-lite': 'gemini-2.5-flash-lite',
-      'gemini-1.5-flash': 'gemini-1.5-flash',
-      'gemini-1.5-pro': 'gemini-1.5-pro',
-      'gemini-pro': 'gemini-1.5-flash', // Fallback to 1.5-flash
-    };
-
-    // Use gemini-2.5-flash as default (user's preferred model)
-    const model = modelMap[options.model] || 'gemini-2.5-flash';
-
-    const systemInstruction = messages.find(m => m.role === 'system')?.content;
-    const conversationParts = messages
-      .filter(m => m.role !== 'system')
-      .map(msg => ({
-        role: msg.role === 'assistant' ? 'model' : 'user',
-        parts: [{ text: msg.content }],
-      }));
-
-    // Try v1beta first (supports more models), fallback to v1 if needed
-    let apiVersion = 'v1beta';
-    let attemptModel = model;
-
-    try {
-      let url = `https://generativelanguage.googleapis.com/${apiVersion}/models/${attemptModel}:generateContent?key=${apiKey}`;
-
-      let response = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          contents: conversationParts,
-          systemInstruction: systemInstruction ? {
-            parts: [{ text: systemInstruction }],
-          } : undefined,
-          generationConfig: {
-            temperature: options.temperature ?? 0.7,
-            maxOutputTokens: options.maxTokens,
-          },
-        }),
-      });
-
-      // If 404, try fallback models in order
-      if (response.status === 404) {
-        // Try gemini-2.5-flash variants first, then fallback to 1.5 models
-        const fallbackModels = [
-          'gemini-2.5-flash',            // Try exact 2.5 flash name
-          'gemini-2.0-flash-exp',        // Try 2.5 flash variant
-          'gemini-1.5-flash',            // Fallback to 1.5 flash
-          'gemini-1.5-pro',              // Fallback to 1.5 pro
-        ];
-
-        for (const fallbackModel of fallbackModels) {
-          if (attemptModel === fallbackModel) continue; // Skip if already tried
-
-          console.warn(`Model ${attemptModel} not found, trying fallback: ${fallbackModel}`);
-          attemptModel = fallbackModel;
-          url = `https://generativelanguage.googleapis.com/${apiVersion}/models/${fallbackModel}:generateContent?key=${apiKey}`;
-
-          response = await fetch(url, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              contents: conversationParts,
-              systemInstruction: systemInstruction ? {
-                parts: [{ text: systemInstruction }],
-              } : undefined,
-              generationConfig: {
-                temperature: options.temperature ?? 0.7,
-                maxOutputTokens: options.maxTokens,
-              },
-            }),
-          });
-
-          // If this model works, break out of loop
-          if (response.ok) {
-            console.log(`Successfully using fallback model: ${fallbackModel}`);
-            break;
-          }
-        }
-      }
-
-      // If still 404 after fallbacks, try v1 API
-      if (response.status === 404 && apiVersion === 'v1beta') {
-        console.warn('v1beta API failed, trying v1 API');
-        apiVersion = 'v1';
-        url = `https://generativelanguage.googleapis.com/v1/models/${attemptModel}:generateContent?key=${apiKey}`;
-
-        response = await fetch(url, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            contents: conversationParts,
-            systemInstruction: systemInstruction ? {
-              parts: [{ text: systemInstruction }],
-            } : undefined,
-            generationConfig: {
-              temperature: options.temperature ?? 0.7,
-              maxOutputTokens: options.maxTokens,
-            },
-          }),
-        });
-      }
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        let errorMessage = `Gemini API error: ${response.status}`;
-
-        try {
-          const errorJson = JSON.parse(errorText);
-          const apiError = errorJson.error || errorJson;
-          errorMessage = apiError.message || apiError.error?.message || errorMessage;
-
-          // Add more context for 404 errors
-          if (response.status === 404) {
-            errorMessage = `Model "${attemptModel}" not found in ${apiVersion} API. ${errorMessage}. Please verify your API key has access to Gemini models and check available models.`;
-          }
-        } catch {
-          errorMessage += ` - ${errorText}`;
-        }
-
-        console.error('Gemini API error response:', {
-          status: response.status,
-          statusText: response.statusText,
-          errorText,
-          model: attemptModel,
-          originalModel: model,
-          apiVersion,
-          url,
-        });
-
-        throw new Error(errorMessage);
-      }
-
-      const data = await response.json();
-
-      const content = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-      const usageInfo = data.usageMetadata;
-
-      // Log successful response
-      if (attemptModel !== model) {
-        console.log(`Successfully used fallback model: ${attemptModel} (requested: ${model})`);
-      }
-
-      return {
-        content,
-        usage: usageInfo ? {
-          promptTokens: usageInfo.promptTokenCount || 0,
-          completionTokens: usageInfo.candidatesTokenCount || 0,
-          totalTokens: usageInfo.totalTokenCount || 0,
-        } : undefined,
-        model: data.model || attemptModel,
-        finishReason: data.candidates?.[0]?.finishReason,
-      };
-    } catch (error) {
-      if (error instanceof Error) {
-        throw error;
-      }
-      throw new Error(`Gemini API request failed: ${String(error)}`);
-    }
-  }
-
-  async chat(
-    provider: 'openai' | 'gemini',
-    messages: LLMMessage[],
-    options: LLMOptions
-  ): Promise<LLMResponse> {
-    if (provider === 'gemini') {
-      return this.chatGemini(messages, options);
-    }
-    throw new Error(`Unsupported provider: ${provider}`);
-  }
-}
+// LLMAdapter is now imported from llm-adapter.ts to avoid duplication
 
 // Available node types for workflow generation - COMPREHENSIVE LIST
 const AVAILABLE_NODES = {
-  triggers: ['manual_trigger', 'webhook', 'schedule', 'chat_trigger', 'error_trigger', 'interval', 'workflow_trigger'],
+  triggers: ['manual_trigger', 'webhook', 'schedule', 'chat_trigger', 'error_trigger', 'interval', 'workflow_trigger', 'form'],
   ai: ['openai_gpt', 'anthropic_claude', 'google_gemini', 'text_summarizer', 'sentiment_analyzer', 'ai_agent', 'memory', 'llm_chain', 'azure_openai', 'hugging_face', 'cohere', 'ollama', 'embeddings', 'vector_store', 'chat_model'],
   logic: ['if_else', 'switch', 'loop', 'wait', 'error_handler', 'filter', 'merge', 'noop', 'split_in_batches', 'stop_and_error'],
   data: ['javascript', 'json_parser', 'csv_processor', 'text_formatter', 'merge_data', 'set_variable', 'aggregate', 'edit_fields', 'execute_command', 'function', 'function_item', 'item_lists', 'limit', 'rename_keys', 'set', 'sort', 'date_time', 'math', 'crypto', 'html_extract', 'xml', 'rss_feed_read', 'pdf', 'image_manipulation'],
@@ -266,14 +53,12 @@ const AVAILABLE_NODES = {
 };
 
 serve(async (req) => {
-  // Handle CORS preflight
+  // CRITICAL: Handle CORS preflight FIRST, before any other code
+  // This MUST be the first check to avoid any boot errors blocking OPTIONS
   if (req.method === "OPTIONS") {
-    return new Response(null, {
+    return new Response("ok", {
       status: 200,
-      headers: {
-        ...corsHeaders,
-        'Content-Length': '0',
-      }
+      headers: corsHeaders,
     });
   }
 
@@ -301,6 +86,24 @@ serve(async (req) => {
         JSON.stringify({ error: 'Prompt is required and must be a non-empty string' }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
+    }
+
+    // 🚨 CRITICAL: Pre-validate prompt for form keywords and force form node usage
+    const promptLower = prompt.toLowerCase();
+    const formKeywords = [
+      'form', 'create a form', 'form data', 'user data', 'collect data', 'collect user data',
+      'name', 'email', 'mobile', 'phone', 'contact', 'registration', 'survey', 'feedback',
+      'submission', 'user input', 'input from users', 'contact form', 'registration form',
+      'feedback form', 'data collection', 'take the user data', 'user information',
+      'gather data', 'collect information', 'user submission'
+    ];
+    
+    const requiresFormNode = formKeywords.some(keyword => promptLower.includes(keyword));
+    
+    if (requiresFormNode) {
+      console.log('[VALIDATION] Form keywords detected in prompt - FORCING form node usage');
+      // Store this flag to use in validation later
+      (requestBody as any)._requiresFormNode = true;
     }
 
     if (mode === 'edit' && !currentWorkflow) {
@@ -335,8 +138,65 @@ serve(async (req) => {
 
     // Build comprehensive system prompt with all available node types and descriptions
     const nodeDescriptions = `
+🤖 AI AGENT TYPE: GOAL-BASED, ADVANCED, LEARNING MODEL AGENT 🤖
+================================================================================
+This is an Advanced Autonomous Workflow AI Agent that operates as:
+1. GOAL-BASED AGENT: Works towards achieving USER_GOAL with 100% accuracy
+2. ADVANCED AGENT: Uses multi-phase reasoning (Understand → Plan → Construct → Validate → Heal → Verify → Learn)
+3. LEARNING AGENT: Learns from successful patterns and errors to improve future generations
+
+AGENT CAPABILITIES:
+- Deep prompt analysis and intent understanding
+- Intelligent node selection based on user requirements
+- Automatic error detection and self-healing
+- Workflow validation and optimization
+- Pattern recognition and memory-based learning
+- Goal verification to ensure 100% requirement fulfillment
+
+AGENT WORKFLOW PROCESS:
+1. UNDERSTAND: Analyze user goal, extract intent, inputs, outputs, constraints
+2. PLAN: Break goal into sub-tasks, map to workflow nodes, create execution plan
+3. CONSTRUCT: Build complete workflow with proper node configurations
+4. VALIDATE: Simulate execution, identify errors, check data flow
+5. HEAL: Automatically fix detected errors without human intervention
+6. VERIFY: Verify final output matches USER_GOAL exactly (100% completion check)
+7. LEARN: Store successful patterns and error fixes for future improvements
+
+CRITICAL: The agent MUST achieve 100% of user requirements. If any requirement is missing, the workflow is INCOMPLETE and WRONG.
+
+🚨🚨🚨 CRITICAL TRIGGER SELECTION RULES 🚨🚨🚨
+================================================================================
+WHEN USER MENTIONS ANY OF THESE KEYWORDS, YOU MUST USE "form" NODE AS TRIGGER:
+- "form", "create a form", "form data", "user data", "collect data"
+- "name", "email", "mobile", "phone", "contact", "registration"
+- "survey", "feedback", "submission", "user input", "input from users"
+- "contact form", "registration form", "feedback form", "data collection"
+- "take the user data", "gather data", "collect information", "user submission"
+- ANY request to collect information from users via a web form
+================================================================================
+CRITICAL: If user mentions ANY form-related keyword, form node is MANDATORY.
+DO NOT use manual_trigger, webhook, or any other trigger when form is required.
+================================================================================
+
 TRIGGERS:
-- manual_trigger: Start workflow manually (no config needed)
+- form: ⭐⭐⭐ MANDATORY for ALL form/data collection workflows ⭐⭐⭐
+  * 🚨 USE THIS NODE when user wants to: collect user data, create forms, get name/email/mobile, surveys, registrations, feedback, contact forms, etc.
+  * 🚨 NEVER use manual_trigger when user mentions "form", "user data", "collect data", "name", "email", "mobile", etc.
+  * Configuration: fields (JSON array), submitButtonText, successMessage, redirectUrl
+  * Generates a public form URL: {SUPABASE_URL}/functions/v1/form-trigger/{workflowId}
+  * Outputs: {formData: {field1: value1, ...}, files: [], meta: {submittedAt, ip, userAgent}}
+  * 
+  * EXAMPLE FOR "name, email, mobile" FORM:
+  * fields: [{"name":"name","label":"Name","type":"text","required":true,"placeholder":"Enter your name"},{"name":"email","label":"Email","type":"email","required":true,"placeholder":"Enter your email"},{"name":"mobile","label":"Mobile","type":"tel","required":true,"placeholder":"Enter your mobile number"}]
+  * 
+  * EXAMPLE FOR "name, email, message" FORM:
+  * fields: [{"name":"name","label":"Name","type":"text","required":true,"placeholder":"Enter your name"},{"name":"email","label":"Email","type":"email","required":true,"placeholder":"Enter your email"},{"name":"message","label":"Message","type":"textarea","required":true,"placeholder":"Enter your message"}]
+  * 
+  * Field types: "text", "email", "tel" (for phone/mobile), "number", "textarea", "select", "checkbox", "radio", "date", "url", "file"
+  * Always include "placeholder" for better UX
+  * Access form data in downstream nodes using: {{input.formData.name}}, {{input.formData.email}}, {{input.formData.mobile}}, etc.
+
+- manual_trigger: Start workflow manually (no config needed) - ONLY use when user explicitly wants manual testing or doesn't mention forms/data collection
 - webhook: Trigger via HTTP webhook (config: method: POST/GET/PUT)
 - schedule: Run on a schedule (config: time in HH:MM format like "09:00", timezone like "Asia/Kolkata" or "UTC")
 - chat_trigger: Trigger from chat/AI/UI messages (no config, receives message and session_id)
@@ -592,6 +452,73 @@ PRODUCTIVITY:
                 // Execute autonomous agent (this will call onProgress callbacks)
                 finalWorkflow = await agent.execute(prompt, config);
                 
+                // 🚨 CRITICAL: Validate and auto-fix form node if needed
+                const promptLower = prompt.toLowerCase();
+                const formKeywords = [
+                  'form', 'create a form', 'form data', 'user data', 'collect data', 'collect user data',
+                  'name', 'email', 'mobile', 'phone', 'contact', 'registration', 'survey', 'feedback',
+                  'submission', 'user input', 'input from users', 'contact form', 'registration form',
+                  'feedback form', 'data collection', 'take the user data', 'user information',
+                  'gather data', 'collect information', 'user submission'
+                ];
+                
+                const requiresFormNode = formKeywords.some(keyword => promptLower.includes(keyword));
+                const streamingNodeTypes = finalWorkflow.nodes?.map((n: any) => n.type || n.data?.type) || [];
+                
+                if (requiresFormNode && !streamingNodeTypes.includes('form')) {
+                  console.log('[STREAMING] Form keywords detected but form node missing - auto-fixing');
+                  
+                  // Extract field names
+                  const fieldNames: string[] = [];
+                  if (promptLower.includes('name')) fieldNames.push('name');
+                  if (promptLower.includes('email')) fieldNames.push('email');
+                  if (promptLower.includes('mobile') || promptLower.includes('phone')) fieldNames.push('mobile');
+                  if (promptLower.includes('message')) fieldNames.push('message');
+                  if (fieldNames.length === 0) fieldNames.push('name', 'email', 'message');
+                  
+                  const formFields = fieldNames.map(fn => {
+                    const config: any = { name: fn, label: fn.charAt(0).toUpperCase() + fn.slice(1), required: true, placeholder: `Enter your ${fn}` };
+                    if (fn === 'email') config.type = 'email';
+                    else if (fn === 'mobile' || fn === 'phone') config.type = 'tel';
+                    else if (fn === 'message') config.type = 'textarea';
+                    else config.type = 'text';
+                    return config;
+                  });
+                  
+                  const triggerNode = finalWorkflow.nodes.find((n: any) => (n.type || n.data?.type) === 'manual_trigger');
+                  if (triggerNode) {
+                    triggerNode.type = 'form';
+                    triggerNode.data = triggerNode.data || {};
+                    triggerNode.data.type = 'form';
+                    triggerNode.data.label = 'Form';
+                    triggerNode.config = {
+                      fields: JSON.stringify(formFields),
+                      submitButtonText: 'Submit',
+                      successMessage: 'Thank you for your submission!'
+                    };
+                  } else {
+                    finalWorkflow.nodes.unshift({
+                      id: 'trigger_1',
+                      type: 'form',
+                      position: { x: 250, y: 100 },
+                      data: { type: 'form', label: 'Form' },
+                      config: {
+                        fields: JSON.stringify(formFields),
+                        submitButtonText: 'Submit',
+                        successMessage: 'Thank you for your submission!'
+                      }
+                    });
+                    if (finalWorkflow.nodes.length > 1) {
+                      finalWorkflow.edges = finalWorkflow.edges || [];
+                      finalWorkflow.edges.unshift({
+                        id: 'edge_form_1',
+                        source: 'trigger_1',
+                        target: finalWorkflow.nodes[1].id
+                      });
+                    }
+                  }
+                }
+                
                 // Send final workflow
                 const finalResponse = {
                   status: 'completed',
@@ -660,8 +587,8 @@ PRODUCTIVITY:
         const workflow = await agent.execute(prompt, config);
         
         // CRITICAL: Check if workflow is a fallback (just trigger + log) - this is WRONG
-        const nodeTypes = workflow.nodes?.map((n: any) => n.type) || [];
-        if (nodeTypes.length <= 2 && nodeTypes.includes('manual_trigger') && nodeTypes.includes('log_output')) {
+        const initialNodeTypes = workflow.nodes?.map((n: any) => n.type) || [];
+        if (initialNodeTypes.length <= 2 && initialNodeTypes.includes('manual_trigger') && initialNodeTypes.includes('log_output')) {
           console.error('[AUTONOMOUS AGENT] CRITICAL: Generated fallback workflow instead of proper workflow');
           throw new Error('Workflow generation failed - generated fallback instead of proper workflow. Please try again.');
         }
@@ -689,7 +616,7 @@ PRODUCTIVITY:
         });
 
         // CRITICAL: Final validation - check if workflow matches user requirements
-        const promptLower = prompt.toLowerCase();
+        // promptLower already declared at line 92 in this scope, reuse it
         const nodeTypes = validatedWorkflow.nodes?.map((n: any) => n.type) || [];
         
         // CRITICAL: Check if workflow is just trigger + log (fallback) - REJECT IMMEDIATELY
@@ -720,6 +647,144 @@ PRODUCTIVITY:
         if (promptLower.includes('slack') && !nodeTypes.includes('slack_webhook') && !nodeTypes.includes('slack_message')) {
           console.error('[AUTONOMOUS AGENT] FINAL CHECK FAILED: Missing slack node');
           throw new Error('Generated workflow is missing required slack node. The workflow cannot send to Slack as requested. Please try again.');
+        }
+        
+        // 🚨 CRITICAL: Check for Form node - AUTO-FIX if missing (backup fix)
+        const formKeywords = [
+          'form', 'create a form', 'form data', 'user data', 'collect data', 'collect user data',
+          'name', 'email', 'mobile', 'phone', 'contact', 'registration', 'survey', 'feedback',
+          'submission', 'user input', 'input from users', 'contact form', 'registration form',
+          'feedback form', 'data collection', 'take the user data', 'user information',
+          'gather data', 'collect information', 'user submission'
+        ];
+        
+        const requiresFormNode = formKeywords.some(keyword => promptLower.includes(keyword));
+        
+        if (requiresFormNode && !nodeTypes.includes('form')) {
+          console.error('[AUTONOMOUS AGENT] CRITICAL: Form keywords detected but form node missing - AUTO-FIXING');
+          
+          // Extract field names from prompt
+          const fieldNames: string[] = [];
+          if (promptLower.includes('name')) fieldNames.push('name');
+          if (promptLower.includes('email')) fieldNames.push('email');
+          if (promptLower.includes('mobile') || promptLower.includes('phone')) fieldNames.push('mobile');
+          if (promptLower.includes('message')) fieldNames.push('message');
+          
+          // Default fields if none detected
+          if (fieldNames.length === 0) {
+            fieldNames.push('name', 'email', 'message');
+          }
+          
+          // Build form fields config
+          const formFields = fieldNames.map(fieldName => {
+            const fieldConfig: any = {
+              name: fieldName,
+              label: fieldName.charAt(0).toUpperCase() + fieldName.slice(1),
+              required: true,
+              placeholder: `Enter your ${fieldName}`
+            };
+            
+            if (fieldName === 'email') {
+              fieldConfig.type = 'email';
+            } else if (fieldName === 'mobile' || fieldName === 'phone') {
+              fieldConfig.type = 'tel';
+            } else if (fieldName === 'message') {
+              fieldConfig.type = 'textarea';
+            } else {
+              fieldConfig.type = 'text';
+            }
+            
+            return fieldConfig;
+          });
+          
+          // Find and replace manual_trigger with form node
+          const triggerNode = validatedWorkflow.nodes.find((n: any) => n.type === 'manual_trigger');
+          if (triggerNode) {
+            console.log(`[AUTONOMOUS AGENT] Replacing manual_trigger with form node at ${triggerNode.id}`);
+            triggerNode.type = 'form';
+            triggerNode.data = triggerNode.data || {};
+            triggerNode.data.type = 'form';
+            triggerNode.data.label = 'Form';
+            triggerNode.config = {
+              fields: JSON.stringify(formFields),
+              submitButtonText: 'Submit',
+              successMessage: 'Thank you for your submission!'
+            };
+            
+            // Update edges to use formData in downstream nodes
+            validatedWorkflow.edges = validatedWorkflow.edges.map((edge: any) => {
+              if (edge.source === triggerNode.id) {
+                // Update target node configs to use formData
+                const targetNode = validatedWorkflow.nodes.find((n: any) => n.id === edge.target);
+                if (targetNode && targetNode.config) {
+                  // Update template variables to use formData
+                  Object.keys(targetNode.config).forEach(key => {
+                    if (typeof targetNode.config[key] === 'string') {
+                      // Replace {{input.field}} with {{input.formData.field}}
+                      targetNode.config[key] = targetNode.config[key]
+                        .replace(/\{\{input\.name\}\}/g, '{{input.formData.name}}')
+                        .replace(/\{\{input\.email\}\}/g, '{{input.formData.email}}')
+                        .replace(/\{\{input\.mobile\}\}/g, '{{input.formData.mobile}}')
+                        .replace(/\{\{input\.phone\}\}/g, '{{input.formData.mobile}}')
+                        .replace(/\{\{input\.message\}\}/g, '{{input.formData.message}}');
+                    }
+                  });
+                  
+                  // If it's a slack node, update text to include form data
+                  if (targetNode.type === 'slack_webhook' || targetNode.type === 'slack_message') {
+                    const formDataText = fieldNames.map(fn => {
+                      const label = fn.charAt(0).toUpperCase() + fn.slice(1);
+                      return `${label}: {{input.formData.${fn}}}`;
+                    }).join('\\n');
+                    targetNode.config.text = targetNode.config.text || `New Form Submission:\\n${formDataText}`;
+                  }
+                }
+              }
+              return edge;
+            });
+          } else {
+            // No trigger found, add form node at the beginning
+            console.log('[AUTONOMOUS AGENT] Adding form node as first node');
+            const formNode = {
+              id: 'trigger_1',
+              type: 'form',
+              position: { x: 250, y: 100 },
+              data: {
+                type: 'form',
+                label: 'Form'
+              },
+              config: {
+                fields: JSON.stringify(formFields),
+                submitButtonText: 'Submit',
+                successMessage: 'Thank you for your submission!'
+              }
+            };
+            validatedWorkflow.nodes.unshift(formNode);
+            
+            // Connect form to first existing node
+            if (validatedWorkflow.nodes.length > 1) {
+              validatedWorkflow.edges.unshift({
+                id: 'edge_form_1',
+                source: 'trigger_1',
+                target: validatedWorkflow.nodes[1].id
+              });
+            }
+          }
+          
+          console.log('[AUTONOMOUS AGENT] Form node auto-fix completed');
+        }
+        
+        // 🚨 FINAL VALIDATION: After auto-fix, verify form node is present (throw error if still missing)
+        const finalNodeTypes = validatedWorkflow.nodes?.map((n: any) => n.type || n.data?.type) || [];
+        if (requiresFormNode && !finalNodeTypes.includes('form')) {
+          console.error('[AUTONOMOUS AGENT] CRITICAL ERROR: Form node still missing after auto-fix');
+          throw new Error('Generated workflow is missing required form node. The user requested a form to collect data (name, email, mobile, etc.) but the workflow uses manual_trigger instead. Form node is REQUIRED for data collection workflows. Please try again.');
+        }
+        
+        // If form node is required but manual_trigger is still present, that's a critical error
+        if (requiresFormNode && finalNodeTypes.includes('manual_trigger')) {
+          console.error('[AUTONOMOUS AGENT] CRITICAL ERROR: Form required but manual_trigger still present');
+          throw new Error('Generated workflow uses manual_trigger but should use form node. The user requested a form to collect data, so form node must be used as the trigger. Please try again.');
         }
         
         // Check for JavaScript node when Google Sheets is present (needed for parsing)
@@ -774,9 +839,8 @@ PRODUCTIVITY:
         });
         
         // CRITICAL: Final check - ensure JavaScript nodes return formatted text
-        const promptLower = prompt.toLowerCase();
-        const hasSheets = promptLower.includes('google sheet') || promptLower.includes('sheets');
-        const hasDoc = promptLower.includes('google doc') || promptLower.includes('document');
+        // promptLower already declared at line 92, reuse it
+        // hasSheets and hasDoc already declared at line 560, reuse them (they use goalLower which equals prompt.toLowerCase())
         
         validatedWorkflow.nodes = validatedWorkflow.nodes.map((node: any) => {
           if (node.type === 'javascript') {
@@ -919,7 +983,17 @@ USER PROMPT: "${prompt}"
 USER PROVIDED CONFIGURATION:
 ${JSON.stringify(config, null, 2)}
 
-CRITICAL: Pay special attention to these common patterns:
+🚨 CRITICAL: Pay special attention to these common patterns:
+
+FORM WORKFLOWS (HIGHEST PRIORITY):
+- "create a form", "form", "form data", "user data", "collect data", "name", "email", "mobile", "phone", "contact", "registration", "survey", "feedback", "submission" → ALWAYS use "form" node as trigger
+- Example: "Create a form take the user data of name, email, mobile and send to slack" → form (with fields: name, email, mobile) + slack_webhook
+- Form node outputs: {formData: {name: "...", email: "...", mobile: "..."}, files: [], meta: {...}}
+- Access form data: {{input.formData.name}}, {{input.formData.email}}, {{input.formData.mobile}}
+- Form fields config example: [{"name":"name","label":"Name","type":"text","required":true,"placeholder":"Enter your name"},{"name":"email","label":"Email","type":"email","required":true,"placeholder":"Enter your email"},{"name":"mobile","label":"Mobile","type":"tel","required":true,"placeholder":"Enter your mobile number"}]
+- NEVER use manual_trigger when user wants to collect data from users via a form
+
+OTHER PATTERNS:
 - "read data from Google Doc and send to Slack" → google_doc (read) + slack_webhook
 - "get data from Google Doc and send it" → google_doc (read) + google_gmail (send)
 - "read Google Doc and send to email" → google_doc (read) + google_gmail (send) - ALWAYS use google_gmail
@@ -986,7 +1060,7 @@ Analyze the user's requirements and respond with a JSON object containing:
 {
   "summary": "Brief summary of what the user wants to achieve",
   "requirements": ["requirement 1", "requirement 2", ...],
-  "triggerType": "manual_trigger | webhook_trigger_response | schedule | http_trigger",
+  "triggerType": "form | manual_trigger | webhook_trigger_response | schedule | http_trigger",
   "requiredNodes": [
     {"type": "node_type", "purpose": "why this node is needed", "config": {"key": "value"}},
     ...
@@ -1044,7 +1118,10 @@ Based on this analysis, you must generate a workflow that:
 5. Resolves any potential issues mentioned
 ` : '';
 
-      systemPrompt = `You are an expert workflow automation agent with advanced reasoning capabilities. Your task is to analyze a user's workflow description and generate a structured, error-free workflow with nodes and edges using ONLY the available node types listed below.
+      systemPrompt = `🚨🚨🚨 CRITICAL: FORM NODE DETECTION 🚨🚨🚨
+IF THE USER MENTIONS: "form", "create a form", "form data", "user data", "collect data", "name", "email", "mobile", "phone", "contact", "registration", "survey", "feedback", "submission", "user input", "take the user data" → YOU MUST USE "form" NODE AS THE TRIGGER. DO NOT USE manual_trigger. THE FORM NODE MUST BE THE FIRST NODE.
+
+You are an expert workflow automation agent with advanced reasoning capabilities. Your task is to analyze a user's workflow description and generate a structured, error-free workflow with nodes and edges using ONLY the available node types listed below.
 
 ${analysisContext}
 
@@ -1052,12 +1129,13 @@ ${nodeDescriptions}
 
 AGENT REASONING PROCESS:
 Before generating the workflow, you must:
-1. UNDERSTAND: Carefully read and understand the user's requirements
-2. ANALYZE: Identify what actions need to be performed
-3. SELECT: Choose the appropriate nodes from the available list
-4. PLAN: Determine the correct order and connections
-5. CONFIGURE: Set all required configuration values correctly
-6. VALIDATE: Ensure the workflow will execute without errors
+1. 🚨 CHECK FOR FORM KEYWORDS FIRST: If user mentions "form", "user data", "collect data", "name", "email", "mobile", etc. → YOU MUST use "form" node as trigger. DO NOT use manual_trigger.
+2. UNDERSTAND: Carefully read and understand the user's requirements
+3. ANALYZE: Identify what actions need to be performed
+4. SELECT: Choose the appropriate nodes from the available list (form node if form keywords detected)
+5. PLAN: Determine the correct order and connections
+6. CONFIGURE: Set all required configuration values correctly (form fields if using form node)
+7. VALIDATE: Ensure the workflow will execute without errors
 
 You must respond with a valid JSON object in this exact format:
 {
@@ -1088,7 +1166,10 @@ ${JSON.stringify(config, null, 2)}
 If a value matches a node property (e.g. 'google_sheet_id' for 'spreadsheetId', 'slack_webhook' for 'webhookUrl'), USE IT.
 
 CRITICAL RULES FOR ERROR-FREE WORKFLOWS:
-1. Always start with a trigger node (manual_trigger, webhook, schedule, chat_trigger, error_trigger, interval, or workflow_trigger)
+1. 🚨 TRIGGER SELECTION (CRITICAL):
+   - IF user mentions: "form", "create a form", "form data", "user data", "collect data", "name", "email", "mobile", "phone", "contact", "registration", "survey", "feedback", "submission" → YOU MUST use "form" node as trigger
+   - Otherwise, start with appropriate trigger: form, manual_trigger, webhook, schedule, chat_trigger, error_trigger, interval, or workflow_trigger
+   - NEVER use manual_trigger when user wants to collect data from users via a form
 2. Connect nodes in a logical flow from trigger to output - each node should connect to the next
 3. Position nodes with x spacing of 300px and y spacing of 150px (start at x:250, y:100)
 4. Use ONLY the node types listed above - do not invent new node types
@@ -1109,7 +1190,13 @@ CRITICAL RULES FOR ERROR-FREE WORKFLOWS:
 8. Always end with an output action (http_post, slack_message, discord_webhook, database_write, log_output, or google_gmail with operation: send) if the workflow should produce results
 9. Use proper node IDs: format like "trigger_1", "ai_1", "output_1" etc.
 10. Ensure all edges connect valid node IDs
-11. CRITICAL FOR GOOGLE DOC + OUTPUT WORKFLOWS:
+11. CRITICAL FOR FORM WORKFLOWS:
+    - If user mentions "form", "create a form", "user data", "collect data", "name", "email", "mobile", etc. → ALWAYS use "form" node as trigger
+    - Form node must have fields configured: [{"name":"fieldName","label":"Field Label","type":"text|email|tel|textarea","required":true,"placeholder":"Enter..."}]
+    - Access form data in downstream nodes: {{input.formData.fieldName}}
+    - Example: form -> slack_webhook with text: "Name: {{input.formData.name}}\nEmail: {{input.formData.email}}"
+
+12. CRITICAL FOR GOOGLE DOC + OUTPUT WORKFLOWS:
     - If user wants to "read data from Google Doc and send to [destination]", ALWAYS create: manual_trigger -> google_doc (operation: read) -> [output_node]
     - For google_doc read: Set operation: "read" and documentId (from config or prompt)
     - The google_doc node outputs: {content, text, body, title, documentId} - all contain the document text
@@ -1121,7 +1208,7 @@ CRITICAL RULES FOR ERROR-FREE WORKFLOWS:
     - ALWAYS use template variables to pass data: {{input.content}} for document text
     - Example for Slack: { "type": "slack_webhook", "config": { "webhookUrl": "...", "text": "{{input.content}}" } }
     - Example for Gmail: { "type": "google_gmail", "config": { "operation": "send", "to": "...", "subject": "Document", "body": "{{input.content}}" } }
-12. CRITICAL FOR CONDITIONAL NODES (if_else):
+13. CRITICAL FOR CONDITIONAL NODES (if_else):
     - You MUST generate exactly two outgoing edges for every "if_else" node.
     - One edge MUST have a "true" label (for when condition is met).
     - One edge MUST have a "false" label (for when condition is not met).
@@ -1131,17 +1218,17 @@ CRITICAL RULES FOR ERROR-FREE WORKFLOWS:
     - Example edge structure:
       { "id": "e1", "source": "if_1", "target": "action_true", "sourceHandle": "true" }
       { "id": "e2", "source": "if_1", "target": "log_false", "sourceHandle": "false" }
-13. IMPORTANT: If the workflow starts with a "manual_trigger" but requires data for validation (like in "check if mark > 50"):
+14. IMPORTANT: If the workflow starts with a "manual_trigger" but requires data for validation (like in "check if mark > 50"):
     - You MUST add a "javascript" node immediately after the trigger to define mock data.
     - Example config for JS node: { "code": "return { mark: 85, student: 'John' };" }
     - Connect: manual_trigger -> javascript -> if_else
     - This ensures the workflow is testable immediately.
-14. SYSTEMATIC DATA STRUCTURE (CRITICAL):
+15. SYSTEMATIC DATA STRUCTURE (CRITICAL):
     - The user prefers "Systematic" data flow.
     - Always ensure nodes pass data as structured JSON objects.
     - When fetching properties in downstream nodes (like If/Else), use dot notation: "{{input.age}}", "{{input.name}}".
     - Avoid flat unstructured values; prefer nested objects where logical.
-15. DATA PASSING BETWEEN NODES:
+16. DATA PASSING BETWEEN NODES:
     - Use template variables like {{input.fieldName}} to pass data from one node to another
     - google_doc read outputs: content, text, body, title, documentId - use {{input.content}} to access document text
     - google_sheets read outputs: {data: [[headers], [row1], ...], rows, columns} - the data field is an array of arrays
@@ -1158,17 +1245,28 @@ CRITICAL RULES FOR ERROR-FREE WORKFLOWS:
         return obj;
       });
       const formattedText = dataRows.map(row => 
-        Object.entries(row).map(([key, value]) => `${key}: ${value}`).join('\\n')
-      ).join('\\n\\n');
+        Object.entries(row).map(([key, value]) => \`\${key}: \${value}\`).join('\\\\n')
+      ).join('\\\\n\\\\n');
       return { 
         students: dataRows, 
         count: dataRows.length,
         formattedText: formattedText,
-        slackMessage: `Found ${dataRows.length} students:\\n\\n${formattedText}`
+        slackMessage: \`Found \${dataRows.length} students:\\\\n\\\\n\${formattedText}\`
       };
     - Always check what fields each node outputs and use appropriate template variables
 
-16. NODE SELECTION GUIDANCE:
+16. 🚨 FORM WORKFLOW RULES (CRITICAL) 🚨:
+    - ⚠️ IF USER MENTIONS: "form", "create a form", "form data", "user data", "collect data", "name", "email", "mobile", "phone", "contact", "registration", "survey", "feedback", "submission" → YOU MUST USE "form" NODE AS TRIGGER
+    - ⚠️ NEVER use manual_trigger when user wants to collect data from users
+    - Form node outputs: {formData: {name: "...", email: "...", mobile: "..."}, files: [], meta: {...}}
+    - Access form data in downstream nodes: {{input.formData.name}}, {{input.formData.email}}, {{input.formData.mobile}}
+    - Example form fields for "name, email, mobile":
+      fields: [{"name":"name","label":"Name","type":"text","required":true,"placeholder":"Enter your name"},{"name":"email","label":"Email","type":"email","required":true,"placeholder":"Enter your email"},{"name":"mobile","label":"Mobile","type":"tel","required":true,"placeholder":"Enter your mobile number"}]
+    - For Slack output: Use slack_webhook with text: "Name: {{input.formData.name}}\nEmail: {{input.formData.email}}\nMobile: {{input.formData.mobile}}"
+    - Workflow structure: form → [processing nodes] → slack_webhook/slack_message
+
+17. NODE SELECTION GUIDANCE:
+    - For FORMS/DATA COLLECTION: ALWAYS use "form" node as trigger (see rule 16 above)
     - For AI/LLM tasks: Use openai_gpt, anthropic_claude, or google_gemini based on user preference or mention
     - For EMAIL: ALWAYS use google_gmail (operation: "send"). THIS IS THE ONLY EMAIL NODE TYPE AVAILABLE.
     - For file storage: Use aws_s3, dropbox, onedrive, google_drive, or box based on the service mentioned
@@ -1194,6 +1292,43 @@ CRITICAL RULES FOR ERROR-FREE WORKFLOWS:
 
 
 EXAMPLES:
+
+🚨 Example 0: "Create a form take the user data of name, email, mobile and send to slack" (FORM WORKFLOW - USE THIS AS REFERENCE)
+{
+  "name": "Form Data to Slack",
+  "nodes": [
+    {
+      "id": "trigger_1",
+      "type": "form",
+      "position": {"x": 250, "y": 100},
+      "data": {
+        "type": "form",
+        "label": "Form",
+        "config": {
+          "fields": "[{\"name\":\"name\",\"label\":\"Name\",\"type\":\"text\",\"required\":true,\"placeholder\":\"Enter your name\"},{\"name\":\"email\",\"label\":\"Email\",\"type\":\"email\",\"required\":true,\"placeholder\":\"Enter your email\"},{\"name\":\"mobile\",\"label\":\"Mobile\",\"type\":\"tel\",\"required\":true,\"placeholder\":\"Enter your mobile number\"}]",
+          "submitButtonText": "Submit",
+          "successMessage": "Thank you for your submission!"
+        }
+      }
+    },
+    {
+      "id": "slack_1",
+      "type": "slack_webhook",
+      "position": {"x": 550, "y": 100},
+      "data": {
+        "type": "slack_webhook",
+        "label": "Slack Incoming Webhook",
+        "config": {
+          "webhookUrl": "YOUR_WEBHOOK_URL",
+          "text": "New Form Submission:\nName: {{input.formData.name}}\nEmail: {{input.formData.email}}\nMobile: {{input.formData.mobile}}"
+        }
+      }
+    }
+  ],
+  "edges": [
+    {"id": "edge_1", "source": "trigger_1", "target": "slack_1"}
+  ]
+}
 
 Example 1: "Get the data from Google Doc and send it" (Email)
 {
@@ -1292,7 +1427,7 @@ Example 3: "Read Google Sheets data and send to Slack and Email"
       "type": "javascript",
       "position": {"x": 850, "y": 100},
       "config": {
-        "code": "const rows = input.data || [];\\nif (rows.length < 2) return { slackMessage: 'No data found', emailBody: 'No data found' };\\nconst headers = rows[0];\\nconst dataRows = rows.slice(1).filter(row => row && row.length > 0).map(row => {\\n  const obj = {};\\n  headers.forEach((header, i) => {\\n    obj[header] = row[i] || '';\\n  });\\n  return obj;\\n});\\nconst formattedText = dataRows.map((row, idx) => {\\n  return `Student ${idx + 1}:\\\\n${Object.entries(row).map(([key, value]) => `  ${key}: ${value}`).join('\\\\n')}`;\\n}).join('\\\\n\\\\n');\\nreturn {\\n  students: dataRows,\\n  count: dataRows.length,\\n  slackMessage: `Found ${dataRows.length} students:\\\\n\\\\n${formattedText}`,\\n  emailBody: `Hello,\\\\n\\\\nHere is the data from the Google Sheet:\\\\n\\\\n${formattedText}\\\\n\\\\nBest regards,\\\\nYour Workflow`\\n};"
+        "code": "const rows = input.data || [];\\nif (rows.length < 2) return { slackMessage: 'No data found', emailBody: 'No data found' };\\nconst headers = rows[0];\\nconst dataRows = rows.slice(1).filter(row => row && row.length > 0).map(row => {\\n  const obj = {};\\n  headers.forEach((header, i) => {\\n    obj[header] = row[i] || '';\\n  });\\n  return obj;\\n});\\nconst formattedText = dataRows.map((row, idx) => {\\n  return 'Student ' + (idx + 1) + ':\\\\n' + Object.entries(row).map(([key, value]) => '  ' + key + ': ' + value).join('\\\\n');\\n}).join('\\\\n\\\\n');\\nreturn {\\n  students: dataRows,\\n  count: dataRows.length,\\n  slackMessage: 'Found ' + dataRows.length + ' students:\\\\n\\\\n' + formattedText,\\n  emailBody: 'Hello,\\\\n\\\\nHere is the data from the Google Sheet:\\\\n\\\\n' + formattedText + '\\\\n\\\\nBest regards,\\\\nYour Workflow'\\n};"
       }
     },
     {
@@ -1474,10 +1609,11 @@ Generate the updated workflow JSON. Return ONLY valid JSON, no markdown or expla
       }
       
       // Quick validation check - if mismatch detected, throw to trigger fallback
-      const promptLower = prompt.toLowerCase();
-      const hasGoogleDocReq = (promptLower.includes('google doc') || promptLower.includes('doc')) && 
+      // promptLower already declared at line 92, reuse it
+      const validationPromptLower = prompt.toLowerCase();
+      const hasGoogleDocReq = (validationPromptLower.includes('google doc') || validationPromptLower.includes('doc')) && 
                               (promptLower.includes('read') || promptLower.includes('get') || promptLower.includes('data'));
-      const hasSlackReq = promptLower.includes('slack');
+      const hasSlackReq = validationPromptLower.includes('slack');
       const generatedNodeTypes = workflowData.nodes?.map((n: any) => n.type) || [];
       const hasGoogleDocNode = generatedNodeTypes.includes('google_doc');
       const hasSlackNode = generatedNodeTypes.includes('slack_webhook') || generatedNodeTypes.includes('slack_message');
@@ -1495,12 +1631,13 @@ Generate the updated workflow JSON. Return ONLY valid JSON, no markdown or expla
       console.error('Parse error:', parseError);
       
       // Smart fallback: Try to detect workflow intent from prompt
-      const promptLower = prompt.toLowerCase();
+      // promptLower already declared at line 92, reuse it
+      const fallbackPromptLower = prompt.toLowerCase();
       
       // Smart pattern detection for common workflows
-      const hasGoogleDoc = promptLower.includes('google doc') || promptLower.includes('google doc') || 
-                               promptLower.includes('doc') && (promptLower.includes('read') || promptLower.includes('get') || promptLower.includes('data'));
-      const hasSlack = promptLower.includes('slack');
+      const hasGoogleDoc = fallbackPromptLower.includes('google doc') || fallbackPromptLower.includes('google doc') || 
+                               fallbackPromptLower.includes('doc') && (fallbackPromptLower.includes('read') || fallbackPromptLower.includes('get') || fallbackPromptLower.includes('data'));
+      const hasSlack = fallbackPromptLower.includes('slack');
       const hasEmail = promptLower.includes('send') || promptLower.includes('email') || promptLower.includes('gmail');
       
       if (hasGoogleDoc && hasSlack) {
@@ -1638,11 +1775,12 @@ Generate the updated workflow JSON. Return ONLY valid JSON, no markdown or expla
     const validationErrors: string[] = [];
     
     // Check if workflow matches user requirements
-    const promptLower = prompt.toLowerCase();
-    const hasGoogleDocReq = (promptLower.includes('google doc') || promptLower.includes('doc')) && 
-                            (promptLower.includes('read') || promptLower.includes('get') || promptLower.includes('data'));
-    const hasSlackReq = promptLower.includes('slack');
-    const hasEmailReq = promptLower.includes('send') && (promptLower.includes('email') || promptLower.includes('gmail'));
+    // promptLower already declared at line 92, reuse it
+    const agentValidationPromptLower = prompt.toLowerCase();
+    const hasGoogleDocReq = (agentValidationPromptLower.includes('google doc') || agentValidationPromptLower.includes('doc')) &&
+                            (agentValidationPromptLower.includes('read') || agentValidationPromptLower.includes('get') || agentValidationPromptLower.includes('data'));
+    const hasSlackReq = agentValidationPromptLower.includes('slack');
+    const hasEmailReq = agentValidationPromptLower.includes('send') && (agentValidationPromptLower.includes('email') || agentValidationPromptLower.includes('gmail'));
     
     const generatedNodeTypes = workflowData.nodes.map((n: any) => n.type);
     const hasGoogleDocNode = generatedNodeTypes.includes('google_doc');
@@ -1664,8 +1802,22 @@ Generate the updated workflow JSON. Return ONLY valid JSON, no markdown or expla
     }
     
     // Validate node types and config values
-    const validNodeTypes = Object.values(AVAILABLE_NODES).flat();
+    // CRITICAL: Extract ALL valid node types from AVAILABLE_NODES
+    const validNodeTypes = new Set(Object.values(AVAILABLE_NODES).flat());
+    
+    // Add backward compatibility types
+    validNodeTypes.add('webhook_trigger_response'); // Legacy webhook type
+    
     workflowData.nodes.forEach((node: any) => {
+      // CRITICAL VALIDATION: Reject any node type not in the allowed list
+      if (!validNodeTypes.has(node.type)) {
+        const errorMsg = `INVALID NODE TYPE DETECTED: "${node.type}" in node ${node.id}. This node type does not exist in the system. Valid types are: ${Array.from(validNodeTypes).sort().join(', ')}`;
+        console.error(`[VALIDATION ERROR] ${errorMsg}`);
+        validationErrors.push(errorMsg);
+        // DO NOT continue processing invalid nodes - they will cause runtime errors
+        return;
+      }
+      
       // Ensure all config values are strings (not null, undefined, or objects)
       if (node.config && typeof node.config === 'object') {
         const fixedConfig: Record<string, unknown> = {};
@@ -1686,9 +1838,6 @@ Generate the updated workflow JSON. Return ONLY valid JSON, no markdown or expla
             }
         }
         node.config = fixedConfig;
-      }
-      if (!validNodeTypes.includes(node.type)) {
-        validationErrors.push(`Invalid node type: ${node.type} in node ${node.id}`);
       }
       
       // Validate required config fields based on node type
@@ -1786,6 +1935,85 @@ Generate the updated workflow JSON. Return ONLY valid JSON, no markdown or expla
         }
       }
       
+      // Form node validation
+      if (node.type === 'form') {
+        // Ensure form has proper configuration
+        if (!node.config.formTitle) {
+          node.config.formTitle = 'Form Submission';
+        }
+        if (!node.config.formDescription) {
+          node.config.formDescription = '';
+        }
+        if (!node.config.submitButtonText) {
+          node.config.submitButtonText = 'Submit';
+        }
+        if (!node.config.successMessage) {
+          node.config.successMessage = 'Thank you for your submission!';
+        }
+        if (!node.config.redirectUrl) {
+          node.config.redirectUrl = '';
+        }
+        
+        // Parse and validate fields
+        let formFields: any[] = [];
+        if (node.config.fields) {
+          try {
+            // Fields might be a JSON string or already an array
+            if (typeof node.config.fields === 'string') {
+              formFields = JSON.parse(node.config.fields);
+            } else if (Array.isArray(node.config.fields)) {
+              formFields = node.config.fields;
+            }
+          } catch (e) {
+            console.warn(`Form node ${node.id} has invalid fields format, using defaults`);
+            formFields = [];
+          }
+        }
+        
+        // If no fields or empty fields, create default fields based on prompt
+        if (!formFields || formFields.length === 0) {
+          // Extract field names from prompt keywords
+          const fieldNames: string[] = [];
+          if (promptLower.includes('name')) fieldNames.push('name');
+          if (promptLower.includes('email')) fieldNames.push('email');
+          if (promptLower.includes('mobile') || promptLower.includes('phone')) fieldNames.push('mobile');
+          if (promptLower.includes('message')) fieldNames.push('message');
+          
+          // Create default fields
+          formFields = fieldNames.map((fieldName, idx) => ({
+            id: `field_${Date.now()}_${idx}`,
+            name: fieldName,
+            label: fieldName.charAt(0).toUpperCase() + fieldName.slice(1),
+            type: fieldName === 'email' ? 'email' : fieldName === 'mobile' || fieldName === 'phone' ? 'tel' : fieldName === 'message' ? 'textarea' : 'text',
+            required: true,
+            placeholder: `Enter your ${fieldName}`,
+          }));
+          
+          // If still no fields, add at least name and email
+          if (formFields.length === 0) {
+            formFields = [
+              { id: 'field_1', name: 'name', label: 'Name', type: 'text', required: true, placeholder: 'Enter your name' },
+              { id: 'field_2', name: 'email', label: 'Email', type: 'email', required: true, placeholder: 'Enter your email' },
+            ];
+          }
+        }
+        
+        // Ensure fields have all required properties
+        formFields = formFields.map((field: any, idx: number) => ({
+          id: field.id || `field_${Date.now()}_${idx}`,
+          name: field.name || field.label?.toLowerCase().replace(/\s+/g, '_') || `field_${idx}`,
+          label: field.label || field.name || 'Field',
+          type: field.type || 'text',
+          required: field.required !== undefined ? field.required : true,
+          placeholder: field.placeholder || `Enter ${field.label || field.name || 'value'}`,
+          options: field.options || undefined,
+          defaultValue: field.defaultValue || undefined,
+        }));
+        
+        // Store fields as JSON string for consistency
+        node.config.fields = JSON.stringify(formFields);
+      }
+      
       // Schedule validation
       if (node.type === 'schedule') {
         if (!node.config.cron) {
@@ -1815,11 +2043,32 @@ Generate the updated workflow JSON. Return ONLY valid JSON, no markdown or expla
     });
     
     if (validationErrors.length > 0) {
-      console.warn('Workflow validation errors found:', validationErrors);
-      // Try to fix common issues automatically
-      console.log('Attempting to auto-fix validation errors...');
+      console.error('❌ Workflow validation FAILED with errors:', validationErrors);
+      
+      // CRITICAL: Reject workflows with validation errors (especially invalid node types)
+      const hasInvalidNodeType = validationErrors.some(err => err.includes('INVALID NODE TYPE'));
+      const hasCriticalError = validationErrors.some(err => 
+        err.includes('INVALID NODE TYPE') || 
+        err.includes('must have both TRUE and FALSE')
+      );
+      
+      if (hasCriticalError) {
+        // For critical errors (invalid node types, missing if_else edges), reject immediately
+        console.error('🚨 CRITICAL validation errors detected - rejecting workflow');
+        return new Response(
+          JSON.stringify({
+            error: 'Workflow validation failed',
+            validationErrors,
+            message: 'The generated workflow contains invalid node types or structural errors. Please try again with a clearer description.'
+          }),
+          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+      
+      // For non-critical errors, log warning but continue (auto-fix will attempt to resolve)
+      console.warn('⚠️ Non-critical validation errors found - attempting auto-fix');
     } else {
-      console.log('✓ Workflow validation passed');
+      console.log('✅ Workflow validation passed - all checks successful');
     }
 
     // Ensure all node IDs are unique and valid
@@ -1842,6 +2091,20 @@ Generate the updated workflow JSON. Return ONLY valid JSON, no markdown or expla
     workflowData.edges = workflowData.edges.filter((edge: any) =>
       validNodeIds.has(edge.source) && validNodeIds.has(edge.target)
     );
+    
+    // CRITICAL: Validate if_else nodes have both true and false edges
+    const ifElseNodes = workflowData.nodes.filter((n: any) => n.type === 'if_else');
+    for (const ifNode of ifElseNodes) {
+      const outgoingEdges = workflowData.edges.filter((e: any) => e.source === ifNode.id);
+      const hasTrueEdge = outgoingEdges.some((e: any) => e.sourceHandle === 'true');
+      const hasFalseEdge = outgoingEdges.some((e: any) => e.sourceHandle === 'false');
+      
+      if (!hasTrueEdge || !hasFalseEdge) {
+        const errorMsg = `if_else node ${ifNode.id} must have both TRUE and FALSE output edges. Currently has: ${hasTrueEdge ? 'TRUE' : 'NO TRUE'}, ${hasFalseEdge ? 'FALSE' : 'NO FALSE'}`;
+        console.error(`[VALIDATION ERROR] ${errorMsg}`);
+        validationErrors.push(errorMsg);
+      }
+    }
 
     // Ensure at least one trigger node exists
     const hasTrigger = workflowData.nodes.some((node: any) =>

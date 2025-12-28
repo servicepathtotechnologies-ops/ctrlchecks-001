@@ -191,6 +191,46 @@ serve(async (req: Request) => {
       console.log(`Error Trigger nodes found (will execute only on errors):`, errorTriggerNodes.map(n => n.data.label));
     }
 
+    // 🚨 CRITICAL: Check for Form Trigger - BLOCKING TRIGGER
+    const formTriggerNode = executionOrder.find(n => n.data.type === "form");
+    if (formTriggerNode && !providedExecutionId) {
+      // Form Trigger detected - this is a blocking trigger
+      // Check if execution is being resumed from form submission
+      const hasFormData = input && typeof input === 'object' && 
+                         ('data' in input || 'submitted_at' in input || 'form_id' in input);
+      
+      if (!hasFormData) {
+        // No form data - workflow just started, Form Trigger must WAIT
+        console.log(`Form Trigger detected - entering WAITING state for node ${formTriggerNode.id}`);
+        
+        // Update execution to WAITING status
+        await supabase
+          .from("executions")
+          .update({
+            status: "waiting",
+            trigger: "form",
+            waiting_for_node_id: formTriggerNode.id,
+          })
+          .eq("id", executionId);
+
+        // Return early - workflow is paused, waiting for form submission
+        return new Response(
+          JSON.stringify({
+            status: "waiting",
+            executionId,
+            message: "Workflow is waiting for form submission",
+            formUrl: `${Deno.env.get("SUPABASE_URL")}/functions/v1/form-trigger/${workflowId}/${formTriggerNode.id}`,
+          }),
+          {
+            status: 200,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          }
+        );
+      }
+      // Form data present - execution is being resumed from form submission
+      console.log(`Form Trigger: Resuming execution with form submission data`);
+    }
+
     // Initialize finalOutput with input in case no nodes execute
     let finalOutput: unknown = input;
     let hasError = false;
@@ -1007,6 +1047,56 @@ async function retrieveConversationHistory(
   }
 }
 
+// CRITICAL: Valid node types that can be executed
+const VALID_EXECUTABLE_NODE_TYPES = new Set([
+  // Triggers
+  'manual_trigger', 'webhook', 'webhook_trigger_response', 'schedule', 'chat_trigger', 
+  'error_trigger', 'interval', 'workflow_trigger', 'form',
+  // Logic
+  'if_else', 'switch', 'loop', 'wait', 'error_handler', 'filter', 'merge', 'noop', 
+  'split_in_batches', 'stop_and_error',
+  // Data
+  'javascript', 'json_parser', 'csv_processor', 'text_formatter', 'merge_data', 
+  'set_variable', 'aggregate', 'edit_fields', 'execute_command', 'function', 
+  'function_item', 'item_lists', 'limit', 'rename_keys', 'set', 'sort', 'date_time', 
+  'math', 'crypto', 'html_extract', 'xml', 'rss_feed_read', 'pdf', 'image_manipulation',
+  // Database
+  'database_read', 'database_write', 'postgresql', 'supabase', 'mysql', 'mongodb', 
+  'redis', 'mssql', 'sqlite', 'snowflake', 'timescaledb', 'elasticsearch',
+  // Storage
+  'read_binary_file', 'write_binary_file', 'aws_s3', 'ftp', 'sftp', 'dropbox', 
+  'onedrive', 'box', 'minio',
+  // AI
+  'openai_gpt', 'anthropic_claude', 'google_gemini', 'text_summarizer', 
+  'sentiment_analyzer', 'ai_agent', 'memory', 'llm_chain', 'azure_openai', 
+  'hugging_face', 'cohere', 'ollama', 'embeddings', 'vector_store', 'chat_model',
+  // HTTP
+  'http_request', 'graphql', 'respond_to_webhook', 'http_post',
+  // Output
+  'slack_message', 'slack_webhook', 'discord_webhook', 'microsoft_teams', 
+  'telegram', 'whatsapp_cloud', 'twilio', 'log_output',
+  // Google
+  'google_sheets', 'google_doc', 'google_drive', 'google_calendar', 'google_gmail', 
+  'google_bigquery', 'google_tasks', 'google_contacts', 'google_analytics',
+  // CRM
+  'hubspot', 'salesforce', 'zoho_crm', 'pipedrive', 'freshdesk', 'intercom', 
+  'mailchimp', 'activecampaign',
+  // DevOps
+  'github', 'gitlab', 'bitbucket', 'jenkins', 'docker', 'kubernetes', 'pagerduty', 'datadog',
+  // Ecommerce
+  'shopify', 'woocommerce', 'stripe', 'paypal', 'bigcommerce',
+  // Analytics
+  'mixpanel', 'segment', 'amplitude',
+  // Auth
+  'oauth2', 'jwt', 'api_key_auth',
+  // Payment
+  'razorpay',
+  // Social
+  'twitter', 'facebook', 'instagram', 'linkedin',
+  // Productivity
+  'notion', 'trello', 'asana', 'jira', 'linear',
+]);
+
 async function executeNode(
   node: WorkflowNode,
   input: unknown,
@@ -1015,6 +1105,13 @@ async function executeNode(
   userId?: string
 ): Promise<unknown> {
   const { type, config } = node.data;
+
+  // CRITICAL: Runtime validation - reject invalid node types immediately
+  if (!VALID_EXECUTABLE_NODE_TYPES.has(type)) {
+    const errorMsg = `INVALID NODE TYPE: "${type}" is not a valid executable node type. Node ID: ${node.id}`;
+    console.error(`[EXECUTION ERROR] ${errorMsg}`);
+    throw new Error(errorMsg);
+  }
 
   switch (type) {
     case "manual_trigger": {
@@ -1049,6 +1146,47 @@ async function executeNode(
       };
       console.log(`Webhook trigger returning:`, JSON.stringify(output));
       return output;
+    }
+    case "form": {
+      // Form trigger: BLOCKING TRIGGER - waits for form submission
+      // When workflow is RUN or ACTIVE, Form Trigger enters WAITING state
+      // Workflow execution PAUSES until form is submitted
+      // On submission, form-trigger function resumes this execution with form data
+      
+      const inputObj = extractInputObject(input);
+      
+      // If input contains form submission data (from form-trigger POST), process it
+      if (inputObj.data || inputObj.submitted_at) {
+        // Form was submitted - return n8n-style output format
+        const output: Record<string, unknown> = {
+          submitted_at: inputObj.submitted_at || new Date().toISOString(),
+          form: inputObj.form || {
+            title: config.formTitle || 'Form Submission',
+            id: node.id,
+          },
+          data: inputObj.data || {},
+          files: inputObj.files || [],
+          meta: inputObj.meta || {},
+        };
+        console.log(`Form trigger returning submitted data:`, JSON.stringify(output));
+        return output;
+      }
+      
+      // No form data yet - this means workflow just started
+      // Form Trigger must WAIT for submission
+      // This should not happen in normal flow, but handle gracefully
+      console.log(`Form trigger: No submission data yet, workflow should be in WAITING state`);
+      
+      // Return empty output - execution should be in WAITING state
+      return {
+        submitted_at: null,
+        form_id: node.id,
+        workflow_id: '',
+        data: {},
+        files: [],
+        meta: {},
+        _waiting: true,
+      };
     }
     case "schedule": {
       // Schedule trigger: returns standardized output with time, timezone, and generated cron
@@ -13383,8 +13521,11 @@ async function executeNode(
     }
 
     default:
-      console.log(`Node type ${type} executed with passthrough`);
-      return input;
+      // CRITICAL: If we reach here, the node type is valid but not implemented
+      // This should never happen if all node types are properly handled
+      const errorMsg = `Node type "${type}" is valid but not yet implemented in the execution engine. Node ID: ${node.id}`;
+      console.error(`[EXECUTION ERROR] ${errorMsg}`);
+      throw new Error(errorMsg);
   }
 }
 

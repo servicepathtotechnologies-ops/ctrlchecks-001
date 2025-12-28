@@ -12,6 +12,9 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import NodeUsageCard from './NodeUsageCard';
 import GoogleSheetsSettings from './GoogleSheetsSettings';
+import FormNodeSettings from './FormNodeSettings';
+import { supabase } from '@/integrations/supabase/client';
+import { Copy, ExternalLink } from 'lucide-react';
 import {
   Trash2, X, Play, Webhook, Clock, Globe, Brain, Sparkles, Gem, Link,
   GitBranch, GitMerge, Repeat, Timer, ShieldAlert, Code, Braces, Table,
@@ -20,6 +23,7 @@ import {
   XCircle, Layers, Edit, Edit3, Tag, Code2, ListChecks, ArrowUpDown, List, Terminal,
   Calculator, Lock, Rss, Target
 } from 'lucide-react';
+import { useToast } from '@/hooks/use-toast';
 
 const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
   Play, Webhook, Clock, Globe, Brain, Sparkles, Gem, Link, GitBranch,
@@ -31,7 +35,8 @@ const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
 };
 
 export default function PropertiesPanel() {
-  const { selectedNode, selectNode, updateNodeConfig, deleteSelectedNode } = useWorkflowStore();
+  const { selectedNode, selectNode, updateNodeConfig, deleteSelectedNode, workflowId } = useWorkflowStore();
+  const { toast } = useToast();
 
   // Resizable sidebar state
   const [width, setWidth] = useState(400); // Increased default width from 320px (w-80) to 400px
@@ -39,6 +44,91 @@ export default function PropertiesPanel() {
   
   // Help sidebar state
   const [selectedHelp, setSelectedHelp] = useState<{ title: string; steps: string[] } | null>(null);
+
+  // Form workflow activation state
+  const [isWorkflowActive, setIsWorkflowActive] = useState(false);
+  const [isSavingActivation, setIsSavingActivation] = useState(false);
+
+  // Load workflow status when form node is selected
+  useEffect(() => {
+    if (selectedNode?.data.type === 'form' && workflowId) {
+      loadWorkflowStatus();
+    }
+  }, [selectedNode?.data.type, workflowId]);
+
+  const loadWorkflowStatus = async () => {
+    if (!workflowId) return;
+    
+    try {
+      const { data, error } = await supabase
+        .from('workflows')
+        .select('status')
+        .eq('id', workflowId)
+        .single();
+
+      if (error) throw error;
+      setIsWorkflowActive(data?.status === 'active');
+    } catch (error) {
+      console.error('Error loading workflow status:', error);
+    }
+  };
+
+  const handleToggleActivation = async (enabled: boolean) => {
+    if (!workflowId) {
+      toast({
+        title: 'Error',
+        description: 'Please save the workflow first',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setIsSavingActivation(true);
+    try {
+      const { data, error } = await supabase
+        .from("workflows")
+        .update({ 
+          status: enabled ? "active" : "draft"
+        })
+        .eq("id", workflowId)
+        .select("status")
+        .single();
+
+      if (error) throw error;
+
+      if (data && data.status === (enabled ? "active" : "draft")) {
+        setIsWorkflowActive(enabled);
+        toast({
+          title: 'Success',
+          description: enabled ? "Workflow activated successfully" : "Workflow deactivated",
+        });
+        
+        if (enabled) {
+          toast({
+            title: 'Info',
+            description: "Form is now active and waiting for submissions",
+          });
+        }
+      } else {
+        await loadWorkflowStatus();
+        toast({
+          title: 'Warning',
+          description: "Status update may not have been saved. Please check and try again.",
+          variant: 'destructive',
+        });
+      }
+    } catch (error) {
+      console.error("Error updating workflow status:", error);
+      toast({
+        title: 'Error',
+        description: "Failed to update workflow status",
+        variant: 'destructive',
+      });
+      await loadWorkflowStatus();
+    } finally {
+      setIsSavingActivation(false);
+    }
+  };
 
   // Resize handlers
   const startResizing = useCallback(() => {
@@ -306,6 +396,126 @@ export default function PropertiesPanel() {
           {/* Config Fields */}
           {nodeDefinition && (
             <>
+              {/* Form Settings for Form Nodes - Show prominently at the top */}
+              {selectedNode.data.type === 'form' && (
+                <div className="space-y-4">
+                  <h3 className="text-xs font-semibold uppercase text-muted-foreground tracking-wide">
+                    Form Settings
+                  </h3>
+                  
+                  {/* Activation Toggle */}
+                  <div className="flex items-center justify-between p-4 border rounded-lg bg-card">
+                    <div className="space-y-0.5 flex-1">
+                      <Label htmlFor="form-activation" className="text-base font-semibold">
+                        Activate Workflow
+                      </Label>
+                      <p className="text-sm text-muted-foreground">
+                        {isWorkflowActive 
+                          ? "Workflow is active and waiting for form submissions"
+                          : "Activate to start accepting form submissions"}
+                      </p>
+                    </div>
+                    <Switch
+                      id="form-activation"
+                      checked={isWorkflowActive}
+                      onCheckedChange={handleToggleActivation}
+                      disabled={isSavingActivation || !workflowId}
+                    />
+                  </div>
+
+                  {/* Form URL Display */}
+                  <div className="space-y-3 p-4 bg-gradient-to-br from-blue-50 to-purple-50 dark:from-blue-950/30 dark:to-purple-950/30 rounded-lg border-2 border-blue-200 dark:border-blue-800">
+                    <div className="space-y-3">
+                      <div className="flex items-center gap-2">
+                        <Label className="text-sm font-semibold text-foreground">🔗 Form URL</Label>
+                        {!workflowId && (
+                          <span className="text-xs text-orange-600 dark:text-orange-400 font-medium">
+                            (Save workflow first)
+                          </span>
+                        )}
+                      </div>
+                      {workflowId ? (
+                        <>
+                          <div className="flex gap-2 items-center">
+                            <div className="flex-1 min-w-0 p-3 border-2 border-blue-300 dark:border-blue-700 rounded-md bg-background">
+                              <code className="text-xs font-mono break-all whitespace-normal text-foreground">
+                                {`${window.location.origin}/form/${workflowId}/${selectedNode.id}`}
+                              </code>
+                            </div>
+                            <Button
+                              variant="outline"
+                              size="icon"
+                              className="h-9 w-9 flex-shrink-0 border-blue-300 dark:border-blue-700 hover:bg-blue-100 dark:hover:bg-blue-900"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                const url = `${window.location.origin}/form/${workflowId}/${selectedNode.id}`;
+                                navigator.clipboard.writeText(url);
+                                toast({
+                                  title: 'Copied!',
+                                  description: 'Form URL copied to clipboard',
+                                });
+                              }}
+                              title="Copy form URL"
+                            >
+                              <Copy className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="icon"
+                              className="h-9 w-9 flex-shrink-0 border-blue-300 dark:border-blue-700 hover:bg-blue-100 dark:hover:bg-blue-900"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                const url = `${window.location.origin}/form/${workflowId}/${selectedNode.id}`;
+                                window.open(url, '_blank');
+                              }}
+                              title="Open form in new tab"
+                            >
+                              <ExternalLink className="h-4 w-4" />
+                            </Button>
+                          </div>
+                          <p className="text-xs text-muted-foreground">
+                            Share this URL with users to collect form submissions. Submissions will automatically trigger your workflow.
+                          </p>
+                          <div className="p-3 bg-blue-500/10 border border-blue-500/20 rounded-lg">
+                            <p className="text-xs text-blue-600 dark:text-blue-400">
+                              <strong>Note:</strong> The workflow must be saved and active for the form to work. Users can access this URL directly in their browser to fill out and submit the form.
+                            </p>
+                          </div>
+                        </>
+                      ) : (
+                        <div className="p-3 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded text-xs text-yellow-700 dark:text-yellow-300">
+                          <strong>⚠️ Save Required:</strong> Please save the workflow first to generate the form link.
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Form Node Settings */}
+              {selectedNode.data.type === 'form' ? (
+                <div className="space-y-4">
+                  <h3 className="text-xs font-semibold uppercase text-muted-foreground tracking-wide">
+                    Form Configuration
+                  </h3>
+                  <FormNodeSettings
+                    config={{
+                      formTitle: selectedNode.data.config?.formTitle || 'Form Submission',
+                      formDescription: selectedNode.data.config?.formDescription || '',
+                      fields: Array.isArray(selectedNode.data.config?.fields) 
+                        ? selectedNode.data.config.fields 
+                        : [],
+                      submitButtonText: selectedNode.data.config?.submitButtonText || 'Submit',
+                      successMessage: selectedNode.data.config?.successMessage || 'Thank you for your submission!',
+                      redirectUrl: selectedNode.data.config?.redirectUrl || '',
+                    }}
+                    onConfigChange={(newConfig) => {
+                      updateNodeConfig(selectedNode.id, newConfig);
+                    }}
+                  />
+                </div>
+              ) : selectedNode.data.type !== 'form' && (
+                <>
               {/* Custom Google Sheets Settings */}
               {selectedNode.data.type === 'google_sheets' ? (
                 <div className="space-y-4">
@@ -363,21 +573,29 @@ export default function PropertiesPanel() {
                   })}
                 </div>
               ) : null}
+                </>
+              )}
             </>
           )}
         </div>
       </ScrollArea>
 
-      <div className="p-4 border-t border-border">
+      <div className="p-4 border-t border-border space-y-2">
         <Button
           variant="destructive"
           size="sm"
           className="w-full"
-          onClick={deleteSelectedNode}
+          onClick={(e) => {
+            e.stopPropagation();
+            deleteSelectedNode();
+          }}
         >
           <Trash2 className="mr-2 h-4 w-4" />
           Delete Node
         </Button>
+        <p className="text-xs text-center text-muted-foreground">
+          Press <kbd className="px-1.5 py-0.5 text-xs font-semibold text-muted-foreground bg-muted rounded border">Del</kbd> or <kbd className="px-1.5 py-0.5 text-xs font-semibold text-muted-foreground bg-muted rounded border">Backspace</kbd> to delete
+        </p>
       </div>
 
       {/* Help Sidebar */}

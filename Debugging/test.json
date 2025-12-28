@@ -1,15 +1,47 @@
 {
-    "oauth2_validate_token_correct": {
-      "type": "oauth2",
-      "label": "OAuth2 - Validate Token (CORRECT)",
-      "category": "authentication",
-      "config": {
-        "operation": "validate_token",
-        "grantType": "authorization_code",
-        "clientId": "dummy-client-id",
-        "clientSecret": "dummy-secret",
-        "tokenUrl": "https://dummy.com/token",
-        "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ1c2VyMTIzIiwiZXhwIjoxNzM1Njg5NjAwLCJpYXQiOjE3MzU2ODYwMDB9.test-signature-here"
-      },
-      "note": "For validate_token operation, you DO NOT need authorization code. Only the token field is used."
-    }}
+  "id": "form-node-1",
+  "type": "form",
+  "position": { "x": 100, "y": 100 },
+  "data": {
+    "type": "form",
+    "label": "Contact Form",
+    "config": {
+      "formTitle": "Contact Us",
+      "formDescription": "Please fill out the form below and we'll get back to you soon.",
+      "submitButtonText": "Send Message",
+      "successMessage": "Thank you! Your message has been sent.",
+      "redirectUrl": "",
+      "waitForSubmission": true,
+      "fields": [
+        {
+          "name": "full_name",
+          "label": "Full Name",
+          "type": "text",
+          "required": true,
+          "placeholder": "Enter your full name"
+        },
+        {
+          "name": "email",
+          "label": "Email Address",
+          "type": "email",
+          "required": true,
+          "placeholder": "your.email@example.com"
+        },
+        {
+          "name": "phone",
+          "label": "Phone Number",
+          "type": "text",
+          "required": false,
+          "placeholder": "+1 (555) 123-4567"
+        },
+        {
+          "name": "message",
+          "label": "Message",
+          "type": "textarea",
+          "required": true,
+          "placeholder": "Tell us about your inquiry..."
+        }
+      ]
+    }
+  }
+}

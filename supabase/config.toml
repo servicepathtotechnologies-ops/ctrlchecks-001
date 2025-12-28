@@ -17,3 +17,6 @@ verify_jwt = false
 
 [functions.generate-workflow]
 verify_jwt = false
+
+[functions.form-trigger]
+verify_jwt = false

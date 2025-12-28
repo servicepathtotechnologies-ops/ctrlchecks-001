@@ -253,12 +253,20 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
     const { selectedNode, nodes, edges } = get();
     if (!selectedNode) return;
 
+    // Save state for undo
     const newUndoStack = [...get().undoStack, { nodes: [...nodes], edges: [...edges] }];
 
+    // Filter out the selected node and any edges connected to it
+    const updatedNodes = nodes.filter((n) => n.id !== selectedNode.id);
+    const updatedEdges = edges.filter(
+      (e) => e.source !== selectedNode.id && e.target !== selectedNode.id
+    );
+
     set({
-      nodes: nodes.filter((n) => n.id !== selectedNode.id),
-      edges: edges.filter((e) => e.source !== selectedNode.id && e.target !== selectedNode.id),
+      nodes: updatedNodes,
+      edges: updatedEdges,
       selectedNode: null,
+      selectedEdge: null,
       isDirty: true,
       undoStack: newUndoStack,
       redoStack: [],

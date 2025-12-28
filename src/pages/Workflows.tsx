@@ -3,6 +3,7 @@ import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '@/lib/auth';
 import { supabase } from '@/integrations/supabase/client';
 import { Plus, Search, Zap, MoreHorizontal, Play, Trash2, Copy, Clock, History, Bot, Cpu, Workflow, MessageSquare, ChevronRight, Edit, Sparkles, Wrench, ArrowLeft } from 'lucide-react';
+import GoogleConnectionStatus from '@/components/GoogleConnectionStatus';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -132,7 +133,19 @@ export default function Workflows() {
         .order('started_at', { ascending: false })
         .limit(20);
 
-      if (error) throw error;
+      if (error) {
+        // Handle 406 errors gracefully (expected when no executions exist)
+        const is406Error = error.code === 'PGRST116' || 
+                          error.message?.includes('406') || 
+                          (error as any).status === 406 ||
+                          (error as any).statusCode === 406;
+        
+        if (is406Error) {
+          setWorkflowExecutions([]);
+          return;
+        }
+        throw error;
+      }
       setWorkflowExecutions(data || []);
     } catch (error) {
       console.error('Error loading executions:', error);
@@ -254,6 +267,7 @@ export default function Workflows() {
             </Link>
           </div>
           <div className="flex items-center gap-4">
+            <GoogleConnectionStatus />
             <span className="text-sm text-muted-foreground">{user.email}</span>
             <Button variant="outline" size="sm" onClick={() => signOut()}>Sign Out</Button>
           </div>
