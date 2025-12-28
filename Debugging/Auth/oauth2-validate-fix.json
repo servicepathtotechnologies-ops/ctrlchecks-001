@@ -1,0 +1,48 @@
+{
+  "oauth2_validate_token_correct": {
+    "type": "oauth2",
+    "label": "OAuth2 - Validate Token (CORRECT)",
+    "category": "authentication",
+    "config": {
+      "operation": "validate_token",
+      "grantType": "authorization_code",
+      "clientId": "dummy-client-id",
+      "clientSecret": "dummy-secret",
+      "tokenUrl": "https://dummy.com/token",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ1c2VyMTIzIiwiZXhwIjoxNzM1Njg5NjAwLCJpYXQiOjE3MzU2ODYwMDB9.test-signature-here"
+    },
+    "note": "For validate_token operation, you DO NOT need authorization code. Only the token field is used."
+  },
+  "oauth2_get_access_token_requires_code": {
+    "type": "oauth2",
+    "label": "OAuth2 - Get Access Token (REQUIRES CODE)",
+    "category": "authentication",
+    "config": {
+      "operation": "get_access_token",
+      "grantType": "authorization_code",
+      "clientId": "your-client-id",
+      "clientSecret": "your-client-secret",
+      "tokenUrl": "https://oauth.example.com/token",
+      "authorizationUrl": "https://oauth.example.com/authorize",
+      "redirectUri": "https://yourapp.com/callback",
+      "code": "REQUIRED-FOR-THIS-OPERATION",
+      "scope": "read write"
+    },
+    "note": "WARNING: get_access_token with authorization_code REQUIRES the 'code' field. Use validate_token instead if you just want to check token format."
+  },
+  "oauth2_client_credentials_no_code": {
+    "type": "oauth2",
+    "label": "OAuth2 - Client Credentials (NO CODE NEEDED)",
+    "category": "authentication",
+    "config": {
+      "operation": "get_access_token",
+      "grantType": "client_credentials",
+      "clientId": "your-client-id",
+      "clientSecret": "your-client-secret",
+      "tokenUrl": "https://oauth.example.com/token",
+      "scope": "read write"
+    },
+    "note": "Client credentials grant type does NOT require authorization code. But you need real OAuth provider credentials."
+  }
+}
+

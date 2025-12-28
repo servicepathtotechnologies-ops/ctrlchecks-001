@@ -5963,6 +5963,13 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
         helpText: 'Required for refresh_token operation. Get from previous token response.',
       },
       {
+        key: 'token',
+        label: 'Token',
+        type: 'text',
+        placeholder: 'JWT token to validate or revoke',
+        helpText: 'Required for validate_token and revoke_token operations. JWT token string to validate or revoke.',
+      },
+      {
         key: 'scope',
         label: 'Scope',
         type: 'text',

@@ -1,0 +1,232 @@
+{
+  "http_request_get_jsonplaceholder": {
+    "type": "http_request",
+    "label": "HTTP Request - GET JSONPlaceholder",
+    "category": "http_api",
+    "config": {
+      "url": "https://jsonplaceholder.typicode.com/posts/1",
+      "method": "GET",
+      "headers": "{}",
+      "timeout": 30000
+    },
+    "description": "GET request to JSONPlaceholder API - returns a sample post",
+    "expectedOutput": {
+      "userId": 1,
+      "id": 1,
+      "title": "sunt aut facere repellat provident occaecati excepturi optio reprehenderit",
+      "body": "quia et suscipit..."
+    }
+  },
+  "http_request_post_jsonplaceholder": {
+    "type": "http_request",
+    "label": "HTTP Request - POST JSONPlaceholder",
+    "category": "http_api",
+    "config": {
+      "url": "https://jsonplaceholder.typicode.com/posts",
+      "method": "POST",
+      "headers": "{\"Content-Type\": \"application/json\"}",
+      "body": "{\"title\": \"Test Post\", \"body\": \"This is a test post from workflow\", \"userId\": 1}",
+      "timeout": 30000
+    },
+    "description": "POST request to JSONPlaceholder API - simulates creating a post",
+    "expectedOutput": {
+      "title": "Test Post",
+      "body": "This is a test post from workflow",
+      "userId": 1,
+      "id": 101
+    }
+  },
+  "http_request_get_httpbin": {
+    "type": "http_request",
+    "label": "HTTP Request - GET HTTPBin",
+    "category": "http_api",
+    "config": {
+      "url": "https://httpbin.org/get?name=Test&value=123",
+      "method": "GET",
+      "headers": "{}",
+      "timeout": 30000
+    },
+    "description": "GET request to HTTPBin - returns request details",
+    "expectedOutput": {
+      "args": {
+        "name": "Test",
+        "value": "123"
+      },
+      "headers": {},
+      "url": "https://httpbin.org/get?name=Test&value=123"
+    }
+  },
+  "jwt_decode": {
+    "type": "jwt",
+    "label": "JWT - Decode Token",
+    "category": "authentication",
+    "config": {
+      "operation": "decode",
+      "algorithm": "HS256",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c"
+    },
+    "description": "Decode JWT token - no secret needed",
+    "expectedOutput": {
+      "header": {
+        "alg": "HS256",
+        "typ": "JWT"
+      },
+      "payload": {
+        "sub": "1234567890",
+        "name": "John Doe",
+        "iat": 1516239022
+      }
+    }
+  },
+  "jwt_sign": {
+    "type": "jwt",
+    "label": "JWT - Sign Token",
+    "category": "authentication",
+    "config": {
+      "operation": "sign",
+      "algorithm": "HS256",
+      "secret": "my-secret-key-12345",
+      "payload": "{\"sub\": \"user123\", \"name\": \"John Doe\", \"iat\": 1735686000}",
+      "expiresIn": "1h"
+    },
+    "description": "Sign JWT token with secret and payload",
+    "expectedOutput": {
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+    }
+  },
+  "oauth2_validate_token": {
+    "type": "oauth2",
+    "label": "OAuth2 - Validate Token (FIXED)",
+    "category": "authentication",
+    "config": {
+      "operation": "validate_token",
+      "grantType": "client_credentials",
+      "clientId": "dummy-client-id",
+      "clientSecret": "dummy-secret",
+      "tokenUrl": "https://dummy.com/token",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ1c2VyMTIzIiwiZXhwIjoxNzM1Njg5NjAwLCJpYXQiOjE3MzU2ODYwMDB9.test-signature"
+    },
+    "description": "Validate JWT token format - uses dummy credentials. IMPORTANT: Use 'client_credentials' grant type, NOT 'authorization_code'!",
+    "important": "CRITICAL: Grant Type must be 'client_credentials', NOT 'authorization_code'! The authorization_code grant type requires a code field even for validate_token operation.",
+    "expectedOutput": {
+      "valid": true,
+      "payload": {
+        "sub": "user123",
+        "exp": 1735689600,
+        "iat": 1735686000
+      }
+    }
+  },
+  "read_binary_file": {
+    "type": "read_binary_file",
+    "label": "Read Binary File",
+    "category": "storage",
+    "config": {
+      "filePath": "/tmp/test-file.txt",
+      "maxSize": 10485760
+    },
+    "description": "Read file from filesystem - create test file first with: echo 'Hello, World!' > /tmp/test-file.txt",
+    "note": "Create the file first: echo 'Hello, World! This is a test file.' > /tmp/test-file.txt"
+  },
+  "write_binary_file": {
+    "type": "write_binary_file",
+    "label": "Write Binary File",
+    "category": "storage",
+    "config": {
+      "filePath": "/tmp/output-test.txt",
+      "content": "VGhpcyBpcyBhIHRlc3QgZmlsZSB3cml0dGVuIGJ5IHRoZSB3b3JrZmxvdy4="
+    },
+    "description": "Write file to filesystem - content is base64 encoded 'This is a test file written by the workflow.'"
+  },
+  "json_parser": {
+    "type": "json_parser",
+    "label": "JSON Parser",
+    "category": "data",
+    "config": {
+      "expression": "$.data.users[*].name"
+    },
+    "description": "Parse JSON using JSONPath - requires input data from Set node",
+    "setup": "First add a Set node with: {\"fields\": \"{\\\"data\\\": {\\\"users\\\": [{\\\"id\\\": 1, \\\"name\\\": \\\"John\\\"}, {\\\"id\\\": 2, \\\"name\\\": \\\"Jane\\\"}]}}\"}"
+  },
+  "set": {
+    "type": "set",
+    "label": "Set Variables",
+    "category": "data",
+    "config": {
+      "fields": "{\"name\": \"John Doe\", \"age\": 30, \"city\": \"New York\", \"active\": true}"
+    },
+    "description": "Set field values - creates object with specified fields",
+    "expectedOutput": {
+      "name": "John Doe",
+      "age": 30,
+      "city": "New York",
+      "active": true
+    }
+  },
+  "text_formatter": {
+    "type": "text_formatter",
+    "label": "Text Formatter",
+    "category": "data",
+    "config": {
+      "template": "Hello {{name}}! Your order #{{orderId}} total is ${{total}}."
+    },
+    "description": "Format text template - requires input data with name, orderId, total",
+    "setup": "First add a Set node with: {\"fields\": \"{\\\"name\\\": \\\"John\\\", \\\"orderId\\\": 12345, \\\"total\\\": 99.99}\"}"
+  },
+  "if_else": {
+    "type": "if_else",
+    "label": "If/Else",
+    "category": "logic",
+    "config": {
+      "condition": "{{input.score}} > {{input.passingGrade}}"
+    },
+    "description": "Conditional branching - requires input data with score and passingGrade",
+    "setup": "First add a Set node with: {\"fields\": \"{\\\"score\\\": 85, \\\"passingGrade\\\": 70}\"}"
+  },
+  "switch": {
+    "type": "switch",
+    "label": "Switch",
+    "category": "logic",
+    "config": {
+      "expression": "{{input.status}}",
+      "cases": "[{\"value\": \"active\", \"label\": \"Active\"}, {\"value\": \"inactive\", \"label\": \"Inactive\"}, {\"value\": \"pending\", \"label\": \"Pending\"}]"
+    },
+    "description": "Multiple case branching - requires input data with status field",
+    "setup": "First add a Set node with: {\"fields\": \"{\\\"status\\\": \\\"active\\\"}\"}"
+  },
+  "date_time_now": {
+    "type": "date_time",
+    "label": "Date & Time - Now",
+    "category": "utility",
+    "config": {
+      "operation": "now",
+      "timezone": "UTC",
+      "format": "ISO"
+    },
+    "description": "Get current date and time"
+  },
+  "math_add": {
+    "type": "math",
+    "label": "Math - Add",
+    "category": "utility",
+    "config": {
+      "operation": "add",
+      "a": 15,
+      "b": 27
+    },
+    "description": "Add two numbers",
+    "expectedOutput": {
+      "result": 42
+    }
+  },
+  "crypto_uuid": {
+    "type": "crypto",
+    "label": "Crypto - Generate UUID",
+    "category": "utility",
+    "config": {
+      "operation": "uuid"
+    },
+    "description": "Generate UUID"
+  }
+}
+
