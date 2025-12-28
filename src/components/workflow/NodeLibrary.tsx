@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { Search } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -33,16 +33,27 @@ interface NodeLibraryProps {
 export default function NodeLibrary({ onDragStart }: NodeLibraryProps) {
   const [search, setSearch] = useState('');
 
-  const filteredNodes = search
-    ? NODE_TYPES.filter(
-        (node) =>
-          node.label.toLowerCase().includes(search.toLowerCase()) ||
-          node.description.toLowerCase().includes(search.toLowerCase())
-      )
-    : NODE_TYPES;
+  const filteredNodes = useMemo(() => 
+    search
+      ? NODE_TYPES.filter(
+          (node) =>
+            node.label.toLowerCase().includes(search.toLowerCase()) ||
+            node.description.toLowerCase().includes(search.toLowerCase())
+        )
+      : NODE_TYPES,
+    [search]
+  );
+
+  // Sort categories alphabetically
+  const sortedCategories = useMemo(() => 
+    [...NODE_CATEGORIES].sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' })),
+    []
+  );
 
   const getNodesByCategory = (categoryId: string) =>
-    filteredNodes.filter((node) => node.category === categoryId);
+    filteredNodes
+      .filter((node) => node.category === categoryId)
+      .sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }));
 
   return (
     <div className="w-72 border-r border-border bg-card h-full flex flex-col">
@@ -61,7 +72,7 @@ export default function NodeLibrary({ onDragStart }: NodeLibraryProps) {
 
       <ScrollArea className="flex-1">
         <Accordion type="multiple" className="px-3 py-2">
-          {NODE_CATEGORIES.map((category) => {
+          {sortedCategories.map((category) => {
             const nodes = getNodesByCategory(category.id);
             if (nodes.length === 0) return null;
 
