@@ -1392,21 +1392,6 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     ],
   },
   {
-    type: 'email_resend',
-    label: 'Send Email (Resend)',
-    category: 'output',
-    icon: 'Mail',
-    description: 'Send email via Resend',
-    defaultConfig: {},
-    configFields: [
-      { key: 'to', label: 'To', type: 'text', placeholder: 'recipient@example.com', required: true },
-      { key: 'from', label: 'From', type: 'text', placeholder: 'sender@yourdomain.com', required: true },
-      { key: 'subject', label: 'Subject', type: 'text', placeholder: 'Workflow Notification', required: true },
-      { key: 'body', label: 'Body (HTML allowed)', type: 'textarea', placeholder: '<h1>Hello!</h1><p>Content...</p>', required: true },
-      { key: 'replyTo', label: 'Reply-To', type: 'text', placeholder: 'reply@example.com' },
-    ],
-  },
-  {
     type: 'slack_message',
     label: 'Slack Message',
     category: 'output',
