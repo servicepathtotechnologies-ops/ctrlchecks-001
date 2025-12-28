@@ -243,15 +243,25 @@ class LLMAdapter {
   }
 }
 
-// Available node types for workflow generation
+// Available node types for workflow generation - COMPREHENSIVE LIST
 const AVAILABLE_NODES = {
   triggers: ['manual_trigger', 'webhook', 'schedule', 'chat_trigger', 'error_trigger', 'interval', 'workflow_trigger'],
-  ai: ['openai_gpt', 'anthropic_claude', 'google_gemini', 'text_summarizer', 'sentiment_analyzer'],
-  logic: ['if_else', 'switch', 'loop', 'wait', 'error_handler', 'filter'],
-  data: ['javascript', 'json_parser', 'csv_processor', 'text_formatter', 'merge_data', 'set_variable', 'google_sheets'],
-  http_api: ['http_request', 'graphql', 'respond_to_webhook'],
-  output: ['http_post', 'email_resend', 'slack_message', 'slack_webhook', 'discord_webhook', 'database_write', 'log_output'],
-  google: ['google_sheets', 'google_doc', 'google_drive', 'google_calendar', 'google_gmail', 'google_bigquery', 'google_tasks', 'google_contacts'],
+  ai: ['openai_gpt', 'anthropic_claude', 'google_gemini', 'text_summarizer', 'sentiment_analyzer', 'ai_agent', 'memory', 'llm_chain', 'azure_openai', 'hugging_face', 'cohere', 'ollama', 'embeddings', 'vector_store', 'chat_model'],
+  logic: ['if_else', 'switch', 'loop', 'wait', 'error_handler', 'filter', 'merge', 'noop', 'split_in_batches', 'stop_and_error'],
+  data: ['javascript', 'json_parser', 'csv_processor', 'text_formatter', 'merge_data', 'set_variable', 'aggregate', 'edit_fields', 'execute_command', 'function', 'function_item', 'item_lists', 'limit', 'rename_keys', 'set', 'sort', 'date_time', 'math', 'crypto', 'html_extract', 'xml', 'rss_feed_read', 'pdf', 'image_manipulation'],
+  database: ['database_read', 'database_write', 'postgresql', 'supabase', 'mysql', 'mongodb', 'redis', 'mssql', 'sqlite', 'snowflake', 'timescaledb', 'elasticsearch'],
+  storage: ['read_binary_file', 'write_binary_file', 'aws_s3', 'ftp', 'sftp', 'dropbox', 'onedrive', 'box', 'minio'],
+  http_api: ['http_request', 'graphql', 'respond_to_webhook', 'http_post'],
+  output: ['slack_message', 'slack_webhook', 'discord_webhook', 'microsoft_teams', 'telegram', 'whatsapp_cloud', 'twilio', 'log_output'],
+  google: ['google_sheets', 'google_doc', 'google_drive', 'google_calendar', 'google_gmail', 'google_bigquery', 'google_tasks', 'google_contacts', 'google_analytics'],
+  crm: ['hubspot', 'salesforce', 'zoho_crm', 'pipedrive', 'freshdesk', 'intercom', 'mailchimp', 'activecampaign'],
+  devops: ['github', 'gitlab', 'bitbucket', 'jenkins', 'docker', 'kubernetes', 'pagerduty', 'datadog'],
+  ecommerce: ['shopify', 'woocommerce', 'stripe', 'paypal', 'bigcommerce'],
+  analytics: ['google_analytics', 'mixpanel', 'segment', 'amplitude'],
+  authentication: ['oauth2', 'jwt', 'api_key_auth'],
+  payment: ['stripe', 'paypal', 'razorpay'],
+  social_media: ['twitter', 'facebook', 'instagram', 'linkedin'],
+  productivity: ['notion', 'trello', 'asana', 'jira', 'linear'],
 };
 
 serve(async (req) => {
@@ -336,31 +346,122 @@ TRIGGERS:
 AI PROCESSING:
 - openai_gpt: Process with OpenAI GPT models (config: apiKey, model: gpt-4o/gpt-4o-mini/gpt-4-turbo, prompt, temperature, memory)
 - anthropic_claude: Process with Claude models (config: apiKey, model: claude-3-5-sonnet/claude-3-opus/claude-3-haiku, prompt, temperature, memory)
-- google_gemini: Process with Google Gemini models (config: apiKey, model: gemini-2.5-flash/gemini-2.5-pro, prompt, temperature, memory)
+- google_gemini: Process with Google Gemini models (config: apiKey, model: gemini-2.5-flash/gemini-2.5-pro/gemini-2.5-flash-lite, prompt, temperature, memory)
 - text_summarizer: Summarize text using AI (config: apiKey, maxLength, style: concise/bullets/detailed, memory)
 - sentiment_analyzer: Analyze text sentiment (config: apiKey, memory)
+- ai_agent: Autonomous AI agent with tool usage (config: apiKey, model, prompt, tools as JSON array, maxIterations, temperature)
 - memory: Store/retrieve conversation memory (config: operation: store/retrieve/clear/search, memoryType: short/long/both, ttl, maxMessages)
 - llm_chain: Chain multiple prompts (config: steps as JSON array)
+- azure_openai: Use Azure OpenAI service (config: endpoint, apiKey, deploymentName, model, prompt, temperature)
+- hugging_face: Use Hugging Face models (config: apiKey, model, input, parameters as JSON)
+- cohere: Use Cohere AI models (config: apiKey, model, prompt, temperature)
+- ollama: Use local Ollama models (config: baseUrl, model, prompt, temperature)
+- embeddings: Generate text embeddings (config: apiKey, model, input)
+- vector_store: Store and search vectors (config: operation: store/search, vectors, query, topK)
+- chat_model: Chat with AI models (config: apiKey, model, messages as JSON array, temperature)
 
 LOGIC & CONTROL:
-- if_else: Conditional branching (config: condition expression like "{{input.value}} > 10")
+- if_else: Conditional branching (config: condition expression like "{{input.value}} > 10") - MUST have both true and false output edges
 - switch: Multiple case branching (config: expression, cases as JSON array)
 - loop: Iterate over items (config: array expression, maxIterations)
 - wait: Pause execution (config: duration in milliseconds)
 - error_handler: Handle errors gracefully (config: retries, retryDelay, fallbackValue)
 - filter: Filter array items (config: array expression, condition)
+- merge: Merge multiple inputs (config: mode: append/merge, mergeKey for key-based merge)
+- noop: No operation - pass through data unchanged (no config)
+- split_in_batches: Split array into batches (config: array expression, batchSize)
+- stop_and_error: Stop workflow with error (config: errorMessage, errorCode)
 
 DATA TRANSFORM:
-- javascript: Run custom JavaScript code (config: code)
+- javascript: Run custom JavaScript code (config: code, timeout)
 - json_parser: Parse/transform JSON using JSONPath (config: expression like "$.data.items[*]")
 - csv_processor: Process CSV data (config: delimiter, hasHeader)
 - text_formatter: Format text with templates (config: template like "Hello {{name}}!")
 - merge_data: Combine multiple inputs (config: mode: merge/concat)
 - set_variable: Store value in variable (config: name, value)
+- aggregate: Aggregate array data (config: operation: sum/count/avg/min/max, field, groupBy)
+- edit_fields: Edit object fields (config: operations as JSON array with set/delete/rename)
+- execute_command: Execute shell command (config: command, enabled, timeout) - WARNING: disabled by default
+- function: Run function code (config: code, timeout)
+- function_item: Run function on each item (config: code, timeout)
+- item_lists: Convert items to list format (no config)
+- limit: Limit number of items (config: limit)
+- rename_keys: Rename object keys (config: mappings as JSON object)
+- set: Set object fields (config: fields as JSON object)
+- sort: Sort array items (config: field, direction: asc/desc, type: string/number/date)
+- date_time: Date/time operations (config: operation: format/parse/add/subtract, format, value)
+- math: Mathematical operations (config: operation: add/subtract/multiply/divide/power/round, a, b)
+- crypto: Cryptographic operations (config: operation: hash/encode_base64/decode_base64/uuid/random_string/hmac, algorithm, secretKey, length, charset)
+- html_extract: Extract data from HTML (config: html, selector, sanitize, stripScripts, extractText, maxSize)
+- xml: Parse/validate XML (config: operation: parse/extract/validate, xml, xpath, safeMode, maxSize)
+- rss_feed_read: Read RSS/Atom feeds (config: feedUrl, maxItems, detectDuplicates, timeout)
+- pdf: Process PDF documents (config: operation: extractText/readMetadata, pdfUrl, maxSize)
+- image_manipulation: Process images (config: operation: resize/crop/convert/readMetadata, imageUrl, width, height, format, quality)
+
+DATABASE NODES:
 - database_read: Read from database (config: table, columns, filters, limit, orderBy, ascending)
+- database_write: Write to database (config: table, operation: insert/update/upsert/delete, data, matchColumn)
+- postgresql: PostgreSQL operations (config: host, port, database, username, password, query/operation, ssl)
+- supabase: Supabase operations (config: url, key, operation: query/insert/update/delete, table, data)
+- mysql: MySQL operations (config: host, port, database, username, password, query/operation, ssl)
+- mongodb: MongoDB operations (config: connectionString, database, collection, operation: find/insert/update/delete, query, document)
+- redis: Redis operations (config: host, port, password, operation: get/set/delete/keys, key, value, ttl)
+- mssql: Microsoft SQL Server operations (config: server, database, username, password, query/operation, ssl)
+- sqlite: SQLite operations (config: databasePath, query/operation, table, data)
+- snowflake: Snowflake operations (config: account, username, password, database, schema, warehouse, query)
+- timescaledb: TimescaleDB operations (config: host, port, database, username, password, query)
+- elasticsearch: Elasticsearch operations (config: nodeUrl, username, password, index, operation: search/index/get/update/delete/bulk, query, documentId, document, bulkBody)
+
+STORAGE NODES:
+- read_binary_file: Read binary file (config: filePath, encoding)
+- write_binary_file: Write binary file (config: filePath, content, encoding)
+- aws_s3: AWS S3 operations (config: accessKeyId, secretAccessKey, region, bucket, operation: get/put/delete/list, key, body)
+- ftp: FTP operations (config: host, port, username, password, operation: list/get/put/delete, path, fileContent)
+- sftp: SFTP operations (config: host, port, username, password, operation: list/get/put/delete, path, fileContent)
+- dropbox: Dropbox operations (config: accessToken, operation: read/write/list/delete, path, content)
+- onedrive: OneDrive operations (config: accessToken, operation: list/get/upload/delete, path, fileContent)
+- box: Box operations (config: accessToken, operation: list/get/upload/delete, fileId, path, fileContent)
+- minio: MinIO operations (config: endpoint, accessKey, secretKey, bucket, operation: get/put/delete/list, key, body)
+
+HTTP & API NODES:
+- http_request: Make HTTP API call (config: url, method: GET/POST/PUT/PATCH/DELETE, headers, body, timeout)
+- graphql: Execute GraphQL query (config: url, query, variables as JSON, headers, operationName, timeout)
+- respond_to_webhook: Send custom response to webhook caller (config: statusCode, responseBody as JSON, headers)
+- http_post: Send HTTP POST request (config: url, headers, bodyTemplate)
+
+OUTPUT & COMMUNICATION:
+- email_resend: Send email via Resend (config: to, from, subject, body, replyTo). 
+  * WARNING: Requires domain verification in Resend. For Gmail addresses, prefer google_gmail instead.
+  * Only use email_resend if user explicitly mentions Resend or needs Resend-specific features.
+- google_gmail: PREFERRED for sending emails, especially Gmail addresses (config: operation: "send", to, subject, body). 
+  * No domain verification needed. Works with any Gmail account.
+  * Use this instead of email_resend when user wants to send emails, especially if user is already using Google services.
+- slack_message: Send Slack notification (config: webhookUrl, channel, username, iconEmoji, message, blocks)
+- slack_webhook: Simple Slack webhook (config: webhookUrl, text). Use {{input.content}} or {{input.slackMessage}} to pass data from previous nodes.
+- discord_webhook: Send Discord message (config: webhookUrl, content, username, avatarUrl)
+- microsoft_teams: Send Microsoft Teams message (config: webhookUrl, title, text, themeColor)
+- telegram: Send Telegram message (config: botToken, chatId, text, parseMode)
+- whatsapp_cloud: Send WhatsApp message via Cloud API (config: phoneNumberId, accessToken, to, message)
+- twilio: Send SMS via Twilio (config: accountSid, authToken, from, to, body)
+- log_output: Log data for debugging (config: message, level: info/warn/error/debug)
 
 GOOGLE NODES:
 - google_sheets: Read/write Google Sheets (config: operation: read/write/append/update, spreadsheetId, sheetName, range, outputFormat). Get spreadsheetId from URL: /d/SPREADSHEET_ID/edit
+  * Read operation outputs: {data: [[headers], [row1], [row2], ...], rows, columns, range, formatted, operation, sheetName, spreadsheetId}
+  * The "data" field is an array of arrays where first row is headers, subsequent rows are data.
+  * To parse Google Sheets data in JavaScript node:
+    const rows = input.data || [];
+    if (rows.length === 0) return { message: "No data found" };
+    const headers = rows[0];
+    const dataRows = rows.slice(1).map(row => {
+      const obj = {};
+      headers.forEach((header, i) => {
+        obj[header] = row[i] || '';
+      });
+      return obj;
+    });
+    return { students: dataRows, count: dataRows.length };
+  * To format for Slack/Email: Convert to readable text format using the parsed data.
 - google_doc: Read/create/update Google Docs (config: operation: read/create/update, documentId, title, content). 
   * Read operation: Extract documentId from Google Docs URL. Full URL format: https://docs.google.com/document/d/DOCUMENT_ID/edit. You can paste full URL or just the ID part after /d/. 
   * Returns: {documentId, title, content: "extracted text", body: "same as content", text: "same as content", contentLength, hasContent, documentUrl}. 
@@ -375,27 +476,71 @@ GOOGLE NODES:
   * To send data from previous node: Use {{input.content}} or {{input.text}} or {{input.body}} in the body field.
   * Example: If previous node is google_doc, use body: "{{input.content}}" to send the document text.
   * Search syntax: from:, subject:, is:unread, has:attachment
-- google_bigquery: Execute SQL queries on BigQuery (config: projectId, datasetId, query: SQL with backticks for table names like `project.dataset.table`, useLegacySql: false for Standard SQL). Returns rows as JSON objects.
+- google_bigquery: Execute SQL queries on BigQuery (config: projectId, datasetId, query: SQL with backticks for table names like \`project.dataset.table\`, useLegacySql: false for Standard SQL). Returns rows as JSON objects.
 - google_tasks: Create/list/update/complete Google Tasks (config: operation: list/create/update/complete, taskListId: use "@default", taskId, title, notes, dueDate: ISO 8601). Task IDs returned when creating.
 - google_contacts: List/create/update/delete Google Contacts (config: operation: list/create/update/delete, contactId: resourceName like "people/c123", name, email: required for create, phone: include country code like +1234567890, maxResults). Contact IDs are resourceName field.
+- google_analytics: Google Analytics data and reporting (config: accessToken, operation: get_report/list_properties/track_event, propertyId, dateRanges, dimensions, metrics, eventName, eventParams)
 
-HTTP & API NODES:
-- http_request: Make HTTP API call (config: url, method: GET/POST/PUT/PATCH/DELETE, headers, body, timeout)
-- graphql: Execute GraphQL query (config: url, query, variables as JSON, headers, operationName, timeout)
-- respond_to_webhook: Send custom response to webhook caller (config: statusCode, responseBody as JSON, headers)
+CRM & MARKETING:
+- hubspot: HubSpot CRM operations (config: apiKey, operation: create_contact/update_contact/get_contact/list_contacts/create_deal/update_deal, objectType, properties)
+- salesforce: Salesforce operations (config: instanceUrl, accessToken, operation: query/create/update/delete, sobject, query, data)
+- zoho_crm: Zoho CRM operations (config: accessToken, operation: create/update/get/list, module, recordId, data)
+- pipedrive: Pipedrive operations (config: apiToken, operation: add/update/get/list, entityType, entityId, data)
+- freshdesk: Freshdesk operations (config: domain, apiKey, operation: create_ticket/update_ticket/get_ticket/list_tickets, ticketId, data)
+- intercom: Intercom operations (config: accessToken, operation: create_conversation/update_conversation/get_conversation/list_conversations, conversationId, data)
+- mailchimp: Mailchimp operations (config: apiKey, dataCenter, operation: add_member/update_member/get_member/list_members, listId, email, mergeFields)
+- activecampaign: ActiveCampaign operations (config: apiUrl, apiKey, operation: add_contact/update_contact/get_contact/list_contacts, contactId, email, firstName, lastName)
 
-OUTPUT ACTIONS:
-- http_post: Send HTTP POST request (config: url, headers, bodyTemplate)
-- email_resend: Send email via Resend (config: to, from, subject, body, replyTo)
-- slack_message: Send Slack notification (config: webhookUrl, channel, username, iconEmoji, message, blocks)
-- slack_webhook: Simple Slack webhook (config: webhookUrl, text). 
-  * Use this for simple text messages. The text field accepts template variables like {{input.content}}.
-  * To send data from previous node: Use {{input.content}} or {{input.text}} or {{input.data}} in the text field.
-  * Example: If previous node is google_doc, use text: "{{input.content}}" to send the document text.
-- discord_webhook: Send Discord message (config: webhookUrl, content, username, avatarUrl)
-- database_write: Write to database (config: table, operation: insert/update/upsert/delete, data, matchColumn)
-- log_output: Log data for debugging (config: message, level: info/warn/error/debug)
+DEVOPS:
+- github: GitHub operations (config: token, operation: create_issue/update_issue/get_issue/list_issues/create_pr/merge_pr, owner, repo, issueNumber, title, body)
+- gitlab: GitLab operations (config: token, baseUrl, operation: create_issue/update_issue/get_issue/list_issues/create_merge_request, projectId, issueId, title, description)
+- bitbucket: Bitbucket operations (config: username, appPassword, workspace, operation: create_issue/update_issue/get_issue/list_issues/create_pr, repo, issueId, title, content)
+- jenkins: Jenkins operations (config: url, username, apiToken, operation: trigger_build/get_build_status, jobName, buildNumber)
+- docker: Docker operations (config: host, port, operation: list_containers/start_container/stop_container/remove_container, containerId)
+- kubernetes: Kubernetes operations (config: kubeconfig, operation: get_pods/list_pods/create_deployment, namespace, name, manifest)
+- pagerduty: PagerDuty operations (config: apiKey, operation: create_incident/update_incident/get_incident/list_incidents, incidentId, title, serviceId, urgency)
+- datadog: Datadog operations (config: apiKey, appKey, operation: create_event/get_metric/query_metrics, title, text, tags, metric, query)
+
+ECOMMERCE:
+- shopify: Shopify operations (config: shopDomain, accessToken, operation: get_product/create_product/update_product/list_orders/get_order, productId, orderId, data)
+- woocommerce: WooCommerce operations (config: url, consumerKey, consumerSecret, operation: get_product/create_product/update_product/list_orders, productId, orderId, data)
+- stripe: Stripe payment operations (config: apiKey, operation: create_charge/create_customer/create_subscription/get_payment_intent, amount, currency, customerId, paymentIntentId)
+- paypal: PayPal operations (config: clientId, clientSecret, mode: sandbox/live, operation: create_order/capture_order/get_order, orderId, amount, currency)
+- bigcommerce: BigCommerce operations (config: storeHash, accessToken, operation: get_product/list_products/get_order/list_orders/get_customer, productId, orderId, customerId, limit)
+
+ANALYTICS:
+- mixpanel: Mixpanel analytics (config: projectToken, apiSecret, operation: track_event/track_user/get_event/query_insights, eventName, distinctId, properties, query)
+- segment: Segment analytics (config: writeKey, operation: track/identify/page/group, userId, event, properties, traits, name, groupId)
+- amplitude: Amplitude analytics (config: apiKey, secretKey, operation: track/identify/get_event, userId, eventType, eventProperties, userProperties)
+
+AUTHENTICATION:
+- oauth2: OAuth2 authentication (config: clientId, clientSecret, tokenUrl, authorizationUrl, scope, grantType)
+- jwt: JWT token operations (config: operation: encode/decode/verify, secret, payload, token, algorithm)
+- api_key_auth: API key authentication (config: apiKey, headerName)
+
+PAYMENT:
+- razorpay: Razorpay payment operations (config: keyId, keySecret, operation: create_order/create_payment/capture_payment, orderId, amount, currency, receipt)
+
+PRODUCTIVITY:
+- notion: Notion operations (config: apiKey, operation: create_page/update_page/get_page/list_pages, pageId, databaseId, title, content)
+- trello: Trello operations (config: apiKey, token, operation: create_card/update_card/get_card/list_cards, boardId, listId, cardId, name, desc)
+- asana: Asana operations (config: accessToken, operation: create_task/update_task/get_task/list_tasks, taskId, workspaceId, name, notes)
+- jira: Jira operations (config: domain, email, apiToken, operation: create_issue/update_issue/get_issue/list_issues, issueKey, projectKey, summary, description)
+- linear: Linear operations (config: apiKey, operation: create_issue/update_issue/get_issue/list_issues, issueId, teamId, title, description)
 `;
+
+    // Initialize LLM adapter and API key early
+    const llmAdapter = new LLMAdapter();
+    const apiKey = Deno.env.get('GEMINI_API_KEY');
+    if (!apiKey) {
+      console.error('GEMINI_API_KEY not found in environment variables');
+      return new Response(
+        JSON.stringify({
+          error: 'GEMINI_API_KEY is not configured. Please set it in Supabase project settings under Edge Functions secrets.'
+        }),
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
 
     // AGENT-BASED WORKFLOW GENERATION
     // Step 1: Requirement Analysis
@@ -409,13 +554,26 @@ ${JSON.stringify(config, null, 2)}
 CRITICAL: Pay special attention to these common patterns:
 - "read data from Google Doc and send to Slack" → google_doc (read) + slack_webhook
 - "get data from Google Doc and send it" → google_doc (read) + google_gmail (send)
-- "read Google Doc and send to email" → google_doc (read) + google_gmail (send)
-- "read Google Sheets and send to Slack" → google_sheets (read) + slack_webhook
+- "read Google Doc and send to email" → google_doc (read) + google_gmail (send) - ALWAYS use google_gmail, NOT email_resend
+- "read Google Sheets and send to Slack" → google_sheets (read) + javascript (parse) + slack_webhook
+- "send email" or "email" → ALWAYS use google_gmail, NOT email_resend (to avoid domain verification issues)
 
 When you detect "read" or "get" + "Google Doc" + "send" or "Slack":
 - REQUIRED: google_doc node with operation: "read"
 - REQUIRED: Output node (slack_webhook, google_gmail, etc.) with template variable {{input.content}}
 - The google_doc node outputs: {content, text, body} - use {{input.content}} to pass data
+
+When you detect "read" or "get" + "Google Sheets" + "send":
+- REQUIRED: google_sheets node with operation: "read"
+- REQUIRED: javascript node to parse the array-of-arrays format from google_sheets
+- REQUIRED: Output node (slack_webhook, google_gmail, etc.) with template variable from javascript output
+- The google_sheets node outputs: {data: [[headers], [row1], ...]} - MUST parse in javascript node
+- JavaScript should convert array-of-arrays to objects and format for output
+
+When you detect "send email" or "email":
+- ALWAYS use google_gmail with operation: "send", NOT email_resend
+- email_resend requires domain verification which causes errors
+- google_gmail works with any Gmail account without verification
 
 Analyze the user's requirements and respond with a JSON object containing:
 {
@@ -485,8 +643,6 @@ ${analysisContext}
 
 ${nodeDescriptions}
 
-${nodeDescriptions}
-
 AGENT REASONING PROCESS:
 Before generating the workflow, you must:
 1. UNDERSTAND: Carefully read and understand the user's requirements
@@ -524,42 +680,7 @@ The user has specifically provided the following configuration values. You MUST 
 ${JSON.stringify(config, null, 2)}
 If a value matches a node property (e.g. 'google_sheet_id' for 'spreadsheetId', 'slack_webhook' for 'webhookUrl'), USE IT.
 
-<<<<<<< HEAD
 CRITICAL RULES FOR ERROR-FREE WORKFLOWS:
-1. VALIDATION FIRST: Before generating, validate that:
-   - All required configuration fields are present
-   - All node types exist in the available list
-   - Data flow between nodes is logical and correct
-   - Template variables match actual output fields
-
-2. Always start with a trigger node (manual_trigger, webhook_trigger_response, schedule, or http_trigger)
-   - Use manual_trigger for manual execution
-   - Use schedule for time-based triggers
-   - Use webhook_trigger_response for HTTP webhooks
-
-3. Connect nodes in a logical flow from trigger to output - each node should connect to the next
-   - Ensure every node (except triggers) has an incoming edge
-   - Ensure every node (except final outputs) has an outgoing edge
-
-4. Position nodes with x spacing of 300px and y spacing of 150px (start at x:250, y:100)
-
-5. Use ONLY the node types listed above - do not invent new node types
-
-6. Include ALL necessary configuration for each node - MISSING CONFIG WILL CAUSE ERRORS:
-   - For AI nodes: MUST include prompt, model, temperature (0.7 default), memory (10 default)
-   - For HTTP nodes (http_request): MUST include url, method, headers (if needed), body (if POST/PUT), timeout
-   - For GraphQL nodes: MUST include url, query, variables (as JSON string), headers
-   - For webhook_trigger_response: MUST include method (POST/GET/PUT/DELETE)
-   - For respond_to_webhook: MUST include statusCode (200 default), responseBody (as JSON string)
-   - For schedule: MUST include cron expression (e.g., "0 9 * * *")
-   - For email_resend: MUST include to, from, subject, body
-   - For google_doc: MUST include operation ("read"/"create"/"update"), documentId (for read/update), title (for create)
-   - For google_gmail: MUST include operation ("send"/"list"/"get"/"search"), to/subject/body (for send)
-   - For google_sheets: MUST include operation, spreadsheetId
-   - For database_write: MUST include table, operation, data
-   - **CRITICAL**: Use the USER PROVIDED CONFIGURATION values to populate these fields. If a config value is missing, use a sensible default or placeholder that the user can update.
-
-CRITICAL RULES:
 1. Always start with a trigger node (manual_trigger, webhook, schedule, chat_trigger, error_trigger, interval, or workflow_trigger)
 2. Connect nodes in a logical flow from trigger to output - each node should connect to the next
 3. Position nodes with x spacing of 300px and y spacing of 150px (start at x:250, y:100)
@@ -578,7 +699,7 @@ CRITICAL RULES:
    - **IMPORTANT**: Use the USER PROVIDED CONFIGURATION values to populate these fields.
 6. Keep workflows simple and focused - don't overcomplicate
 7. If description mentions AI/LLM/GPT/Claude/Gemini, use appropriate AI node (openai_gpt, anthropic_claude, or google_gemini)
-8. Always end with an output action (http_post, email_resend, slack_message, discord_webhook, database_write, log_output, or google_gmail with operation: send) if the workflow should produce results
+8. Always end with an output action (http_post, slack_message, discord_webhook, database_write, log_output, or google_gmail with operation: send) if the workflow should produce results
 9. Use proper node IDs: format like "trigger_1", "ai_1", "output_1" etc.
 10. Ensure all edges connect valid node IDs
 11. CRITICAL FOR GOOGLE DOC + OUTPUT WORKFLOWS:
@@ -587,7 +708,7 @@ CRITICAL RULES:
     - The google_doc node outputs: {content, text, body, title, documentId} - all contain the document text
     - Destination can be:
       * Slack: Use slack_webhook with text: "{{input.content}}" or slack_message with message: "{{input.content}}"
-      * Email: Use google_gmail (operation: send) with body: "{{input.content}}" or email_resend with body: "{{input.content}}"
+      * Email: Use google_gmail (operation: send) with body: "{{input.content}}"
       * Database: Use database_write with data template containing {{input.content}}
       * HTTP: Use http_post with bodyTemplate containing {{input.content}}
     - ALWAYS use template variables to pass data: {{input.content}} for document text
@@ -616,8 +737,53 @@ CRITICAL RULES:
 15. DATA PASSING BETWEEN NODES:
     - Use template variables like {{input.fieldName}} to pass data from one node to another
     - google_doc read outputs: content, text, body, title, documentId - use {{input.content}} to access document text
-    - google_sheets read outputs: data (array) - use {{input.data}} to access sheet data
+    - google_sheets read outputs: {data: [[headers], [row1], ...], rows, columns} - the data field is an array of arrays
+    - When processing google_sheets data, ALWAYS use a javascript node to parse the array-of-arrays format into a usable structure
+    - Example JavaScript code for Google Sheets:
+      const rows = input.data || [];
+      if (rows.length < 2) return { message: "No data found" };
+      const headers = rows[0];
+      const dataRows = rows.slice(1).filter(row => row && row.length > 0).map(row => {
+        const obj = {};
+        headers.forEach((header, i) => {
+          obj[header] = row[i] || '';
+        });
+        return obj;
+      });
+      const formattedText = dataRows.map(row => 
+        Object.entries(row).map(([key, value]) => `${key}: ${value}`).join('\\n')
+      ).join('\\n\\n');
+      return { 
+        students: dataRows, 
+        count: dataRows.length,
+        formattedText: formattedText,
+        slackMessage: `Found ${dataRows.length} students:\\n\\n${formattedText}`
+      };
     - Always check what fields each node outputs and use appropriate template variables
+
+16. NODE SELECTION GUIDANCE:
+    - For AI/LLM tasks: Use openai_gpt, anthropic_claude, or google_gemini based on user preference or mention
+    - For EMAIL: ALWAYS prefer google_gmail over email_resend, especially for Gmail addresses. Only use email_resend if user explicitly mentions Resend.
+    - For file storage: Use aws_s3, dropbox, onedrive, google_drive, or box based on the service mentioned
+    - For databases: Use postgresql, mysql, mongodb, supabase, or database_read/database_write for generic operations
+    - For CRM operations: Use hubspot, salesforce, zoho_crm, pipedrive, or freshdesk based on the CRM mentioned
+    - For DevOps: Use github, gitlab, jenkins, docker, kubernetes, or pagerduty based on the tool mentioned
+    - For e-commerce: Use shopify, woocommerce, stripe, paypal, or bigcommerce based on the platform mentioned
+    - For analytics: Use google_analytics, mixpanel, segment, or amplitude based on the service mentioned
+    - For communication: Use slack_webhook, discord_webhook, telegram, whatsapp_cloud, twilio, or microsoft_teams based on the platform
+    - For productivity: Use notion, trello, asana, jira, or linear based on the tool mentioned
+    - Always match the node type to the service/platform mentioned in the user's prompt
+
+17. CONFIGURATION BEST PRACTICES:
+    - For nodes with "operation" field: Always set the operation explicitly (e.g., "read", "write", "send", "create")
+    - For API-based nodes: Include apiKey, accessToken, or authentication credentials when mentioned or in user config
+    - For database nodes: Include connection details (host, database, username, password) or use generic database_read/database_write
+    - For file operations: Include file paths, file IDs, or URLs as appropriate
+    - For time-based operations: Use ISO 8601 format for dates/times (e.g., "2024-01-15T14:00:00Z")
+    - For JSON fields: Always provide valid JSON strings, not objects (will be stringified automatically)
+    - For template variables: Always use string format with quotes: "{{input.field}}" not {{input.field}}
+    - For Google Sheets workflows: ALWAYS add a javascript node after google_sheets read to parse the array-of-arrays format
+    - For email workflows: Prefer google_gmail over email_resend to avoid domain verification issues
 
 
 EXAMPLES:
@@ -691,6 +857,63 @@ Example 2: "Read data from Google Doc and send to Slack"
   "edges": [
     {"id": "edge_1", "source": "trigger_1", "target": "google_doc_1"},
     {"id": "edge_2", "source": "google_doc_1", "target": "slack_1"}
+  ]
+}
+
+Example 3: "Read Google Sheets data and send to Slack and Email"
+{
+  "name": "Read Google Sheets and send to Slack and Email",
+  "nodes": [
+    {
+      "id": "trigger_1",
+      "type": "manual_trigger",
+      "position": {"x": 250, "y": 100},
+      "config": {}
+    },
+    {
+      "id": "google_sheets_1",
+      "type": "google_sheets",
+      "position": {"x": 550, "y": 100},
+      "config": {
+        "operation": "read",
+        "spreadsheetId": "SPREADSHEET_ID_HERE",
+        "sheetName": "Sheet1"
+      }
+    },
+    {
+      "id": "javascript_1",
+      "type": "javascript",
+      "position": {"x": 850, "y": 100},
+      "config": {
+        "code": "const rows = input.data || [];\\nif (rows.length < 2) return { slackMessage: 'No data found', emailBody: 'No data found' };\\nconst headers = rows[0];\\nconst dataRows = rows.slice(1).filter(row => row && row.length > 0).map(row => {\\n  const obj = {};\\n  headers.forEach((header, i) => {\\n    obj[header] = row[i] || '';\\n  });\\n  return obj;\\n});\\nconst formattedText = dataRows.map((row, idx) => {\\n  return `Student ${idx + 1}:\\\\n${Object.entries(row).map(([key, value]) => `  ${key}: ${value}`).join('\\\\n')}`;\\n}).join('\\\\n\\\\n');\\nreturn {\\n  students: dataRows,\\n  count: dataRows.length,\\n  slackMessage: `Found ${dataRows.length} students:\\\\n\\\\n${formattedText}`,\\n  emailBody: `Hello,\\\\n\\\\nHere is the data from the Google Sheet:\\\\n\\\\n${formattedText}\\\\n\\\\nBest regards,\\\\nYour Workflow`\\n};"
+      }
+    },
+    {
+      "id": "slack_1",
+      "type": "slack_webhook",
+      "position": {"x": 1150, "y": 50},
+      "config": {
+        "webhookUrl": "WEBHOOK_URL_HERE",
+        "text": "{{input.slackMessage}}"
+      }
+    },
+    {
+      "id": "gmail_1",
+      "type": "google_gmail",
+      "position": {"x": 1150, "y": 150},
+      "config": {
+        "operation": "send",
+        "to": "recipient@example.com",
+        "subject": "Google Sheets Data",
+        "body": "{{input.emailBody}}"
+      }
+    }
+  ],
+  "edges": [
+    {"id": "edge_1", "source": "trigger_1", "target": "google_sheets_1"},
+    {"id": "edge_2", "source": "google_sheets_1", "target": "javascript_1"},
+    {"id": "edge_3", "source": "javascript_1", "target": "slack_1"},
+    {"id": "edge_4", "source": "javascript_1", "target": "gmail_1"}
   ]
 }
 
@@ -776,17 +999,6 @@ Generate the updated workflow JSON. Return ONLY valid JSON, no markdown or expla
     }
 
     // Use Google Gemini (free version) to generate workflow
-    const llmAdapter = new LLMAdapter();
-    const apiKey = Deno.env.get('GEMINI_API_KEY');
-    if (!apiKey) {
-      console.error('GEMINI_API_KEY not found in environment variables');
-      return new Response(
-        JSON.stringify({
-          error: 'GEMINI_API_KEY is not configured. Please set it in Supabase project settings under Edge Functions secrets.'
-        }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
     const provider = 'gemini';
     // Use gemini-2.5-flash as default (user's preferred model)
     // Maps to gemini-2.0-flash-exp in the API
@@ -1007,7 +1219,7 @@ Generate the updated workflow JSON. Return ONLY valid JSON, no markdown or expla
     const generatedNodeTypes = workflowData.nodes.map((n: any) => n.type);
     const hasGoogleDocNode = generatedNodeTypes.includes('google_doc');
     const hasSlackNode = generatedNodeTypes.includes('slack_webhook') || generatedNodeTypes.includes('slack_message');
-    const hasEmailNode = generatedNodeTypes.includes('google_gmail') || generatedNodeTypes.includes('email_resend');
+    const hasEmailNode = generatedNodeTypes.includes('google_gmail');
     
     // If user asked for Google Doc but workflow doesn't have it, that's a critical error - use fallback
     if (hasGoogleDocReq && !hasGoogleDocNode) {
@@ -1155,12 +1367,12 @@ Generate the updated workflow JSON. Return ONLY valid JSON, no markdown or expla
     });
     
     // Validate edges
-    const nodeIds = new Set(workflowData.nodes.map((n: any) => n.id));
+    const validNodeIdsSet = new Set(workflowData.nodes.map((n: any) => n.id));
     workflowData.edges.forEach((edge: any) => {
-      if (!nodeIds.has(edge.source)) {
+      if (!validNodeIdsSet.has(edge.source)) {
         validationErrors.push(`Edge references non-existent source node: ${edge.source}`);
       }
-      if (!nodeIds.has(edge.target)) {
+      if (!validNodeIdsSet.has(edge.target)) {
         validationErrors.push(`Edge references non-existent target node: ${edge.target}`);
       }
     });
@@ -1183,13 +1395,13 @@ Generate the updated workflow JSON. Return ONLY valid JSON, no markdown or expla
     }
 
     // Ensure all node IDs are unique and valid
-    const nodeIds = new Set<string>();
+    const uniqueNodeIds = new Set<string>();
     workflowData.nodes = workflowData.nodes.map((node: any, index: number) => {
       const nodeId = node.id || `node_${index}_${Date.now()}`;
-      if (nodeIds.has(nodeId)) {
+      if (uniqueNodeIds.has(nodeId)) {
         return { ...node, id: `${nodeId}_${index}` };
       }
-      nodeIds.add(nodeId);
+      uniqueNodeIds.add(nodeId);
       return {
         ...node,
         id: nodeId,
