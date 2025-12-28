@@ -17,11 +17,12 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { validateAndFixWorkflow } from "./workflow-validation.ts";
+import { AutonomousWorkflowAgent } from "./autonomous-agent.ts";
 
 // CORS headers (inlined from _shared/cors.ts)
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-stream-progress',
   'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
 };
 
@@ -430,12 +431,10 @@ HTTP & API NODES:
 - http_post: Send HTTP POST request (config: url, headers, bodyTemplate)
 
 OUTPUT & COMMUNICATION:
-- email_resend: Send email via Resend (config: to, from, subject, body, replyTo). 
-  * WARNING: Requires domain verification in Resend. For Gmail addresses, prefer google_gmail instead.
-  * Only use email_resend if user explicitly mentions Resend or needs Resend-specific features.
-- google_gmail: PREFERRED for sending emails, especially Gmail addresses (config: operation: "send", to, subject, body). 
-  * No domain verification needed. Works with any Gmail account.
-  * Use this instead of email_resend when user wants to send emails, especially if user is already using Google services.
+- google_gmail: ✅ REQUIRED for sending emails (config: operation: "send", to, subject, body). 
+  * ✅ No domain verification needed. Works with any Gmail account.
+  * ✅ ALWAYS use google_gmail when user mentions "gmail", "email", or "send email".
+  * ✅ THIS IS THE ONLY EMAIL NODE TYPE AVAILABLE - USE google_gmail FOR ALL EMAIL OPERATIONS.
 - slack_message: Send Slack notification (config: webhookUrl, channel, username, iconEmoji, message, blocks)
 - slack_webhook: Simple Slack webhook (config: webhookUrl, text). Use {{input.content}} or {{input.slackMessage}} to pass data from previous nodes.
 - discord_webhook: Send Discord message (config: webhookUrl, content, username, avatarUrl)
@@ -449,24 +448,38 @@ GOOGLE NODES:
 - google_sheets: Read/write Google Sheets (config: operation: read/write/append/update, spreadsheetId, sheetName, range, outputFormat). Get spreadsheetId from URL: /d/SPREADSHEET_ID/edit
   * Read operation outputs: {data: [[headers], [row1], [row2], ...], rows, columns, range, formatted, operation, sheetName, spreadsheetId}
   * The "data" field is an array of arrays where first row is headers, subsequent rows are data.
-  * To parse Google Sheets data in JavaScript node:
-    const rows = input.data || [];
-    if (rows.length === 0) return { message: "No data found" };
-    const headers = rows[0];
-    const dataRows = rows.slice(1).map(row => {
-      const obj = {};
-      headers.forEach((header, i) => {
-        obj[header] = row[i] || '';
-      });
-      return obj;
-    });
-    return { students: dataRows, count: dataRows.length };
-  * To format for Slack/Email: Convert to readable text format using the parsed data.
+  * CRITICAL: When reading Google Sheets, you MUST use a javascript node to parse the array-of-arrays format.
+  * Example JavaScript code to parse Google Sheets data:
+    const sheetsData = input.data || [];
+    let sheetsText = "Data from Google Sheets:\\n";
+    if (sheetsData.length === 0) {
+      sheetsText += "No data found in Google Sheets.\\n";
+    } else {
+      const headers = sheetsData[0] || [];
+      const dataRows = sheetsData.slice(1);
+      if (dataRows.length === 0) {
+        sheetsText += "No data rows found.\\n";
+      } else {
+        dataRows.forEach((row, idx) => {
+          const rowText = row.map((cell, i) => {
+            const header = headers[i] || \`Column\${i + 1}\`;
+            return \`\${header}: \${cell || ''}\`;
+          }).join(', ');
+          sheetsText += \`Row \${idx + 1}: \${rowText}\\n\`;
+        });
+      }
+    }
+    return { sheetsText, sheetsData };
+  * ALWAYS format the data as readable text for email/Slack output.
 - google_doc: Read/create/update Google Docs (config: operation: read/create/update, documentId, title, content). 
   * Read operation: Extract documentId from Google Docs URL. Full URL format: https://docs.google.com/document/d/DOCUMENT_ID/edit. You can paste full URL or just the ID part after /d/. 
   * Returns: {documentId, title, content: "extracted text", body: "same as content", text: "same as content", contentLength, hasContent, documentUrl}. 
   * The content/body/text fields contain ALL extracted text from the document.
-  * To use data from google_doc in next node: Use {{input.content}} or {{input.text}} or {{input.body}} in template variables.
+  * CRITICAL: When reading Google Docs, the content is already in text format - use {{input.content}} directly in output nodes.
+  * If you need to combine with Sheets data, use JavaScript node to merge:
+    const docContent = input.content || input.text || input.body || '';
+    const docText = docContent ? \`Data from Google Document:\\n\${docContent}\` : "No Google Doc content found.\\n";
+    return { docText, docContent };
   * Create operation: Creates new empty doc, then inserts content if provided. Returns {documentId, title, documentUrl}.
   * Update operation: Appends content to beginning of document. Requires documentId and content.
 - google_drive: List/upload/download/delete Google Drive files (config: operation: list/upload/download/delete, folderId, fileId, fileName, fileContent). Leave folderId empty for root. Get fileId from URL: /file/d/FILE_ID/view. Upload requires Base64 fileContent.
@@ -542,6 +555,361 @@ PRODUCTIVITY:
       );
     }
 
+    // For 'create' mode: Use Advanced Autonomous Workflow AI Agent
+    if (mode === 'create') {
+      try {
+        console.log('[AUTONOMOUS AGENT] Starting autonomous workflow generation...');
+        
+        // Check if client wants streaming progress updates
+        const streamProgress = req.headers.get('accept')?.includes('text/event-stream') || 
+                              req.headers.get('x-stream-progress') === 'true';
+        
+        if (streamProgress) {
+          // Create a streaming response with progress updates
+          const stream = new ReadableStream({
+            async start(controller) {
+              let finalWorkflow: any = null;
+              let hasError = false;
+              
+              try {
+                // Initialize autonomous agent with progress callback
+                const agent = new AutonomousWorkflowAgent(
+                  {
+                    apiKey,
+                    model: 'gemini-2.5-flash',
+                    temperature: 0.3,
+                    maxIterations: 10,
+                    enableLearning: true,
+                    onProgress: (progress) => {
+                      // Send progress update as JSON line
+                      const progressLine = JSON.stringify(progress) + '\n';
+                      controller.enqueue(new TextEncoder().encode(progressLine));
+                    },
+                  },
+                  nodeDescriptions
+                );
+
+                // Execute autonomous agent (this will call onProgress callbacks)
+                finalWorkflow = await agent.execute(prompt, config);
+                
+                // Send final workflow
+                const finalResponse = {
+                  status: 'completed',
+                  workflow: finalWorkflow,
+                };
+                controller.enqueue(new TextEncoder().encode(JSON.stringify(finalResponse) + '\n'));
+                controller.close();
+              } catch (error) {
+                hasError = true;
+                const errorResponse = {
+                  status: 'error',
+                  error: error instanceof Error ? error.message : String(error),
+                };
+                controller.enqueue(new TextEncoder().encode(JSON.stringify(errorResponse) + '\n'));
+                controller.close();
+              }
+            },
+          });
+
+          return new Response(stream, {
+            headers: {
+              ...corsHeaders,
+              'Content-Type': 'text/plain; charset=utf-8',
+              'Cache-Control': 'no-cache',
+              'Connection': 'keep-alive',
+              'X-Accel-Buffering': 'no', // Disable buffering for streaming
+            },
+          });
+        }
+        
+        // Non-streaming mode: collect progress (but can't send it in real-time)
+        // We'll include initial progress estimate in response
+        let lastProgress: any = null;
+        const startTime = Date.now();
+        
+        // Estimate time before starting
+        const goalLower = prompt.toLowerCase();
+        let estimatedTime = 15;
+        const hasSheets = goalLower.includes('google sheet') || goalLower.includes('sheets');
+        const hasDoc = goalLower.includes('google doc') || goalLower.includes('document');
+        const hasGmail = goalLower.includes('gmail') || goalLower.includes('email');
+        const hasSlack = goalLower.includes('slack');
+        const integrations = [hasSheets, hasDoc, hasGmail, hasSlack].filter(Boolean).length;
+        estimatedTime += integrations * 3;
+        if (hasSheets) estimatedTime += 2;
+        if (hasSheets && hasDoc) estimatedTime += 2;
+        if (hasGmail && hasSlack) estimatedTime += 2;
+        estimatedTime = Math.max(12, Math.min(45, estimatedTime));
+        
+        // Initialize autonomous agent with full node knowledge
+        const agent = new AutonomousWorkflowAgent(
+          {
+            apiKey,
+            model: 'gemini-2.5-flash',
+            temperature: 0.3,
+            maxIterations: 10,
+            enableLearning: true,
+            onProgress: (progress) => {
+              lastProgress = progress;
+            },
+          },
+          nodeDescriptions
+        );
+
+        // Execute autonomous agent
+        const workflow = await agent.execute(prompt, config);
+        
+        // CRITICAL: Check if workflow is a fallback (just trigger + log) - this is WRONG
+        const nodeTypes = workflow.nodes?.map((n: any) => n.type) || [];
+        if (nodeTypes.length <= 2 && nodeTypes.includes('manual_trigger') && nodeTypes.includes('log_output')) {
+          console.error('[AUTONOMOUS AGENT] CRITICAL: Generated fallback workflow instead of proper workflow');
+          throw new Error('Workflow generation failed - generated fallback instead of proper workflow. Please try again.');
+        }
+
+        // Validate and fix workflow structure
+        const validatedWorkflow = validateAndFixWorkflow(workflow);
+
+        // CRITICAL: ALWAYS replace email_resend with google_gmail (email_resend doesn't exist in node library)
+        validatedWorkflow.nodes = validatedWorkflow.nodes.map((node: any) => {
+          if (node.type === 'email_resend') {
+            console.log(`[AUTONOMOUS AGENT] CRITICAL FIX: Replacing email_resend with google_gmail for node ${node.id}`);
+            return {
+              ...node,
+              type: 'google_gmail',
+              config: {
+                ...node.config,
+                operation: 'send',
+                to: node.config.to || '',
+                subject: node.config.subject || 'Message from Workflow',
+                body: node.config.body || node.config.text || '',
+              },
+            };
+          }
+          return node;
+        });
+
+        // CRITICAL: Final validation - check if workflow matches user requirements
+        const promptLower = prompt.toLowerCase();
+        const nodeTypes = validatedWorkflow.nodes?.map((n: any) => n.type) || [];
+        
+        // CRITICAL: Check if workflow is just trigger + log (fallback) - REJECT IMMEDIATELY
+        if (nodeTypes.length <= 2 && nodeTypes.includes('manual_trigger') && nodeTypes.includes('log_output')) {
+          console.error('[AUTONOMOUS AGENT] FINAL CHECK FAILED: Workflow is just fallback (trigger + log)');
+          throw new Error('Generated workflow is incomplete (only trigger + log). This indicates the AI agent failed to generate the proper workflow. Please try again.');
+        }
+        
+        // Check for Google Sheets
+        if ((promptLower.includes('google sheet') || promptLower.includes('sheets')) && !nodeTypes.includes('google_sheets')) {
+          console.error('[AUTONOMOUS AGENT] FINAL CHECK FAILED: Missing google_sheets node');
+          throw new Error('Generated workflow is missing required google_sheets node. The workflow cannot read from Google Sheets as requested. Please try again.');
+        }
+        
+        // Check for Google Doc
+        if ((promptLower.includes('google doc') || promptLower.includes('document')) && !nodeTypes.includes('google_doc')) {
+          console.error('[AUTONOMOUS AGENT] FINAL CHECK FAILED: Missing google_doc node');
+          throw new Error('Generated workflow is missing required google_doc node. The workflow cannot read from Google Documents as requested. Please try again.');
+        }
+        
+        // Check for Gmail
+        if ((promptLower.includes('gmail') || promptLower.includes('email')) && !nodeTypes.includes('google_gmail')) {
+          console.error('[AUTONOMOUS AGENT] FINAL CHECK FAILED: Missing google_gmail node');
+          throw new Error('Generated workflow is missing required google_gmail node. The workflow cannot send emails as requested. Please try again.');
+        }
+        
+        // Check for Slack
+        if (promptLower.includes('slack') && !nodeTypes.includes('slack_webhook') && !nodeTypes.includes('slack_message')) {
+          console.error('[AUTONOMOUS AGENT] FINAL CHECK FAILED: Missing slack node');
+          throw new Error('Generated workflow is missing required slack node. The workflow cannot send to Slack as requested. Please try again.');
+        }
+        
+        // Check for JavaScript node when Google Sheets is present (needed for parsing)
+        if (nodeTypes.includes('google_sheets') && !nodeTypes.includes('javascript')) {
+          console.error('[AUTONOMOUS AGENT] FINAL CHECK FAILED: Missing javascript node for Google Sheets parsing');
+          throw new Error('Generated workflow has Google Sheets but missing JavaScript node to parse the data. Please try again.');
+        }
+
+        // Ensure all config values are strings
+        validatedWorkflow.nodes = validatedWorkflow.nodes.map((node: any) => {
+          if (node.config && typeof node.config === 'object') {
+            const fixedConfig: Record<string, unknown> = {};
+            for (const [key, value] of Object.entries(node.config)) {
+              if (value === null || value === undefined) {
+                fixedConfig[key] = '';
+              } else if (typeof value !== 'string') {
+                if (typeof value === 'object') {
+                  fixedConfig[key] = JSON.stringify(value);
+                } else {
+                  fixedConfig[key] = String(value);
+                }
+              } else {
+                fixedConfig[key] = value;
+              }
+            }
+            node.config = fixedConfig;
+          }
+          return node;
+        });
+
+        // Apply user config values to nodes
+        validatedWorkflow.nodes = validatedWorkflow.nodes.map((node: any) => {
+          if (node.type === 'google_doc' && node.config.operation === 'read') {
+            node.config.documentId = node.config.documentId || config.documentId || config.google_doc_id || config.google_doc_url || '';
+          }
+          if (node.type === 'google_sheets' && node.config.operation === 'read') {
+            node.config.spreadsheetId = node.config.spreadsheetId || config.spreadsheetId || config.google_sheet_id || '';
+            node.config.sheetName = node.config.sheetName || config.sheetName || 'Sheet1';
+          }
+          if (node.type === 'slack_webhook' || node.type === 'slack_message') {
+            node.config.webhookUrl = node.config.webhookUrl || config.webhookUrl || config.slack_webhook || '';
+          }
+          if (node.type === 'google_gmail' && node.config.operation === 'send') {
+            node.config.to = node.config.to || config.to || config.email || '';
+            node.config.subject = node.config.subject || config.subject || 'Message from Workflow';
+            // Ensure body uses template variable if not already set
+            if (!node.config.body || (!node.config.body.includes('{{input') && !node.config.body.trim())) {
+              node.config.body = node.config.body || '{{input.content}}';
+            }
+          }
+          return node;
+        });
+        
+        // CRITICAL: Final check - ensure JavaScript nodes return formatted text
+        const promptLower = prompt.toLowerCase();
+        const hasSheets = promptLower.includes('google sheet') || promptLower.includes('sheets');
+        const hasDoc = promptLower.includes('google doc') || promptLower.includes('document');
+        
+        validatedWorkflow.nodes = validatedWorkflow.nodes.map((node: any) => {
+          if (node.type === 'javascript') {
+            const code = node.config?.code || '';
+            const hasReturnContent = code.includes('content:') || code.includes('"content"') || code.includes("'content'");
+            const hasReturnText = code.includes('text:') || code.includes('"text"') || code.includes("'text'");
+            
+            // If JavaScript node doesn't return formatted text, fix it
+            if (!hasReturnContent && !hasReturnText && code.trim() !== '') {
+              console.log(`[AUTONOMOUS AGENT] Fixing JavaScript node ${node.id} - ensuring it returns formatted text`);
+              
+              if (hasSheets && hasDoc) {
+                // Both Sheets and Doc
+                node.config.code = `// Parse and format data from Google Sheets and Google Document
+const sheetsInput = input.sheetsInput || input.input1 || input;
+const docInput = input.docInput || input.input2 || {};
+
+// Process Google Sheets data
+const sheetsData = sheetsInput.data || [];
+let sheetsText = "Data from Google Sheets:\\n";
+if (sheetsData.length === 0) {
+  sheetsText += "No data found in Google Sheets.\\n\\n";
+} else {
+  const headers = sheetsData[0] || [];
+  const dataRows = sheetsData.slice(1);
+  if (dataRows.length === 0) {
+    sheetsText += "No data rows found in Google Sheets.\\n\\n";
+  } else {
+    dataRows.forEach((row, idx) => {
+      const rowText = row.map((cell, i) => {
+        const header = headers[i] || \`Column\${i + 1}\`;
+        return \`\${header}: \${cell || ''}\`;
+      }).join(', ');
+      sheetsText += \`Row \${idx + 1}: \${rowText}\\n\`;
+    });
+    sheetsText += "\\n";
+  }
+}
+
+// Process Google Document content
+const docContent = docInput.content || docInput.text || docInput.body || '';
+let docText = "Data from Google Document:\\n";
+if (!docContent || docContent.trim() === '') {
+  docText += "No Google Doc content found.\\n";
+} else {
+  docText += docContent;
+}
+
+// Combine both sources
+const combinedText = sheetsText + docText;
+
+// Return formatted text for email/Slack
+return {
+  content: combinedText,
+  text: combinedText,
+  body: combinedText
+};`;
+              } else if (hasSheets) {
+                // Only Sheets
+                node.config.code = `// Parse and format data from Google Sheets
+const sheetsData = input.data || [];
+let sheetsText = "Data from Google Sheets:\\n";
+if (sheetsData.length === 0) {
+  sheetsText += "No data found in Google Sheets.\\n";
+} else {
+  const headers = sheetsData[0] || [];
+  const dataRows = sheetsData.slice(1);
+  if (dataRows.length === 0) {
+    sheetsText += "No data rows found in Google Sheets.\\n";
+  } else {
+    dataRows.forEach((row, idx) => {
+      const rowText = row.map((cell, i) => {
+        const header = headers[i] || \`Column\${i + 1}\`;
+        return \`\${header}: \${cell || ''}\`;
+      }).join(', ');
+      sheetsText += \`Row \${idx + 1}: \${rowText}\\n\`;
+    });
+  }
+}
+
+// Return formatted text for email/Slack
+return {
+  content: sheetsText,
+  text: sheetsText,
+  body: sheetsText
+};`;
+              }
+            }
+          }
+          
+          // Ensure output nodes use template variables
+          if (node.type === 'google_gmail' && node.config.operation === 'send') {
+            if (!node.config.body || (!node.config.body.includes('{{input.content}}') && 
+                                     !node.config.body.includes('{{input.text}}') && 
+                                     !node.config.body.includes('{{input.body}}'))) {
+              node.config.body = '{{input.content}}';
+            }
+          }
+          if (node.type === 'slack_webhook') {
+            if (!node.config.text || (!node.config.text.includes('{{input.content}}') && 
+                                     !node.config.text.includes('{{input.text}}') && 
+                                     !node.config.text.includes('{{input.body}}'))) {
+              node.config.text = '{{input.content}}';
+            }
+          }
+          if (node.type === 'slack_message') {
+            if (!node.config.message || (!node.config.message.includes('{{input.content}}') && 
+                                        !node.config.message.includes('{{input.text}}') && 
+                                        !node.config.message.includes('{{input.body}}'))) {
+              node.config.message = '{{input.content}}';
+            }
+          }
+          
+          return node;
+        });
+
+        console.log('[AUTONOMOUS AGENT] Workflow generation completed successfully');
+        console.log(`Generated ${validatedWorkflow.nodes.length} nodes and ${validatedWorkflow.edges.length} edges`);
+
+        return new Response(
+          JSON.stringify(validatedWorkflow),
+          {
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+            status: 200,
+          }
+        );
+      } catch (agentError) {
+        console.error('[AUTONOMOUS AGENT] Error:', agentError);
+        // Fall through to legacy generation as fallback
+        console.log('[AUTONOMOUS AGENT] Falling back to legacy generation...');
+      }
+    }
+
     // AGENT-BASED WORKFLOW GENERATION
     // Step 1: Requirement Analysis
     const analysisPrompt = `You are an intelligent workflow automation agent. Your task is to analyze user requirements and understand what they want to achieve.
@@ -554,26 +922,65 @@ ${JSON.stringify(config, null, 2)}
 CRITICAL: Pay special attention to these common patterns:
 - "read data from Google Doc and send to Slack" → google_doc (read) + slack_webhook
 - "get data from Google Doc and send it" → google_doc (read) + google_gmail (send)
-- "read Google Doc and send to email" → google_doc (read) + google_gmail (send) - ALWAYS use google_gmail, NOT email_resend
+- "read Google Doc and send to email" → google_doc (read) + google_gmail (send) - ALWAYS use google_gmail
 - "read Google Sheets and send to Slack" → google_sheets (read) + javascript (parse) + slack_webhook
-- "send email" or "email" → ALWAYS use google_gmail, NOT email_resend (to avoid domain verification issues)
+- "send email" or "email" → ALWAYS use google_gmail (operation: "send")
 
 When you detect "read" or "get" + "Google Doc" + "send" or "Slack":
 - REQUIRED: google_doc node with operation: "read"
 - REQUIRED: Output node (slack_webhook, google_gmail, etc.) with template variable {{input.content}}
 - The google_doc node outputs: {content, text, body} - use {{input.content}} to pass data
+- If combining with Google Sheets, use merge_data or javascript node to combine both sources
+- Example JavaScript to combine Sheets + Doc:
+  const sheetsData = input1.data || [];
+  const docContent = input2.content || input2.text || '';
+  let combinedText = "Data from Google Sheets:\\n";
+  if (sheetsData.length === 0) {
+    combinedText += "No data found in Google Sheets.\\n\\n";
+  } else {
+    const headers = sheetsData[0] || [];
+    const dataRows = sheetsData.slice(1);
+    dataRows.forEach((row, idx) => {
+      const rowText = row.map((cell, i) => {
+        const header = headers[i] || \`Column\${i + 1}\`;
+        return \`\${header}: \${cell || ''}\`;
+      }).join(', ');
+      combinedText += \`Row \${idx + 1}: \${rowText}\\n\`;
+    });
+  }
+  combinedText += "\\nData from Google Document:\\n";
+  combinedText += docContent || "No Google Doc content found.\\n";
+  return { content: combinedText, text: combinedText, body: combinedText };
 
 When you detect "read" or "get" + "Google Sheets" + "send":
 - REQUIRED: google_sheets node with operation: "read"
 - REQUIRED: javascript node to parse the array-of-arrays format from google_sheets
 - REQUIRED: Output node (slack_webhook, google_gmail, etc.) with template variable from javascript output
 - The google_sheets node outputs: {data: [[headers], [row1], ...]} - MUST parse in javascript node
-- JavaScript should convert array-of-arrays to objects and format for output
+- JavaScript MUST format data as readable text string (not objects) for email/Slack output
+- Example JavaScript code for Google Sheets:
+  const sheetsData = input.data || [];
+  let sheetsText = "Data from Google Sheets:\\n";
+  if (sheetsData.length === 0) {
+    sheetsText += "No data found in Google Sheets.\\n";
+  } else {
+    const headers = sheetsData[0] || [];
+    const dataRows = sheetsData.slice(1);
+    dataRows.forEach((row, idx) => {
+      const rowText = row.map((cell, i) => {
+        const header = headers[i] || \`Column\${i + 1}\`;
+        return \`\${header}: \${cell || ''}\`;
+      }).join(', ');
+      sheetsText += \`Row \${idx + 1}: \${rowText}\\n\`;
+    });
+  }
+  return { content: sheetsText, text: sheetsText, body: sheetsText };
+- Output nodes MUST use {{input.content}} or {{input.text}} or {{input.body}} to get the formatted text
 
 When you detect "send email" or "email":
-- ALWAYS use google_gmail with operation: "send", NOT email_resend
-- email_resend requires domain verification which causes errors
+- ALWAYS use google_gmail with operation: "send"
 - google_gmail works with any Gmail account without verification
+- THIS IS THE ONLY EMAIL NODE TYPE AVAILABLE
 
 Analyze the user's requirements and respond with a JSON object containing:
 {
@@ -763,7 +1170,7 @@ CRITICAL RULES FOR ERROR-FREE WORKFLOWS:
 
 16. NODE SELECTION GUIDANCE:
     - For AI/LLM tasks: Use openai_gpt, anthropic_claude, or google_gemini based on user preference or mention
-    - For EMAIL: ALWAYS prefer google_gmail over email_resend, especially for Gmail addresses. Only use email_resend if user explicitly mentions Resend.
+    - For EMAIL: ALWAYS use google_gmail (operation: "send"). THIS IS THE ONLY EMAIL NODE TYPE AVAILABLE.
     - For file storage: Use aws_s3, dropbox, onedrive, google_drive, or box based on the service mentioned
     - For databases: Use postgresql, mysql, mongodb, supabase, or database_read/database_write for generic operations
     - For CRM operations: Use hubspot, salesforce, zoho_crm, pipedrive, or freshdesk based on the CRM mentioned
@@ -783,7 +1190,7 @@ CRITICAL RULES FOR ERROR-FREE WORKFLOWS:
     - For JSON fields: Always provide valid JSON strings, not objects (will be stringified automatically)
     - For template variables: Always use string format with quotes: "{{input.field}}" not {{input.field}}
     - For Google Sheets workflows: ALWAYS add a javascript node after google_sheets read to parse the array-of-arrays format
-    - For email workflows: Prefer google_gmail over email_resend to avoid domain verification issues
+    - For email workflows: ALWAYS use google_gmail (operation: "send")
 
 
 EXAMPLES:
@@ -1036,6 +1443,27 @@ Generate the updated workflow JSON. Return ONLY valid JSON, no markdown or expla
       }
 
       workflowData = JSON.parse(jsonText);
+      
+      // CRITICAL SAFETY FIX: Replace email_resend with google_gmail (email_resend doesn't exist in node library)
+      if (workflowData.nodes && Array.isArray(workflowData.nodes)) {
+        workflowData.nodes = workflowData.nodes.map((node: any) => {
+          if (node.type === 'email_resend') {
+            console.log(`[LEGACY GENERATION] CRITICAL FIX: Replacing email_resend with google_gmail for node ${node.id}`);
+            return {
+              ...node,
+              type: 'google_gmail',
+              config: {
+                ...node.config,
+                operation: 'send',
+                to: node.config.to || '',
+                subject: node.config.subject || 'Message from Workflow',
+                body: node.config.body || node.config.text || '',
+              },
+            };
+          }
+          return node;
+        });
+      }
       
       // Log agent reasoning if available
       if (workflowData.reasoning) {
