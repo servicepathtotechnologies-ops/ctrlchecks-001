@@ -25,6 +25,11 @@ const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
 type WorkflowNodeProps = Node<NodeData>;
 
 const WorkflowNode = memo(({ data, selected }: NodeProps<WorkflowNodeProps>) => {
+  // Skip rendering form nodes - they use custom FormTriggerNode component
+  if (data.type === 'form') {
+    return null;
+  }
+  
   const category = NODE_CATEGORIES.find((c) => c.id === data.category);
   const IconComponent = iconMap[data.icon] || Box;
   const isIfElseNode = data.type === 'if_else';
@@ -66,9 +71,10 @@ const WorkflowNode = memo(({ data, selected }: NodeProps<WorkflowNodeProps>) => 
   return (
     <div
       className={cn(
-        'px-4 py-3 rounded-lg border-2 bg-card shadow-md min-w-[180px] transition-all relative',
+        'px-4 py-3 rounded-lg border-2 bg-card shadow-md w-[180px] h-[63px] transition-all relative',
         borderClass
       )}
+      style={{ width: '180px', height: '63px' }}
     >
       {/* Execution Status Indicators */}
       {status === 'running' && (

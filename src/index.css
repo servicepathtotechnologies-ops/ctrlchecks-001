@@ -257,6 +257,12 @@
   stroke-width: 2;
 }
 
+/* Force minimap nodes to use consistent dimensions */
+.react-flow__minimap-node {
+  width: 180px !important;
+  height: 63px !important;
+}
+
 /* Scrollbar styling */
 ::-webkit-scrollbar {
   width: 8px;

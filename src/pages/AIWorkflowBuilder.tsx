@@ -383,194 +383,287 @@ export default function AIWorkflowBuilder() {
       }
     }
 
+    // Validate environment variables before making request
+    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+    const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+    
+    if (!supabaseUrl || !supabaseKey) {
+      throw new Error('Missing Supabase configuration. Please check your environment variables.');
+    }
+
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const functionUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/generate-workflow`;
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      
+      if (sessionError) {
+        console.error('Session error:', sessionError);
+        throw new Error('Authentication failed. Please try logging in again.');
+      }
 
-      let response: Response;
-      let responseData: WorkflowGenerationResponse;
+      const functionUrl = `${supabaseUrl}/functions/v1/generate-workflow`;
 
+      // First, try to verify the function is accessible with a simple OPTIONS check
+      // This helps diagnose deployment issues early
       try {
-        // Try streaming first, fallback to regular if it fails
-        let useStreaming = true;
-        let response: Response;
+        const optionsCheck = await fetch(functionUrl, {
+          method: 'OPTIONS',
+          headers: {
+            'apikey': supabaseKey,
+          },
+        }).catch(() => null);
         
-        try {
-          response = await fetch(functionUrl, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': session ? `Bearer ${session.access_token}` : '',
-              'apikey': import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || '',
-              'x-stream-progress': 'true', // Request streaming progress
-            },
-            body: JSON.stringify({
-              prompt: prompt.trim(),
-              config: processedConfig
-            }),
-          });
-        } catch (fetchError) {
-          // If streaming fails due to CORS or other issues, retry without streaming
-          console.warn('Streaming request failed, falling back to regular request:', fetchError);
-          useStreaming = false;
-          response = await fetch(functionUrl, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': session ? `Bearer ${session.access_token}` : '',
-              'apikey': import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || '',
-            },
-            body: JSON.stringify({
-              prompt: prompt.trim(),
-              config: processedConfig
-            }),
-          });
+        if (optionsCheck && !optionsCheck.ok && optionsCheck.status !== 200) {
+          console.warn('OPTIONS preflight check failed, function might not be deployed');
         }
+      } catch (e) {
+        // Ignore OPTIONS check errors, we'll try the actual request anyway
+        console.warn('OPTIONS check failed:', e);
+      }
 
-        // Handle streaming response
-        if (useStreaming && response.body) {
+      // Helper function to make fetch request with timeout and retry
+      const fetchWithRetry = async (
+        url: string,
+        options: RequestInit,
+        retries = 3,
+        timeout = 120000 // 2 minutes timeout
+      ): Promise<Response> => {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), timeout);
+
+        for (let attempt = 1; attempt <= retries; attempt++) {
           try {
-            const reader = response.body.getReader();
-            const decoder = new TextDecoder();
-            let buffer = '';
-            let finalWorkflow: any = null;
-
-            while (true) {
-              const { done, value } = await reader.read();
-              if (done) break;
-
-              buffer += decoder.decode(value, { stream: true });
-              const lines = buffer.split('\n');
-              buffer = lines.pop() || '';
-
-              for (const line of lines) {
-                if (!line.trim()) continue;
-                
-                try {
-                  const parsed = JSON.parse(line);
-                  
-                  // Handle progress updates
-                  if (parsed.status === 'generating' || parsed.progress_percentage !== undefined) {
-                    setGenerationProgress(parsed);
-                    continue;
-                  }
-                  
-                  // Handle completion
-                  if (parsed.status === 'completed') {
-                    if (parsed.workflow) {
-                      finalWorkflow = parsed.workflow;
-                    }
-                    setGenerationProgress({
-                      status: 'completed',
-                      estimated_time_seconds: parsed.estimated_time_seconds || 0,
-                      elapsed_time_seconds: parsed.elapsed_time_seconds || 0,
-                      progress_percentage: 100,
-                      current_phase: 'Completed',
-                    });
-                    if (parsed.workflow) {
-                      break; // Only break if we have the workflow
-                    }
-                  }
-                  
-                  // Handle errors
-                  if (parsed.status === 'error') {
-                    throw new Error(parsed.error || 'Generation failed');
-                  }
-                } catch (parseError) {
-                  // Skip invalid JSON lines
-                  console.warn('Failed to parse progress line:', line, parseError);
-                }
-              }
-            }
-
-            if (finalWorkflow) {
-              responseData = finalWorkflow;
-            } else {
-              throw new Error('No workflow received from server');
-            }
-          } catch (streamError) {
-            // If streaming fails, fallback to regular response parsing
-            console.warn('Streaming failed, falling back to regular response:', streamError);
-            const responseText = await response.text();
-            try {
-              responseData = JSON.parse(responseText);
-            } catch (parseError) {
-              throw new Error('Failed to parse response from server');
-            }
-          }
-        } else {
-          // Fallback to non-streaming response
-          // Show initial progress estimate
-          const goalLower = prompt.toLowerCase();
-          let estimatedTime = 15;
-          const hasSheets = goalLower.includes('google sheet') || goalLower.includes('sheets');
-          const hasDoc = goalLower.includes('google doc') || goalLower.includes('document');
-          const hasGmail = goalLower.includes('gmail') || goalLower.includes('email');
-          const hasSlack = goalLower.includes('slack');
-          const integrations = [hasSheets, hasDoc, hasGmail, hasSlack].filter(Boolean).length;
-          estimatedTime += integrations * 3;
-          if (hasSheets) estimatedTime += 2;
-          if (hasSheets && hasDoc) estimatedTime += 2;
-          if (hasGmail && hasSlack) estimatedTime += 2;
-          estimatedTime = Math.max(12, Math.min(45, estimatedTime));
-          
-          const progressStartTime = Date.now();
-          setGenerationProgress({
-            status: 'generating',
-            estimated_time_seconds: estimatedTime,
-            elapsed_time_seconds: 0,
-            progress_percentage: 0,
-            current_phase: 'Initializing...',
-          });
-          
-          // Simulate progress updates while waiting
-          const progressInterval = setInterval(() => {
-            setGenerationProgress(prev => {
-              if (!prev) return null;
-              const elapsed = (Date.now() - progressStartTime) / 1000;
-              const progress = Math.min(95, Math.floor((elapsed / prev.estimated_time_seconds) * 100));
-              return {
-                ...prev,
-                elapsed_time_seconds: Math.round(elapsed * 10) / 10,
-                progress_percentage: progress,
-                current_phase: progress < 20 ? 'Understanding & Planning' :
-                              progress < 50 ? 'Workflow Design' :
-                              progress < 75 ? 'Node Configuration' :
-                              progress < 90 ? 'Validation & Simulation' :
-                              'Final Optimization',
-              };
+            const response = await fetch(url, {
+              ...options,
+              signal: controller.signal,
             });
-          }, 500);
-          
-          try {
-            const responseText = await response.text();
-            clearInterval(progressInterval);
+            clearTimeout(timeoutId);
+            return response;
+          } catch (error: unknown) {
+            clearTimeout(timeoutId);
             
-            try {
-              responseData = JSON.parse(responseText);
-            } catch (parseError) {
-              // If parsing fails, try to extract error message
-              console.error('Failed to parse response:', parseError);
-              responseData = { error: responseText || 'Invalid response from server' };
+            // Check if it's a network/CORS error
+            // CORS errors typically show up as TypeError with "Failed to fetch"
+            const isNetworkError = error instanceof TypeError && (
+              error.message.includes('fetch') || 
+              error.message.includes('Failed to fetch') ||
+              error.message.includes('NetworkError') ||
+              error.message.includes('Network request failed')
+            );
+            
+            const isCorsError = error.message.includes('CORS') || 
+                               error.message.includes('blocked') ||
+                               error.message.includes('preflight') ||
+                               error.message.includes('access control');
+            
+            if (isNetworkError || isCorsError) {
+              // For network/CORS errors on first attempt, don't retry - immediately fall back to Supabase invoke
+              // This avoids wasting time retrying fetch when CORS will always fail
+              if (attempt === 1 && (isCorsError || isNetworkError)) {
+                // Mark as network/CORS error so outer catch knows to use Supabase invoke immediately
+                const networkError = new Error(isCorsError ? 'CORS_ERROR' : 'NETWORK_ERROR');
+                (networkError as any).isCorsError = true;
+                (networkError as any).isNetworkError = true;
+                (networkError as any).originalError = error;
+                throw networkError;
+              }
+              
+              if (attempt < retries) {
+                const delay = Math.min(1000 * Math.pow(2, attempt - 1), 5000); // Exponential backoff, max 5s
+                console.warn(`Request failed (attempt ${attempt}/${retries}), retrying in ${delay}ms...`, error);
+                await new Promise(resolve => setTimeout(resolve, delay));
+                continue;
+              }
+              
+              // Provide user-friendly error message
+              if (isCorsError) {
+                throw new Error(
+                  'Network connection error. This might be due to:\n' +
+                  '1. CORS configuration issue on the server\n' +
+                  '2. Network connectivity problems\n' +
+                  '3. Server is temporarily unavailable\n\n' +
+                  'Please check your internet connection and try again. If the problem persists, contact support.'
+                );
+              }
+              
+              throw new Error(
+                `Network error: ${error.message}. Please check your internet connection and try again.`
+              );
             }
-          } catch (error) {
-            clearInterval(progressInterval);
+            
+            // If it's an abort (timeout), provide specific message
+            if (error instanceof Error && error.name === 'AbortError') {
+              throw new Error(
+                'Request timed out. The workflow generation is taking longer than expected. ' +
+                'Please try again with a simpler workflow description.'
+              );
+            }
+            
             throw error;
           }
         }
+        
+        throw new Error('Failed to connect to the server after multiple attempts. Please try again later.');
+      };
 
-        if (!response.ok) {
-          const errorMessage = responseData?.error
-            ? (typeof responseData.error === 'string' ? responseData.error : responseData.error.message)
-            : responseData?.message || `Server error: ${response.status}`;
-          throw new Error(errorMessage);
+      let responseData: WorkflowGenerationResponse;
+
+      // PRIMARY METHOD: Use Supabase functions.invoke (handles CORS automatically, most reliable)
+      // Skip streaming entirely to avoid CORS issues
+      try {
+        console.log('Attempting Supabase functions.invoke (primary method)...');
+        
+        // Use Supabase's built-in functions client with timeout
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 180000); // 3 minute timeout
+        
+        try {
+          const { data, error: invokeError } = await supabase.functions.invoke('generate-workflow', {
+            body: {
+              prompt: prompt.trim(),
+              config: processedConfig
+            },
+          });
+          
+          clearTimeout(timeoutId);
+          
+          if (invokeError) {
+            // Check if it's a function not found or deployment issue
+            if (invokeError.message?.includes('Function not found') || 
+                invokeError.message?.includes('404') ||
+                invokeError.message?.includes('Failed to send')) {
+              console.warn('Supabase invoke failed, trying direct fetch as fallback:', invokeError.message);
+              throw invokeError; // Will trigger fallback below
+            }
+            throw invokeError;
+          }
+          
+          // Convert the data to responseData
+          responseData = data as WorkflowGenerationResponse;
+          
+          // Validate response
+          if (!responseData || !responseData.nodes || !responseData.edges) {
+            throw new Error('Invalid response from AI service - missing nodes or edges');
+          }
+          
+          console.log('✅ Supabase invoke succeeded, got workflow data');
+          // Successfully got data, skip to workflow processing below
+          
+        } catch (invokeError: unknown) {
+          clearTimeout(timeoutId);
+          
+          // If Supabase invoke fails, try direct fetch as fallback
+          const invokeErrorMessage = invokeError instanceof Error ? invokeError.message : 'Unknown error';
+          console.warn('Supabase invoke failed, trying direct fetch fallback:', invokeErrorMessage);
+          
+          try {
+            // Fallback to direct fetch with proper headers
+            const fallbackResponse = await fetch(functionUrl, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': session ? `Bearer ${session.access_token}` : '',
+                'apikey': supabaseKey,
+              },
+              body: JSON.stringify({
+                prompt: prompt.trim(),
+                config: processedConfig
+              }),
+            });
+            
+            if (!fallbackResponse.ok) {
+              const errorText = await fallbackResponse.text().catch(() => '');
+              throw new Error(`Server returned error: ${fallbackResponse.status} ${fallbackResponse.statusText}. ${errorText}`);
+            }
+            
+            const fallbackData = await fallbackResponse.json();
+            responseData = fallbackData as WorkflowGenerationResponse;
+            
+            if (!responseData || !responseData.nodes || !responseData.edges) {
+              throw new Error('Invalid response from AI service - missing nodes or edges');
+            }
+            
+            console.log('✅ Direct fetch fallback succeeded');
+          } catch (fallbackError: unknown) {
+            // Both invoke and fetch failed
+            const fallbackErrorMessage = fallbackError instanceof Error ? fallbackError.message : 'Unknown error';
+            console.error('❌ Both Supabase invoke and direct fetch failed');
+            console.error('Invoke error:', invokeErrorMessage);
+            console.error('Fallback error:', fallbackErrorMessage);
+            
+            // Provide helpful error message based on error type
+            if (invokeErrorMessage.includes('Function not found') || invokeErrorMessage.includes('404')) {
+              throw new Error(
+                'The workflow generation service is not available.\n\n' +
+                'Please ensure:\n' +
+                '1. The Edge Function "generate-workflow" is deployed to Supabase\n' +
+                '2. You have the correct Supabase project URL configured\n' +
+                '3. Your network connection is working\n\n' +
+                'To deploy the function, run:\n' +
+                '  supabase functions deploy generate-workflow\n\n' +
+                'Contact support if this issue persists.'
+              );
+            }
+            
+            if (invokeErrorMessage.includes('CORS') || 
+                invokeErrorMessage.includes('blocked') ||
+                invokeErrorMessage.includes('preflight') ||
+                fallbackErrorMessage.includes('CORS') ||
+                fallbackErrorMessage.includes('blocked') ||
+                fallbackErrorMessage.includes('Failed to fetch')) {
+              throw new Error(
+                'Network connection failed due to CORS or network issues.\n\n' +
+                'Please check:\n' +
+                '1. Your internet connection is working\n' +
+                '2. You\'re not behind a firewall or proxy blocking the request\n' +
+                '3. The Edge Function is properly deployed\n' +
+                '4. Your Supabase project URL is correct\n\n' +
+                'Try:\n' +
+                '1. Refreshing the page\n' +
+                '2. Checking if the function is deployed: supabase functions list\n' +
+                '3. Redeploying the function: supabase functions deploy generate-workflow\n' +
+                '4. Contacting support if the problem persists'
+              );
+            }
+            
+            throw new Error(
+              `Failed to generate workflow.\n\n` +
+              `Error: ${invokeErrorMessage || fallbackErrorMessage}\n\n` +
+              `Please try:\n` +
+              `1. Refreshing the page\n` +
+              `2. Checking your internet connection\n` +
+              `3. Verifying the Edge Function is deployed\n` +
+              `4. Contacting support if the problem persists`
+            );
+          }
         }
-      } catch (fetchError: unknown) {
-        if (fetchError instanceof Error && fetchError.message) {
-          throw fetchError;
+      } catch (error: unknown) {
+        // This catch handles any errors from the outer try block
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        
+        // Re-throw if it's already a formatted error message
+        if (errorMessage.includes('The workflow generation service') ||
+            errorMessage.includes('Network connection failed') ||
+            errorMessage.includes('Failed to generate workflow')) {
+          throw error;
         }
-        throw new Error('Failed to generate workflow.');
+        
+        // Otherwise, provide generic error
+        throw new Error(
+          `Failed to generate workflow: ${errorMessage}\n\n` +
+          `Please try refreshing the page or contacting support.`
+        );
       }
+      
+      // If we reach here, we have responseData from either invoke or fallback
+      // Skip all the old streaming/response processing code - we already have the data
+      
+      // Validate we have responseData before proceeding
+      if (!responseData || !responseData.nodes || !responseData.edges) {
+        throw new Error('No workflow data received from server');
+      }
+      
+      // We already have responseData from Supabase invoke or fallback
+      // Skip all old streaming/response processing code
+      // Go directly to workflow processing below
 
       const data = responseData;
 
@@ -604,17 +697,78 @@ export default function AIWorkflowBuilder() {
           
           // Use the mapped type
           const finalType = nodeTypeId;
+          
+          // For form nodes, use 'form' type to render FormTriggerNode component
+          // For all other nodes, use 'custom' type to render WorkflowNode component
+          const nodeReactFlowType = finalType === 'form' ? 'form' : 'custom';
+          
+          // Ensure form nodes have proper default config
+          let nodeConfig = { ...nodeType.defaultConfig, ...(nodeData.config || {}) };
+          
+          // If it's a form node, ensure it has proper form configuration
+          if (finalType === 'form') {
+            // Ensure form config has all required fields
+            if (!nodeConfig.formTitle) {
+              nodeConfig.formTitle = 'Form Submission';
+            }
+            if (!nodeConfig.formDescription) {
+              nodeConfig.formDescription = '';
+            }
+            if (!Array.isArray(nodeConfig.fields)) {
+              nodeConfig.fields = [];
+            }
+            if (!nodeConfig.submitButtonText) {
+              nodeConfig.submitButtonText = 'Submit';
+            }
+            if (!nodeConfig.successMessage) {
+              nodeConfig.successMessage = 'Thank you for your submission!';
+            }
+            if (!nodeConfig.redirectUrl) {
+              nodeConfig.redirectUrl = '';
+            }
+            
+            // If fields are provided, parse them (might be JSON string or array)
+            if (nodeData.config?.fields) {
+              let parsedFields: any[] = [];
+              
+              // Try to parse if it's a JSON string
+              if (typeof nodeData.config.fields === 'string') {
+                try {
+                  parsedFields = JSON.parse(nodeData.config.fields);
+                } catch (e) {
+                  console.warn('Failed to parse form fields JSON string:', e);
+                  parsedFields = [];
+                }
+              } else if (Array.isArray(nodeData.config.fields)) {
+                parsedFields = nodeData.config.fields;
+              }
+              
+              // Map fields to proper format
+              if (parsedFields && parsedFields.length > 0) {
+                nodeConfig.fields = parsedFields.map((field: any, fieldIndex: number) => ({
+                  id: field.id || `field_${Date.now()}_${fieldIndex}`,
+                  label: field.label || field.name || 'Field',
+                  name: field.name || field.label?.toLowerCase().replace(/\s+/g, '_') || `field_${fieldIndex}`,
+                  type: field.type || 'text',
+                  required: field.required !== undefined ? field.required : true,
+                  placeholder: field.placeholder || `Enter ${field.label || field.name || 'value'}`,
+                  options: field.options || undefined,
+                  defaultValue: field.defaultValue || undefined,
+                }));
+              }
+            }
+          }
 
           return {
             id: nodeData.id || `${nodeData.type}_${Date.now()}_${index}`,
-            type: 'custom',
+            type: nodeReactFlowType,
             position: nodeData.position || { x: 250 + (index % 3) * 300, y: 100 + Math.floor(index / 3) * 150 },
             data: {
               label: nodeType.label,
               type: finalType,
               category: nodeType.category,
               icon: nodeType.icon,
-              config: { ...nodeType.defaultConfig, ...(nodeData.config || {}) },
+              config: nodeConfig,
             },
           };
         });
@@ -662,14 +816,31 @@ export default function AIWorkflowBuilder() {
       }
     } catch (error: unknown) {
       console.error('Error generating workflow:', error);
+      
       let errorMessage = 'Failed to generate workflow. Please try again.';
-      if (error instanceof Error) errorMessage = error.message;
+      if (error instanceof Error) {
+        errorMessage = error.message;
+      }
+
+      // Format error message for better display (toast doesn't handle newlines well)
+      // Replace newlines with spaces and add bullet points where appropriate
+      const formattedMessage = errorMessage
+        .split('\n')
+        .map(line => line.trim())
+        .filter(line => line.length > 0)
+        .join(' • ')
+        .replace(/• •/g, '•') // Remove duplicate bullets
+        .substring(0, 500); // Limit message length
 
       toast({
-        title: 'Error',
-        description: errorMessage,
+        title: 'Error Generating Workflow',
+        description: formattedMessage,
         variant: 'destructive',
+        duration: 10000, // Show for 10 seconds so user can read it
       });
+      
+      // Reset progress state
+      setGenerationProgress(null);
       setStep('prompt'); // Go back to start on error
     }
   };

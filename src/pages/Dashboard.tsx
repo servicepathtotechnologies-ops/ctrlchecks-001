@@ -4,6 +4,7 @@ import { useAuth } from "@/lib/auth";
 import { useRole } from "@/hooks/useRole";
 import { supabase } from "@/integrations/supabase/client";
 import { Zap, Plus, Play, CheckCircle, XCircle, FolderOpen, LayoutTemplate, History, Settings, MoreHorizontal, Copy, Trash2, Clock, Bot, Workflow, MessageSquare, Sparkles, Wrench, ArrowLeft } from "lucide-react";
+import GoogleConnectionStatus from "@/components/GoogleConnectionStatus";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -68,25 +69,48 @@ export default function Dashboard() {
 
       const workflowsWithStats = await Promise.all(
         (workflowsData || []).map(async (workflow) => {
-          const { data: lastExec } = await supabase
-            .from('executions')
-            .select('started_at, status')
-            .eq('workflow_id', workflow.id)
-            .order('started_at', { ascending: false })
-            .limit(1)
-            .single();
+          try {
+            // Use maybeSingle() instead of single() to handle workflows with no executions
+            const { data: lastExec, error: execError } = await supabase
+              .from('executions')
+              .select('started_at, status')
+              .eq('workflow_id', workflow.id)
+              .order('started_at', { ascending: false })
+              .limit(1)
+              .maybeSingle();
 
-          const { count } = await supabase
-            .from('executions')
-            .select('*', { count: 'exact', head: true })
-            .eq('workflow_id', workflow.id);
+            // Handle errors gracefully - don't fail the entire load if one query fails
+            // 406 errors can occur when RLS policies prevent access or no rows exist
+            if (execError && execError.code !== 'PGRST116' && !execError.message?.includes('406')) {
+              console.warn(`Error loading execution for workflow ${workflow.id}:`, execError);
+            }
 
-          return {
-            ...workflow,
-            last_execution: lastExec || null,
-            execution_count: count || 0,
-            workflow_type: detectWorkflowType(workflow.nodes),
-          };
+            const { count, error: countError } = await supabase
+              .from('executions')
+              .select('*', { count: 'exact', head: true })
+              .eq('workflow_id', workflow.id);
+
+            // Handle 406 errors for count queries as well
+            if (countError && !countError.message?.includes('406')) {
+              console.warn(`Error counting executions for workflow ${workflow.id}:`, countError);
+            }
+
+            return {
+              ...workflow,
+              last_execution: lastExec || null,
+              execution_count: count || 0,
+              workflow_type: detectWorkflowType(workflow.nodes),
+            };
+          } catch (error) {
+            // If there's an error loading stats for a workflow, still return the workflow with defaults
+            console.warn(`Error loading stats for workflow ${workflow.id}:`, error);
+            return {
+              ...workflow,
+              last_execution: null,
+              execution_count: 0,
+              workflow_type: detectWorkflowType(workflow.nodes),
+            };
+          }
         })
       );
 
@@ -256,6 +280,7 @@ export default function Dashboard() {
             <span className="text-xl font-bold">CtrlChecks</span>
           </div>
           <div className="flex items-center gap-3">
+            <GoogleConnectionStatus />
             <Button 
               variant="ghost" 
               size="sm" 

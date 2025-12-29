@@ -14,9 +14,11 @@ import '@xyflow/react/dist/style.css';
 import { useWorkflowStore, NodeData } from '@/stores/workflowStore';
 import { NodeTypeDefinition } from './nodeTypes';
 import WorkflowNode from './WorkflowNode';
+import FormTriggerNode from './FormTriggerNode';
 
 const nodeTypes = {
   custom: WorkflowNode,
+  form: FormTriggerNode,
 };
 
 function WorkflowCanvasInner() {
@@ -46,50 +48,80 @@ function WorkflowCanvasInner() {
   // Keyboard Shortcuts
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      // Ignore if input/textarea is focused
-      if (
-        event.target instanceof HTMLInputElement ||
-        event.target instanceof HTMLTextAreaElement ||
-        event.target instanceof HTMLDivElement && event.target.contentEditable === 'true'
-      ) {
+      // Ignore if input/textarea/select is focused or if typing in an input field
+      const target = event.target as HTMLElement;
+      const isInputElement = 
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        target instanceof HTMLSelectElement ||
+        (target instanceof HTMLDivElement && target.contentEditable === 'true') ||
+        target.closest('input, textarea, select, [contenteditable="true"]');
+      
+      if (isInputElement) {
+        // Allow Delete/Backspace in inputs for normal text editing
         return;
       }
 
-      // Delete
-      if (event.key === 'Delete' || event.key === 'Backspace') {
-        if (selectedNode) deleteSelectedNode();
-        if (selectedEdge) deleteSelectedEdge();
+      // Delete or Backspace - Delete selected node/edge
+      if ((event.key === 'Delete' || event.key === 'Backspace') && !event.ctrlKey && !event.metaKey) {
+        if (selectedNode) {
+          event.preventDefault();
+          event.stopPropagation();
+          deleteSelectedNode();
+          return;
+        }
+        if (selectedEdge) {
+          event.preventDefault();
+          event.stopPropagation();
+          deleteSelectedEdge();
+          return;
+        }
       }
 
       // Ctrl/Cmd Shortcuts
       if (event.ctrlKey || event.metaKey) {
         switch (event.key.toLowerCase()) {
           case 'z':
-            event.preventDefault();
-            undo();
+            if (!event.shiftKey) {
+              event.preventDefault();
+              event.stopPropagation();
+              undo();
+            }
             break;
           case 'y':
-            event.preventDefault();
-            redo();
+          case 'z':
+            if (event.shiftKey && event.key.toLowerCase() === 'z') {
+              event.preventDefault();
+              event.stopPropagation();
+              redo();
+            } else if (event.key.toLowerCase() === 'y') {
+              event.preventDefault();
+              event.stopPropagation();
+              redo();
+            }
             break;
           case 'c':
             event.preventDefault();
+            event.stopPropagation();
             copySelectedNode();
             break;
           case 'v':
             event.preventDefault();
+            event.stopPropagation();
             pasteNode();
             break;
           case 'a':
             event.preventDefault();
+            event.stopPropagation();
             selectAll();
             break;
         }
       }
     };
 
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
+    // Use capture phase to catch events before they bubble
+    window.addEventListener('keydown', handleKeyDown, true);
+    return () => window.removeEventListener('keydown', handleKeyDown, true);
   }, [selectedNode, selectedEdge, deleteSelectedNode, deleteSelectedEdge, undo, redo, copySelectedNode, pasteNode, selectAll]);
 
 
@@ -111,9 +143,12 @@ function WorkflowCanvasInner() {
         y: event.clientY,
       });
 
+      // Use 'form' node type for Form Trigger, 'custom' for others
+      const nodeType = nodeData.type === 'form' ? 'form' : 'custom';
+      
       const newNode: Node<NodeData> = {
         id: `${nodeData.type}_${Date.now()}`,
-        type: 'custom',
+        type: nodeType,
         position,
         data: {
           label: nodeData.label,
@@ -157,11 +192,45 @@ function WorkflowCanvasInner() {
     }
   }, [nodes.length, fitView]);
 
+  // Add edge styling based on execution status (green for success, red for error)
+  const styledEdges = edges.map((edge) => {
+    const sourceNode = nodes.find(n => n.id === edge.source);
+    const targetNode = nodes.find(n => n.id === edge.target);
+    
+    // Determine edge color based on execution status
+    let edgeColor = 'hsl(var(--border))'; // Default gray
+    let strokeWidth = 2;
+    
+    if (sourceNode?.data?.executionStatus === 'success' && targetNode?.data?.executionStatus !== 'error') {
+      // Green for successful execution path
+      edgeColor = '#22c55e'; // green-500
+      strokeWidth = 3;
+    } else if (sourceNode?.data?.executionStatus === 'error' || targetNode?.data?.executionStatus === 'error') {
+      // Red for error path
+      edgeColor = '#ef4444'; // red-500
+      strokeWidth = 3;
+    } else if (sourceNode?.data?.executionStatus === 'running' || targetNode?.data?.executionStatus === 'running') {
+      // Blue for running
+      edgeColor = '#3b82f6'; // blue-500
+      strokeWidth = 2.5;
+    }
+    
+    return {
+      ...edge,
+      style: {
+        ...edge.style,
+        stroke: edgeColor,
+        strokeWidth,
+      },
+      animated: sourceNode?.data?.executionStatus === 'running',
+    };
+  });
+
   return (
     <div ref={reactFlowWrapper} className="flex-1 h-full">
       <ReactFlow
         nodes={nodes}
-        edges={edges}
+        edges={styledEdges}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
@@ -177,11 +246,18 @@ function WorkflowCanvasInner() {
         snapGrid={[16, 16]}
         className="bg-muted/30"
         proOptions={{ hideAttribution: true }}
+        deleteKeyCode={null}
+        multiSelectionKeyCode={null}
       >
         <Background gap={16} size={1} className="!bg-muted/50" />
         <Controls className="!bg-card !border-border !shadow-md [&>button]:!bg-card [&>button]:!border-border [&>button]:!text-foreground [&>button:hover]:!bg-muted" />
         <MiniMap
           className="!bg-card !border-border"
+          nodeSize={(node) => {
+            // Return the same size for all nodes to ensure consistency in minimap
+            // This prevents form nodes from appearing larger than other nodes
+            return 20;
+          }}
           nodeColor={(node) => {
             const data = node.data as NodeData;
             switch (data?.category) {

@@ -16,6 +16,7 @@ import { cn } from '@/lib/utils';
 import WebhookSettings from './WebhookSettings';
 import ScheduleSettings from './ScheduleSettings';
 import AgentSettings from './AgentSettings';
+import GoogleConnectionStatus from '@/components/GoogleConnectionStatus';
 import { toast } from '@/hooks/use-toast';
 
 interface WorkflowHeaderProps {
@@ -100,6 +101,7 @@ export default function WorkflowHeader({ onSave, onRun, isSaving, isRunning, sho
       </div>
 
       <div className="flex items-center gap-2">
+        <GoogleConnectionStatus />
         <ScheduleSettings workflowId={workflowId} />
         <WebhookSettings workflowId={workflowId} />
         <AgentSettings workflowId={workflowId} />

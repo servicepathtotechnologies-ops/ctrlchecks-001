@@ -4,6 +4,8 @@ import { useAuth } from '@/lib/auth';
 import { useWorkflowStore, WorkflowNode } from '@/stores/workflowStore';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from '@/hooks/use-toast';
+import { Button } from '@/components/ui/button';
+import { Copy, ExternalLink } from 'lucide-react';
 import { NodeTypeDefinition } from '@/components/workflow/nodeTypes';
 import WorkflowHeader from '@/components/workflow/WorkflowHeader';
 import NodeLibrary from '@/components/workflow/NodeLibrary';
@@ -187,6 +189,121 @@ export default function WorkflowBuilder() {
       return;
     }
 
+    // Check if workflow has a form trigger node
+    const formNode = nodes.find((node: any) => node.data?.type === 'form');
+    let testInput: any = {};
+
+    if (formNode) {
+      // For Form Trigger nodes, check if workflow is active
+      try {
+        const { data: workflowData, error: workflowError } = await supabase
+          .from('workflows')
+          .select('status')
+          .eq('id', workflowId)
+          .single();
+
+        if (workflowError) {
+          console.error('Error checking workflow status:', workflowError);
+          toast({
+            title: 'Error',
+            description: 'Failed to check workflow status. Please try again.',
+            variant: 'destructive',
+          });
+          return;
+        }
+
+        if (!workflowData) {
+          console.error('Workflow data not found');
+          toast({
+            title: 'Error',
+            description: 'Workflow not found',
+            variant: 'destructive',
+          });
+          return;
+        }
+
+        const isActive = workflowData.status === 'active';
+        console.log('Workflow status check:', { workflowId, status: workflowData.status, isActive });
+      const formUrl = `${window.location.origin}/form/${workflowId}/${formNode.id}`;
+      
+        if (!isActive) {
+          // Workflow is not active - show activation message
+      toast({
+        title: 'Form Trigger Detected',
+        description: `Form Trigger is a blocking trigger. Activate the workflow to start waiting for form submissions. Form URL: ${formUrl}`,
+        duration: 10000,
+      });
+      
+      // Expand console to show form URL
+      if (!consoleExpanded) {
+        setConsoleExpanded(true);
+      }
+      
+      // Don't execute workflow manually - Form Trigger must wait for submission
+      // User should activate workflow instead, which will put execution in WAITING state
+      return;
+        } else {
+          // Workflow is active - create a waiting execution
+          toast({
+            title: 'Form Trigger Active',
+            description: 'Workflow is active and waiting for form submissions. Creating waiting execution...',
+          });
+          
+          // Expand console to show the waiting execution
+          if (!consoleExpanded) {
+            setConsoleExpanded(true);
+          }
+          
+          // For active form triggers, call execute-workflow which will handle creating the waiting execution
+          // The execute-workflow function detects form triggers and sets status to 'waiting'
+          setIsRunning(true);
+          try {
+            const { data: execData, error: execWorkflowError } = await supabase.functions.invoke('execute-workflow', {
+              body: { 
+                workflowId, 
+                input: {} // Empty input - form trigger will wait for submission
+              },
+            });
+
+            if (execWorkflowError) {
+              console.error('Error executing workflow:', execWorkflowError);
+              toast({
+                title: 'Error',
+                description: `Failed to start workflow: ${execWorkflowError.message || 'Unknown error'}`,
+                variant: 'destructive',
+              });
+              return;
+            }
+
+            toast({
+              title: 'Waiting for Form Submission',
+              description: `Workflow is now active and waiting for form submissions. Form URL: ${formUrl}`,
+              duration: 8000,
+            });
+          } catch (error) {
+            console.error('Error invoking execute-workflow:', error);
+            toast({
+              title: 'Error',
+              description: `Failed to start workflow: ${error instanceof Error ? error.message : 'Unknown error'}`,
+              variant: 'destructive',
+            });
+          } finally {
+            setIsRunning(false);
+          }
+          
+          return;
+        }
+      } catch (error) {
+        console.error('Error checking workflow status:', error);
+        toast({
+          title: 'Error',
+          description: 'Failed to check workflow status',
+          variant: 'destructive',
+        });
+        return;
+      }
+    }
+
     // Reset all node statuses to 'idle' before starting new execution
     resetAllNodeStatuses();
 
@@ -203,7 +320,7 @@ export default function WorkflowBuilder() {
 
     try {
       const { data, error } = await supabase.functions.invoke('execute-workflow', {
-        body: { workflowId, input: {} },
+        body: { workflowId, input: testInput },
       });
 
       if (error) throw error;

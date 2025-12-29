@@ -321,6 +321,17 @@ export class AutonomousWorkflowAgent {
     const hasGmail = goalLower.includes('gmail') || goalLower.includes('email');
     const emailPreference = hasGmail ? 'google_gmail' : null;
 
+    // 🚨 CRITICAL: Check for form keywords
+    // goalLower already declared above, reuse it
+    const formKeywords = [
+      'form', 'create a form', 'form data', 'user data', 'collect data', 'collect user data',
+      'name', 'email', 'mobile', 'phone', 'contact', 'registration', 'survey', 'feedback',
+      'submission', 'user input', 'input from users', 'contact form', 'registration form',
+      'feedback form', 'data collection', 'take the user data', 'user information',
+      'gather data', 'collect information', 'user submission'
+    ];
+    const requiresFormNode = formKeywords.some(keyword => goalLower.includes(keyword));
+
     const prompt = `You are an expert workflow analysis agent. Analyze the user's goal and extract all critical information.
 
 USER GOAL: "${userGoal}"
@@ -329,6 +340,17 @@ USER PROVIDED CONFIGURATION:
 ${JSON.stringify(userConfig, null, 2)}
 
 ${this.nodeKnowledge}
+
+🚨🚨🚨 CRITICAL TRIGGER SELECTION RULES 🚨🚨🚨
+${requiresFormNode ? `
+⚠️⚠️⚠️ FORM NODE DETECTED ⚠️⚠️⚠️
+- User goal contains form-related keywords: "${formKeywords.filter(k => goalLower.includes(k)).join(', ')}"
+- YOU MUST use "form" node as the trigger
+- DO NOT use manual_trigger, webhook, or any other trigger
+- Form node outputs: {formData: {field1: value1, ...}, files: [], meta: {...}}
+- Access form data in downstream nodes using: {{input.formData.fieldName}}
+- Extract field names from user goal (e.g., "name", "email", "mobile")
+` : ''}
 
 CRITICAL EMAIL NODE SELECTION RULE:
 - If user mentions "gmail", "email", or "send email" → MUST use google_gmail node (operation: "send")
@@ -344,7 +366,10 @@ Analyze this goal and respond with a JSON object containing:
   "constraints": ["any constraints, limitations, or requirements"],
   "ambiguities": ["any ambiguous aspects and your best assumptions to resolve them"],
   "summary": "Concise internal goal summary for the agent",
-  "emailNodeType": "${emailPreference || 'google_gmail'}"
+  "triggerType": "${requiresFormNode ? 'form' : 'manual_trigger'}",
+  "emailNodeType": "${emailPreference || 'google_gmail'}",
+  ${requiresFormNode ? `"formFields": ["extract field names from goal like name, email, mobile"],` : ''}
+  ${requiresFormNode ? `"formConfig": {"fields": "JSON array of form fields with name, label, type, required, placeholder"},` : ''}
 }
 
 Be thorough and precise. Resolve ambiguities using best-practice assumptions.`;
@@ -386,6 +411,26 @@ Be thorough and precise. Resolve ambiguities using best-practice assumptions.`;
     const goalLower = this.state.goal.toLowerCase();
     const hasGmail = goalLower.includes('gmail') || goalLower.includes('email');
     const requiredNodes = this.extractRequiredNodes(this.state.goal);
+    
+    // 🚨 Check if form node is required
+    const formKeywords = [
+      'form', 'create a form', 'form data', 'user data', 'collect data', 'collect user data',
+      'name', 'email', 'mobile', 'phone', 'contact', 'registration', 'survey', 'feedback',
+      'submission', 'user input', 'input from users', 'contact form', 'registration form',
+      'feedback form', 'data collection', 'take the user data', 'user information',
+      'gather data', 'collect information', 'user submission'
+    ];
+    const requiresFormNode = formKeywords.some(keyword => goalLower.includes(keyword));
+    
+    // Extract form fields from goal
+    const formFields: string[] = [];
+    if (requiresFormNode) {
+      if (goalLower.includes('name')) formFields.push('name');
+      if (goalLower.includes('email')) formFields.push('email');
+      if (goalLower.includes('mobile') || goalLower.includes('phone')) formFields.push('mobile');
+      if (goalLower.includes('message')) formFields.push('message');
+      if (formFields.length === 0) formFields.push('name', 'email', 'message');
+    }
 
     const prompt = `You are an expert workflow planning agent. Create a detailed execution plan.
 
@@ -397,15 +442,27 @@ ${JSON.stringify(analysisContext, null, 2)}
 REQUIRED NODES (MUST be included in plan):
 ${JSON.stringify(requiredNodes, null, 2)}
 
+${requiresFormNode ? `
+🚨🚨🚨 CRITICAL: FORM NODE REQUIRED 🚨🚨🚨
+- User goal requires a FORM node as the trigger
+- DO NOT use manual_trigger, webhook, or any other trigger
+- Form node MUST be the first node in the workflow
+- Form fields detected: ${formFields.join(', ')}
+- Form node outputs: {formData: {${formFields.map(f => `${f}: "value"`).join(', ')}}, files: [], meta: {...}}
+- Downstream nodes MUST use {{input.formData.${formFields[0] || 'fieldName'}}} to access form data
+` : ''}
+
 ${memoryContext}
 
 ${this.nodeKnowledge}
 
 CRITICAL PLANNING RULES:
-1. YOU MUST include ALL required nodes listed above - missing any node means the plan is INCOMPLETE
-2. ${hasGmail ? 'For email: Use google_gmail (operation: "send")' : 'For email: Use google_gmail (operation: "send")'}
-3. For Google Sheets: MUST include javascript node after google_sheets to parse data
-4. Plan must cover ALL steps from trigger to final output
+1. ${requiresFormNode ? '🚨 YOU MUST use "form" node as the trigger - DO NOT use manual_trigger' : 'Start with appropriate trigger node'}
+2. YOU MUST include ALL required nodes listed above - missing any node means the plan is INCOMPLETE
+3. ${hasGmail ? 'For email: Use google_gmail (operation: "send")' : 'For email: Use google_gmail (operation: "send")'}
+4. For Google Sheets: MUST include javascript node after google_sheets to parse data
+5. Plan must cover ALL steps from trigger to final output
+${requiresFormNode ? `6. Form node must have fields configured: ${formFields.map(f => `{name: "${f}", label: "${f.charAt(0).toUpperCase() + f.slice(1)}", type: "${f === 'email' ? 'email' : f === 'mobile' || f === 'phone' ? 'tel' : f === 'message' ? 'textarea' : 'text'}", required: true, placeholder: "Enter your ${f}"}`).join(', ')}` : ''}
 
 Create a detailed execution plan as JSON:
 {
@@ -473,6 +530,41 @@ Ensure:
     
     // Extract required nodes from goal for validation
     const requiredNodes = this.extractRequiredNodes(this.state.goal);
+    
+    // 🚨 Check if form node is required
+    const formKeywords = [
+      'form', 'create a form', 'form data', 'user data', 'collect data', 'collect user data',
+      'name', 'email', 'mobile', 'phone', 'contact', 'registration', 'survey', 'feedback',
+      'submission', 'user input', 'input from users', 'contact form', 'registration form',
+      'feedback form', 'data collection', 'take the user data', 'user information',
+      'gather data', 'collect information', 'user submission'
+    ];
+    const requiresFormNode = formKeywords.some(keyword => goalLower.includes(keyword));
+    
+    // Extract form fields
+    const formFields: any[] = [];
+    if (requiresFormNode) {
+      const fieldNames: string[] = [];
+      if (goalLower.includes('name')) fieldNames.push('name');
+      if (goalLower.includes('email')) fieldNames.push('email');
+      if (goalLower.includes('mobile') || goalLower.includes('phone')) fieldNames.push('mobile');
+      if (goalLower.includes('message')) fieldNames.push('message');
+      if (fieldNames.length === 0) fieldNames.push('name', 'email', 'message');
+      
+      formFields.push(...fieldNames.map(fn => {
+        const config: any = {
+          name: fn,
+          label: fn.charAt(0).toUpperCase() + fn.slice(1),
+          required: true,
+          placeholder: `Enter your ${fn}`
+        };
+        if (fn === 'email') config.type = 'email';
+        else if (fn === 'mobile' || fn === 'phone') config.type = 'tel';
+        else if (fn === 'message') config.type = 'textarea';
+        else config.type = 'text';
+        return config;
+      }));
+    }
 
     const prompt = `You are an expert workflow construction agent. Build a COMPLETE, executable workflow that achieves 100% of the user's goal.
 
@@ -493,21 +585,23 @@ ${JSON.stringify(requiredNodes, null, 2)}
 ${this.nodeKnowledge}
 
 CRITICAL CONSTRUCTION RULES:
-1. YOU MUST include ALL required nodes listed above - missing any node means workflow is INCOMPLETE
-2. Start with a trigger node (manual_trigger, webhook, schedule, etc.)
+1. ${requiresFormNode ? '🚨🚨🚨 YOU MUST use "form" node as the FIRST node - DO NOT use manual_trigger or any other trigger' : 'Start with appropriate trigger node (manual_trigger, webhook, schedule, etc.)'}
+2. YOU MUST include ALL required nodes listed above - missing any node means workflow is INCOMPLETE
 3. Position nodes with x spacing of 300px, y spacing of 150px (start at x:250, y:100)
 4. Include ALL required configuration fields for each node
-5. Use template variables ({{input.field}}) for data passing
-6. For if_else nodes: MUST have both true and false output edges
-7. Connect nodes in logical flow from trigger to output
-8. End with output actions (gmail, slack, etc.) if user wants to send data
-9. ${hasGmail ? 'FOR EMAIL: Use google_gmail node with operation: "send"' : 'For email: Use google_gmail (operation: "send")'}
-10. For Google Sheets: ALWAYS add javascript node after google_sheets read to parse array-of-arrays
-11. CRITICAL: JavaScript node MUST format data as readable TEXT string, not objects
-12. JavaScript node MUST return {content: "formatted text", text: "formatted text", body: "formatted text"}
-13. Output nodes (gmail, slack) MUST use {{input.content}} or {{input.text}} to get the formatted text
-14. If combining Google Sheets + Google Doc: Use merge_data node first, then javascript to format both
-15. DO NOT create minimal workflows - create COMPLETE workflows with ALL required nodes
+${requiresFormNode ? `5. Form node MUST have fields configured as JSON string: ${JSON.stringify(formFields)}` : '5. Use template variables ({{input.field}}) for data passing'}
+${requiresFormNode ? `6. Downstream nodes MUST use {{input.formData.fieldName}} to access form data (e.g., {{input.formData.name}}, {{input.formData.email}}, {{input.formData.mobile}})` : '6. Use template variables ({{input.field}}) for data passing'}
+7. For if_else nodes: MUST have both true and false output edges
+8. Connect nodes in logical flow from trigger to output
+9. End with output actions (gmail, slack, etc.) if user wants to send data
+${requiresFormNode ? `10. For Slack output: Use text like "Name: {{input.formData.name}}\\nEmail: {{input.formData.email}}\\nMobile: {{input.formData.mobile}}"` : ''}
+11. ${hasGmail ? 'FOR EMAIL: Use google_gmail node with operation: "send"' : 'For email: Use google_gmail (operation: "send")'}
+12. For Google Sheets: ALWAYS add javascript node after google_sheets read to parse array-of-arrays
+13. CRITICAL: JavaScript node MUST format data as readable TEXT string, not objects
+14. JavaScript node MUST return {content: "formatted text", text: "formatted text", body: "formatted text"}
+15. Output nodes (gmail, slack) MUST use {{input.content}} or {{input.text}} to get the formatted text
+16. If combining Google Sheets + Google Doc: Use merge_data node first, then javascript to format both
+17. DO NOT create minimal workflows - create COMPLETE workflows with ALL required nodes
 
 Build the complete workflow as JSON:
 {
@@ -605,9 +699,103 @@ JAVASCRIPT NODE CODE EXAMPLES:
 
     this.state.workflow = JSON.parse(workflowText);
     
+    // 🚨 CRITICAL: Check and fix form node if required
+    // goalLower, formKeywords, and requiresFormNode already declared earlier in this method (lines 527, 535, 542), reuse them
+    
+    if (requiresFormNode && this.state.workflow.nodes) {
+      const nodeTypes = this.state.workflow.nodes.map((n: any) => n.type || n.type);
+      const hasFormNode = nodeTypes.includes('form');
+      
+      if (!hasFormNode) {
+        console.log('[PHASE 3] CRITICAL: Form node required but missing - AUTO-FIXING');
+        
+        // Extract field names
+        const fieldNames: string[] = [];
+        if (goalLower.includes('name')) fieldNames.push('name');
+        if (goalLower.includes('email')) fieldNames.push('email');
+        if (goalLower.includes('mobile') || goalLower.includes('phone')) fieldNames.push('mobile');
+        if (goalLower.includes('message')) fieldNames.push('message');
+        if (fieldNames.length === 0) fieldNames.push('name', 'email', 'message');
+        
+        const formFields = fieldNames.map(fn => {
+          const config: any = {
+            name: fn,
+            label: fn.charAt(0).toUpperCase() + fn.slice(1),
+            required: true,
+            placeholder: `Enter your ${fn}`
+          };
+          if (fn === 'email') config.type = 'email';
+          else if (fn === 'mobile' || fn === 'phone') config.type = 'tel';
+          else if (fn === 'message') config.type = 'textarea';
+          else config.type = 'text';
+          return config;
+        });
+        
+        // Find and replace manual_trigger with form
+        const triggerNode = this.state.workflow.nodes.find((n: any) => 
+          (n.type || n.data?.type) === 'manual_trigger'
+        );
+        
+        if (triggerNode) {
+          console.log(`[PHASE 3] Replacing manual_trigger with form node at ${triggerNode.id}`);
+          triggerNode.type = 'form';
+          triggerNode.data = triggerNode.data || {};
+          triggerNode.data.type = 'form';
+          triggerNode.data.label = 'Form';
+          triggerNode.config = {
+            fields: JSON.stringify(formFields),
+            submitButtonText: 'Submit',
+            successMessage: 'Thank you for your submission!'
+          };
+        } else {
+          // Add form node at the beginning
+          console.log('[PHASE 3] Adding form node as first node');
+          this.state.workflow.nodes.unshift({
+            id: 'trigger_1',
+            type: 'form',
+            position: { x: 250, y: 100 },
+            data: { type: 'form', label: 'Form' },
+            config: {
+              fields: JSON.stringify(formFields),
+              submitButtonText: 'Submit',
+              successMessage: 'Thank you for your submission!'
+            }
+          });
+          
+          // Connect form to first existing node
+          if (this.state.workflow.nodes.length > 1) {
+            this.state.workflow.edges = this.state.workflow.edges || [];
+            this.state.workflow.edges.unshift({
+              id: 'edge_form_1',
+              source: 'trigger_1',
+              target: this.state.workflow.nodes[1].id
+            });
+          }
+        }
+        
+        // Update downstream nodes to use formData
+        this.state.workflow.nodes = this.state.workflow.nodes.map((node: any) => {
+          if (node.type === 'slack_webhook' || node.type === 'slack_message') {
+            const config = node.config || {};
+            const formDataText = fieldNames.map(fn => {
+              const label = fn.charAt(0).toUpperCase() + fn.slice(1);
+              return `${label}: {{input.formData.${fn}}}`;
+            }).join('\\n');
+            
+            if (node.type === 'slack_webhook') {
+              config.text = config.text || `New Form Submission:\\n${formDataText}`;
+            } else {
+              config.message = config.message || `New Form Submission:\\n${formDataText}`;
+            }
+            node.config = config;
+          }
+          return node;
+        });
+      }
+    }
+    
     // CRITICAL: Replace email_resend with google_gmail if user mentioned gmail/email
-    const goalLower = this.state.goal.toLowerCase();
-    const hasGmail = goalLower.includes('gmail') || goalLower.includes('email');
+    // hasGmail already declared at line 528 in this method, reuse it
     if (hasGmail && this.state.workflow.nodes) {
       this.state.workflow.nodes = this.state.workflow.nodes.map((node: any) => {
         if (node.type === 'email_resend') {
@@ -629,7 +817,7 @@ JAVASCRIPT NODE CODE EXAMPLES:
     }
     
     // CRITICAL: Validate that all required nodes are present
-    const requiredNodes = this.extractRequiredNodes(this.state.goal);
+    // requiredNodes already declared at line 532 in this method, reuse it
     const actualNodeTypes = this.state.workflow.nodes?.map((n: any) => n.type) || [];
     const missingNodes = requiredNodes.filter((req: string) => !actualNodeTypes.includes(req));
     
@@ -951,7 +1139,25 @@ return {
    */
   private extractRequiredNodes(goal: string): string[] {
     const goalLower = goal.toLowerCase();
-    const required: string[] = ['manual_trigger']; // Default trigger
+    const required: string[] = [];
+    
+    // 🚨 CRITICAL: Check for form keywords FIRST - highest priority
+    const formKeywords = [
+      'form', 'create a form', 'form data', 'user data', 'collect data', 'collect user data',
+      'name', 'email', 'mobile', 'phone', 'contact', 'registration', 'survey', 'feedback',
+      'submission', 'user input', 'input from users', 'contact form', 'registration form',
+      'feedback form', 'data collection', 'take the user data', 'user information',
+      'gather data', 'collect information', 'user submission'
+    ];
+    
+    const requiresFormNode = formKeywords.some(keyword => goalLower.includes(keyword));
+    
+    if (requiresFormNode) {
+      required.push('form'); // Form node is REQUIRED
+      console.log('[EXTRACT NODES] Form keywords detected - form node is REQUIRED');
+    } else {
+      required.push('manual_trigger'); // Default trigger only if no form
+    }
     
     // Google Sheets
     if (goalLower.includes('google sheet') || goalLower.includes('sheets')) {
@@ -1323,7 +1529,35 @@ Goal is achieved ONLY if:
    */
   private verifyGoalProgrammatically(goal: string, workflow: any): { passed: boolean; reason: string; fix: string } {
     const goalLower = goal.toLowerCase();
-    const nodeTypes = workflow.nodes?.map((n: any) => n.type) || [];
+    const nodeTypes = workflow.nodes?.map((n: any) => n.type || n.data?.type) || [];
+
+    // 🚨 CRITICAL: Check for Form node FIRST (highest priority)
+    const formKeywords = [
+      'form', 'create a form', 'form data', 'user data', 'collect data', 'collect user data',
+      'name', 'email', 'mobile', 'phone', 'contact', 'registration', 'survey', 'feedback',
+      'submission', 'user input', 'input from users', 'contact form', 'registration form',
+      'feedback form', 'data collection', 'take the user data', 'user information',
+      'gather data', 'collect information', 'user submission'
+    ];
+    
+    const requiresFormNode = formKeywords.some(keyword => goalLower.includes(keyword));
+    
+    if (requiresFormNode && !nodeTypes.includes('form')) {
+      return {
+        passed: false,
+        reason: `User mentioned form-related keywords (${formKeywords.filter(k => goalLower.includes(k)).join(', ')}) but workflow has no form node. Form node is REQUIRED.`,
+        fix: 'Replace manual_trigger with form node and configure form fields (name, email, mobile, etc.)',
+      };
+    }
+    
+    // If form node is required but manual_trigger is present, that's wrong
+    if (requiresFormNode && nodeTypes.includes('manual_trigger')) {
+      return {
+        passed: false,
+        reason: 'User requires form node but workflow uses manual_trigger. Form node must be used instead.',
+        fix: 'Replace manual_trigger with form node',
+      };
+    }
 
     // Check for Google Sheets
     if (goalLower.includes('google sheet') || goalLower.includes('sheets')) {
