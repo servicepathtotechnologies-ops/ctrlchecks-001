@@ -526,6 +526,9 @@ export default function AIWorkflowBuilder() {
           clearTimeout(timeoutId);
           
           if (invokeError) {
+            // Stop the timer immediately on error
+            setGenerationProgress(prev => prev ? { ...prev, status: 'error' } : null);
+            
             // Check if it's a function not found or deployment issue
             if (invokeError.message?.includes('Function not found') || 
                 invokeError.message?.includes('404') ||
@@ -533,6 +536,22 @@ export default function AIWorkflowBuilder() {
               console.warn('Supabase invoke failed, trying direct fetch as fallback:', invokeError.message);
               throw invokeError; // Will trigger fallback below
             }
+            
+            // Check for 429/quota errors in invoke error
+            if (invokeError.message?.includes('429') || 
+                invokeError.message?.includes('quota') || 
+                invokeError.message?.includes('limit exceeded') ||
+                invokeError.message?.includes('quota exceeded')) {
+              throw new Error(
+                `API Quota Exceeded\n\n` +
+                `You have reached the free tier limit of 20 requests.\n\n` +
+                `Please:\n` +
+                `1. Wait a few minutes before trying again\n` +
+                `2. Consider upgrading your API plan if you need more requests\n` +
+                `3. Check the API pricing at https://ai.google.dev/pricing`
+              );
+            }
+            
             throw invokeError;
           }
           
@@ -550,9 +569,36 @@ export default function AIWorkflowBuilder() {
         } catch (invokeError: unknown) {
           clearTimeout(timeoutId);
           
+          // Stop the timer immediately on error
+          setGenerationProgress(prev => prev ? { ...prev, status: 'error' } : null);
+          
           // If Supabase invoke fails, try direct fetch as fallback
           const invokeErrorMessage = invokeError instanceof Error ? invokeError.message : 'Unknown error';
           console.warn('Supabase invoke failed, trying direct fetch fallback:', invokeErrorMessage);
+          
+          // Helper function to parse error response
+          const parseErrorResponse = async (response: Response): Promise<string> => {
+            try {
+              const errorText = await response.text();
+              // Try to parse as JSON
+              try {
+                const errorJson = JSON.parse(errorText);
+                // Check for quota exceeded message
+                if (errorJson.error && typeof errorJson.error === 'string') {
+                  if (errorJson.error.includes('quota') || errorJson.error.includes('limit') || errorJson.error.includes('exceeded')) {
+                    return errorJson.error;
+                  }
+                  return errorJson.error;
+                }
+                if (errorJson.message) return errorJson.message;
+                return errorText;
+              } catch {
+                return errorText;
+              }
+            } catch {
+              return response.statusText || 'Unknown error';
+            }
+          };
           
           try {
             // Fallback to direct fetch with proper headers
@@ -570,8 +616,21 @@ export default function AIWorkflowBuilder() {
             });
             
             if (!fallbackResponse.ok) {
-              const errorText = await fallbackResponse.text().catch(() => '');
-              throw new Error(`Server returned error: ${fallbackResponse.status} ${fallbackResponse.statusText}. ${errorText}`);
+              const errorMessage = await parseErrorResponse(fallbackResponse);
+              
+              // Handle 429 (rate limit/quota exceeded) specifically
+              if (fallbackResponse.status === 429) {
+                throw new Error(
+                  `API Quota Exceeded\n\n` +
+                  `${errorMessage}\n\n` +
+                  `The free tier limit has been reached. Please:\n` +
+                  `1. Wait a few minutes before trying again\n` +
+                  `2. Consider upgrading your API plan if you need more requests\n` +
+                  `3. Check the API pricing at https://ai.google.dev/pricing`
+                );
+              }
+              
+              throw new Error(`Server returned error: ${fallbackResponse.status} ${fallbackResponse.statusText}. ${errorMessage}`);
             }
             
             const fallbackData = await fallbackResponse.json();
@@ -588,6 +647,33 @@ export default function AIWorkflowBuilder() {
             console.error('❌ Both Supabase invoke and direct fetch failed');
             console.error('Invoke error:', invokeErrorMessage);
             console.error('Fallback error:', fallbackErrorMessage);
+            
+            // Check for quota/429 errors in both error messages
+            if (invokeErrorMessage.includes('429') || 
+                invokeErrorMessage.includes('quota') || 
+                invokeErrorMessage.includes('limit exceeded') ||
+                invokeErrorMessage.includes('quota exceeded') ||
+                fallbackErrorMessage.includes('429') ||
+                fallbackErrorMessage.includes('quota') ||
+                fallbackErrorMessage.includes('limit exceeded') ||
+                fallbackErrorMessage.includes('Quota Exceeded')) {
+              // Extract quota message if available
+              let quotaMessage = '';
+              try {
+                const quotaMatch = (invokeErrorMessage + ' ' + fallbackErrorMessage).match(/quota exceeded[^.]*\./i) ||
+                                  (invokeErrorMessage + ' ' + fallbackErrorMessage).match(/limit[^.]*\./i);
+                if (quotaMatch) quotaMessage = quotaMatch[0];
+              } catch {}
+              
+              throw new Error(
+                `API Quota Exceeded\n\n` +
+                `${quotaMessage || 'You have reached the free tier limit of 20 requests.'}\n\n` +
+                `Please:\n` +
+                `1. Wait a few minutes before trying again\n` +
+                `2. Consider upgrading your API plan if you need more requests\n` +
+                `3. Check the API pricing at https://ai.google.dev/pricing`
+              );
+            }
             
             // Provide helpful error message based on error type
             if (invokeErrorMessage.includes('Function not found') || invokeErrorMessage.includes('404')) {
@@ -817,6 +903,9 @@ export default function AIWorkflowBuilder() {
     } catch (error: unknown) {
       console.error('Error generating workflow:', error);
       
+      // Stop the timer immediately
+      setGenerationProgress(null);
+      
       let errorMessage = 'Failed to generate workflow. Please try again.';
       if (error instanceof Error) {
         errorMessage = error.message;
@@ -832,14 +921,19 @@ export default function AIWorkflowBuilder() {
         .replace(/• •/g, '•') // Remove duplicate bullets
         .substring(0, 500); // Limit message length
 
+      // Use a more specific title for quota errors
+      const errorTitle = errorMessage.includes('Quota Exceeded') || errorMessage.includes('quota')
+        ? 'API Quota Exceeded'
+        : 'Error Generating Workflow';
+
       toast({
-        title: 'Error Generating Workflow',
+        title: errorTitle,
         description: formattedMessage,
         variant: 'destructive',
-        duration: 10000, // Show for 10 seconds so user can read it
+        duration: 15000, // Show for 15 seconds for quota errors so user can read it
       });
       
-      // Reset progress state
+      // Reset progress state (already done above, but ensure it's reset)
       setGenerationProgress(null);
       setStep('prompt'); // Go back to start on error
     }

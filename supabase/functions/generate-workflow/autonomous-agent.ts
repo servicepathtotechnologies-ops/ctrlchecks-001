@@ -189,8 +189,15 @@ export class AutonomousWorkflowAgent {
         switch (this.state.phase) {
           case 'understand':
             this.updateProgress('Understanding & Planning', 10);
-            await this.phase1_UnderstandAndSummarize(userGoal, userConfig);
-            this.updateProgress('Understanding & Planning', 20);
+            // OPTIMIZATION: When maxIterations=1, combine understand + planning to save 1 API call
+            if (this.config.maxIterations === 1) {
+              console.log('[AGENT] Optimizing: Combining understand + planning phases (maxIterations=1)');
+              await this.phase1_UnderstandAndPlan_Combined(userGoal, userConfig);
+              this.updateProgress('Workflow Design', 50);
+            } else {
+              await this.phase1_UnderstandAndSummarize(userGoal, userConfig);
+              this.updateProgress('Understanding & Planning', 20);
+            }
             break;
           case 'planning':
             this.updateProgress('Workflow Design', 30);
@@ -206,6 +213,17 @@ export class AutonomousWorkflowAgent {
             this.updateProgress('Validation & Simulation', 77);
             await this.phase4_ValidationAndSimulation();
             this.updateProgress('Validation & Simulation', 90);
+            // Skip healing phase if no errors and maxIterations is 1 (to save API calls)
+            if (this.state.errors.length === 0 && this.config.maxIterations === 1) {
+              console.log('[AGENT] Skipping healing phase (no errors and maxIterations=1)');
+              this.state.phase = 'verification';
+            } else if (this.state.errors.length === 0) {
+              // No errors, skip to verification
+              this.state.phase = 'verification';
+            } else {
+              // Has errors, go to healing
+              this.state.phase = 'healing';
+            }
             break;
           case 'healing':
             this.updateProgress('Error Handling', 85);
@@ -228,9 +246,15 @@ export class AutonomousWorkflowAgent {
                 break;
               }
               
-              this.updateProgress('Final Optimization', 98);
-              await this.phase7_LearningAndMemoryUpdate();
-              this.updateProgress('Completed', 100);
+              // Skip learning phase if maxIterations is 1 (to save API calls) or learning is disabled
+              if (this.config.maxIterations === 1 || !this.config.enableLearning) {
+                console.log('[AGENT] Skipping learning phase (maxIterations=1 or learning disabled)');
+                this.updateProgress('Completed', 100);
+              } else {
+                this.updateProgress('Final Optimization', 98);
+                await this.phase7_LearningAndMemoryUpdate();
+                this.updateProgress('Completed', 100);
+              }
               
               // Send completion
               if (this.config.onProgress) {
@@ -516,6 +540,162 @@ Ensure:
   }
 
   /**
+   * OPTIMIZED: COMBINED PHASE 1 & 2 (Understand + Plan)
+   * When maxIterations=1, combine both phases into a single API call to save quota
+   */
+  private async phase1_UnderstandAndPlan_Combined(userGoal: string, userConfig: Record<string, any>): Promise<void> {
+    console.log('[PHASE 1+2 COMBINED] Understanding, analyzing, and planning workflow...');
+
+    // Detect email/gmail keywords for special handling
+    const goalLower = userGoal.toLowerCase();
+    const hasGmail = goalLower.includes('gmail') || goalLower.includes('email');
+    const emailPreference = hasGmail ? 'google_gmail' : null;
+
+    // Check for form keywords
+    const formKeywords = [
+      'form', 'create a form', 'form data', 'user data', 'collect data', 'collect user data',
+      'name', 'email', 'mobile', 'phone', 'contact', 'registration', 'survey', 'feedback',
+      'submission', 'user input', 'input from users', 'contact form', 'registration form',
+      'feedback form', 'data collection', 'take the user data', 'user information',
+      'gather data', 'collect information', 'user submission'
+    ];
+    const requiresFormNode = formKeywords.some(keyword => goalLower.includes(keyword));
+
+    // Extract form fields from goal
+    const formFields: string[] = [];
+    if (requiresFormNode) {
+      if (goalLower.includes('name')) formFields.push('name');
+      if (goalLower.includes('email')) formFields.push('email');
+      if (goalLower.includes('mobile') || goalLower.includes('phone')) formFields.push('mobile');
+      if (goalLower.includes('message')) formFields.push('message');
+      if (formFields.length === 0) formFields.push('name', 'email', 'message');
+    }
+
+    const requiredNodes = this.extractRequiredNodes(userGoal);
+    const memoryContext = this.buildMemoryContext();
+
+    const prompt = `You are an expert workflow analysis and planning agent. Analyze the user's goal AND create a detailed execution plan in ONE response.
+
+USER GOAL: "${userGoal}"
+
+USER PROVIDED CONFIGURATION:
+${JSON.stringify(userConfig, null, 2)}
+
+${this.nodeKnowledge}
+
+🚨🚨🚨 CRITICAL TRIGGER SELECTION RULES 🚨🚨🚨
+${requiresFormNode ? `
+⚠️⚠️⚠️ FORM NODE DETECTED ⚠️⚠️⚠️
+- User goal contains form-related keywords: "${formKeywords.filter(k => goalLower.includes(k)).join(', ')}"
+- YOU MUST use "form" node as the trigger
+- DO NOT use manual_trigger, webhook, or any other trigger
+- Form node outputs: {formData: {field1: value1, ...}, files: [], meta: {...}}
+- Access form data in downstream nodes using: {{input.formData.fieldName}}
+- Extract field names from user goal (e.g., "name", "email", "mobile")
+` : ''}
+
+CRITICAL EMAIL NODE SELECTION RULE:
+- If user mentions "gmail", "email", or "send email" → MUST use google_gmail node (operation: "send")
+- google_gmail is THE ONLY EMAIL NODE TYPE AVAILABLE
+
+REQUIRED NODES (MUST be included in plan):
+${JSON.stringify(requiredNodes, null, 2)}
+
+${memoryContext}
+
+CRITICAL PLANNING RULES:
+1. ${requiresFormNode ? '🚨 YOU MUST use "form" node as the trigger - DO NOT use manual_trigger' : 'Start with appropriate trigger node'}
+2. YOU MUST include ALL required nodes listed above
+3. For email: Use google_gmail (operation: "send")
+4. For Google Sheets: MUST include javascript node after google_sheets to parse data
+5. Plan must cover ALL steps from trigger to final output
+
+Respond with a SINGLE JSON object containing BOTH analysis AND plan:
+{
+  "analysis": {
+    "intent": "Clear description of what the user wants to achieve",
+    "requiredInputs": ["list of required input data/triggers"],
+    "expectedOutputs": ["list of expected outputs/actions"],
+    "constraints": ["any constraints, limitations, or requirements"],
+    "ambiguities": ["any ambiguous aspects and your best assumptions to resolve them"],
+    "summary": "Concise internal goal summary for the agent",
+    "triggerType": "${requiresFormNode ? 'form' : 'manual_trigger'}",
+    "emailNodeType": "${emailPreference || 'google_gmail'}"
+  },
+  "plan": {
+    "subTasks": [
+      {
+        "id": "task_1",
+        "description": "What this task does",
+        "nodeType": "node_type_from_available_list",
+        "config": {"key": "value"},
+        "order": 1,
+        "dependencies": []
+      }
+    ],
+    "executionOrder": ["task_1", "task_2", ...],
+    "errorHandling": {
+      "retryLogic": "description of retry strategy",
+      "fallbackPaths": ["description of fallback actions"]
+    },
+    "dataFlow": "Description of how data flows between nodes"
+  }
+}
+
+Ensure:
+- Analysis is thorough and precise
+- Plan includes ALL required nodes from the list above
+- Every sub-task maps to a valid node type
+- Execution order is logical (DAG - no cycles)
+- Data flow is clearly defined`;
+
+    const messages: LLMMessage[] = [
+      { role: 'system', content: 'You are a precise workflow analysis and planning agent. Always respond with valid JSON only.' },
+      { role: 'user', content: prompt },
+    ];
+
+    const response = await this.llm.chat('gemini', messages, {
+      model: this.config.model,
+      temperature: 0.3,
+      apiKey: this.config.apiKey,
+    });
+
+    let responseText = response.content.trim();
+    // Extract JSON from markdown code blocks if present
+    if (responseText.includes('```json')) {
+      responseText = responseText.split('```json')[1].split('```')[0].trim();
+    } else if (responseText.includes('```')) {
+      responseText = responseText.split('```')[1].split('```')[0].trim();
+    }
+
+    let combined;
+    try {
+      combined = JSON.parse(responseText);
+    } catch (parseError) {
+      console.error('[PHASE 1+2 COMBINED] Failed to parse combined response:', parseError);
+      console.error('[PHASE 1+2 COMBINED] Response text:', responseText.substring(0, 500));
+      throw new Error(`Failed to parse combined analysis and planning response: ${parseError instanceof Error ? parseError.message : String(parseError)}`);
+    }
+    
+    // Validate response structure
+    if (!combined.analysis || !combined.plan) {
+      console.error('[PHASE 1+2 COMBINED] Invalid response structure - missing analysis or plan');
+      console.error('[PHASE 1+2 COMBINED] Combined response:', JSON.stringify(combined, null, 2));
+      throw new Error('Combined response missing required fields: analysis or plan');
+    }
+    
+    // Set both analysis and plan from the combined response
+    this.state.analysis = combined.analysis;
+    this.state.plan = combined.plan;
+    
+    console.log('[PHASE 1+2 COMBINED] Analysis and plan complete');
+    console.log('[PHASE 1+2 COMBINED] Analysis:', JSON.stringify(this.state.analysis, null, 2));
+    console.log('[PHASE 1+2 COMBINED] Plan:', JSON.stringify(this.state.plan, null, 2));
+    
+    this.state.phase = 'construction';
+  }
+
+  /**
    * PHASE 3: WORKFLOW CONSTRUCTION
    * Build the complete workflow with correct node configurations
    */
@@ -590,11 +770,11 @@ CRITICAL CONSTRUCTION RULES:
 3. Position nodes with x spacing of 300px, y spacing of 150px (start at x:250, y:100)
 4. Include ALL required configuration fields for each node
 ${requiresFormNode ? `5. Form node MUST have fields configured as JSON string: ${JSON.stringify(formFields)}` : '5. Use template variables ({{input.field}}) for data passing'}
-${requiresFormNode ? `6. Downstream nodes MUST use {{input.formData.fieldName}} to access form data (e.g., {{input.formData.name}}, {{input.formData.email}}, {{input.formData.mobile}})` : '6. Use template variables ({{input.field}}) for data passing'}
+${requiresFormNode ? `6. 🚨 CRITICAL: Form nodes output data in input.data, NOT input.formData. JavaScript validation MUST use input.data.name, input.data.email, input.data.mobile` : '6. Use template variables ({{input.field}}) for data passing'}
 7. For if_else nodes: MUST have both true and false output edges
 8. Connect nodes in logical flow from trigger to output
 9. End with output actions (gmail, slack, etc.) if user wants to send data
-${requiresFormNode ? `10. For Slack output: Use text like "Name: {{input.formData.name}}\\nEmail: {{input.formData.email}}\\nMobile: {{input.formData.mobile}}"` : ''}
+${requiresFormNode ? `10. For Slack output: Use text like "Name: {{input.data.name}}\\nEmail: {{input.data.email}}\\nMobile: {{input.data.mobile}}" (form nodes output in input.data, NOT input.formData)` : ''}
 11. ${hasGmail ? 'FOR EMAIL: Use google_gmail node with operation: "send"' : 'For email: Use google_gmail (operation: "send")'}
 12. For Google Sheets: ALWAYS add javascript node after google_sheets read to parse array-of-arrays
 13. CRITICAL: JavaScript node MUST format data as readable TEXT string, not objects
@@ -638,6 +818,52 @@ VALIDATION BEFORE RETURNING:
 - USE USER PROVIDED CONFIGURATION values in node configs (e.g., documentId, spreadsheetId, webhookUrl, email addresses)
 
 JAVASCRIPT NODE CODE EXAMPLES:
+
+🚨🚨🚨 CRITICAL: JavaScript validation code MUST match trigger type 🚨🚨🚨
+- If trigger is "form" → use input.data.name, input.data.email, input.data.mobile
+- If trigger is "webhook" → use input.body.name, input.body.email, input.body.mobile
+- Form nodes output: {data: {name, email, mobile}, form: {...}, meta: {...}}
+- Webhook nodes output: {body: {name, email, mobile}, headers: {...}, query: {...}}
+
+Example validation code for FORM trigger:
+    const email = input.data?.email || '';
+    const name = input.data?.name || '';
+    const mobile = input.data?.mobile || '';
+    
+    // Email validation
+    const emailRegex = /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/;
+    const isValidEmail = email && emailRegex.test(email);
+    
+    // Name validation (non-empty, at least 2 chars)
+    const isValidName = name && name.trim().length >= 2;
+    
+    // Mobile validation (numeric, 10+ digits)
+    const mobileRegex = /^[0-9]{10,15}$/;
+    const isValidMobile = mobile && mobileRegex.test(mobile.replace(/[^0-9]/g, ''));
+    
+    const isValid = isValidEmail && isValidName && isValidMobile;
+    
+    return {
+      isValid,
+      email,
+      name,
+      mobile,
+      errors: {
+        email: isValidEmail ? null : 'Invalid email format',
+        name: isValidName ? null : 'Name must be at least 2 characters',
+        mobile: isValidMobile ? null : 'Mobile must be 10-15 digits'
+      }
+    };
+
+Example validation code for WEBHOOK trigger:
+    const email = input.body?.email || '';
+    const name = input.body?.name || '';
+    const mobile = input.body?.mobile || input.body?.mobile_no || '';
+    
+    // Same validation logic as above...
+    // (use input.body instead of input.data)
+
+JAVASCRIPT NODE CODE EXAMPLES FOR DATA FORMATTING:
 - For Google Sheets only:
   const sheetsData = input.data || [];
   let sheetsText = "Data from Google Sheets:\\n";
@@ -836,6 +1062,9 @@ JAVASCRIPT NODE CODE EXAMPLES:
     // Apply user config values to nodes
     this.applyUserConfigToNodes();
     
+    // CRITICAL: Fix JavaScript validation code to use correct input path based on trigger type
+    this.fixJavaScriptValidationCode();
+    
     // CRITICAL: Fix JavaScript node code to ensure proper data formatting
     this.fixJavaScriptNodeCode();
     
@@ -850,6 +1079,98 @@ JAVASCRIPT NODE CODE EXAMPLES:
   }
 
   /**
+   * Fix JavaScript validation code to use correct input path based on trigger type
+   * CRITICAL: Form nodes output data in input.data, webhook nodes output in input.body
+   */
+  private fixJavaScriptValidationCode(): void {
+    if (!this.state.workflow?.nodes) return;
+    
+    // Detect trigger type
+    const triggerNode = this.state.workflow.nodes.find((n: any) => 
+      ['form', 'webhook', 'manual_trigger', 'schedule'].includes(n.type)
+    );
+    const isFormTrigger = triggerNode?.type === 'form';
+    const isWebhookTrigger = triggerNode?.type === 'webhook';
+    
+    // Find JavaScript nodes that do validation (checking for email, name, mobile validation)
+    this.state.workflow.nodes = this.state.workflow.nodes.map((node: any) => {
+      if (node.type !== 'javascript') return node;
+      
+      const code = node.config?.code || '';
+      const codeLower = code.toLowerCase();
+      
+      // Check if this is a validation node (has email/name/mobile validation)
+      const isValidationNode = codeLower.includes('email') && 
+                               (codeLower.includes('name') || codeLower.includes('mobile') || codeLower.includes('phone')) &&
+                               (codeLower.includes('valid') || codeLower.includes('regex') || codeLower.includes('test'));
+      
+      if (!isValidationNode) return node;
+      
+      // Fix input path based on trigger type
+      let fixedCode = code;
+      
+      if (isFormTrigger) {
+        // Form nodes output: { data: { name, email, mobile }, form: {...}, meta: {...} }
+        // Replace input.body with input.data
+        // Replace input.formData with input.data
+        fixedCode = fixedCode.replace(/input\.body\?\./g, 'input.data?.');
+        fixedCode = fixedCode.replace(/input\.body\./g, 'input.data.');
+        fixedCode = fixedCode.replace(/input\.formData\?\./g, 'input.data?.');
+        fixedCode = fixedCode.replace(/input\.formData\./g, 'input.data.');
+        
+        // Also fix the fallback chain
+        fixedCode = fixedCode.replace(/input\.body\s*\|\|/g, 'input.data ||');
+        fixedCode = fixedCode.replace(/input\.formData\s*\|\|/g, 'input.data ||');
+        
+        console.log(`[PHASE 3] Fixed JavaScript validation code for form trigger in node ${node.id}`);
+      } else if (isWebhookTrigger) {
+        // Webhook nodes output: { body: { name, email, mobile }, headers: {...}, query: {...} }
+        // Ensure we use input.body
+        fixedCode = fixedCode.replace(/input\.formData\?\./g, 'input.body?.');
+        fixedCode = fixedCode.replace(/input\.formData\./g, 'input.body.');
+        fixedCode = fixedCode.replace(/input\.data\?\./g, 'input.body?.');
+        fixedCode = fixedCode.replace(/input\.data\./g, 'input.body.');
+        
+        console.log(`[PHASE 3] Fixed JavaScript validation code for webhook trigger in node ${node.id}`);
+      } else {
+        // For other triggers, use a fallback chain that works for both
+        // This handles cases where the trigger type isn't clear
+        if (!code.includes('input.data') && !code.includes('input.body') && !code.includes('input.formData')) {
+          // No input path specified, add fallback chain
+          const emailMatch = code.match(/(const\s+email\s*=)/);
+          const nameMatch = code.match(/(const\s+name\s*=)/);
+          const mobileMatch = code.match(/(const\s+mobile\s*=)/);
+          
+          if (emailMatch || nameMatch || mobileMatch) {
+            // Add fallback chain that works for both form and webhook
+            fixedCode = code.replace(
+              /(const\s+email\s*=)\s*[^;]+;/,
+              '$1 input.data?.email || input.body?.email || input.formData?.email || \'\';'
+            );
+            fixedCode = fixedCode.replace(
+              /(const\s+name\s*=)\s*[^;]+;/,
+              '$1 input.data?.name || input.body?.name || input.formData?.name || \'\';'
+            );
+            fixedCode = fixedCode.replace(
+              /(const\s+mobile\s*=)\s*[^;]+;/,
+              '$1 input.data?.mobile || input.body?.mobile || input.formData?.mobile || input.body?.mobile_no || \'\';'
+            );
+            
+            console.log(`[PHASE 3] Added fallback chain to JavaScript validation code in node ${node.id}`);
+          }
+        }
+      }
+      
+      if (fixedCode !== code) {
+        node.config = { ...node.config, code: fixedCode };
+        console.log(`[PHASE 3] Updated JavaScript validation code in node ${node.id}`);
+      }
+      
+      return node;
+    });
+  }
+
+  /**
    * Fix JavaScript node code to ensure proper data formatting
    */
   private fixJavaScriptNodeCode(): void {
@@ -859,6 +1180,13 @@ JAVASCRIPT NODE CODE EXAMPLES:
     const hasSheets = goalLower.includes('google sheet') || goalLower.includes('sheets');
     const hasDoc = goalLower.includes('google doc') || goalLower.includes('document');
     const hasBoth = hasSheets && hasDoc;
+    
+    // Detect trigger type to determine input data path
+    const triggerNode = this.state.workflow.nodes.find((n: any) => 
+      ['form', 'webhook', 'manual_trigger', 'schedule'].includes(n.type)
+    );
+    const isFormTrigger = triggerNode?.type === 'form';
+    const isWebhookTrigger = triggerNode?.type === 'webhook';
     
     // Find JavaScript nodes that need fixing
     this.state.workflow.nodes = this.state.workflow.nodes.map((node: any) => {
