@@ -49,7 +49,7 @@ const AVAILABLE_NODES = {
   authentication: ['oauth2', 'jwt', 'api_key_auth'],
   payment: ['stripe', 'paypal', 'razorpay'],
   social_media: ['twitter', 'facebook', 'instagram', 'linkedin'],
-  productivity: ['notion', 'trello', 'asana', 'jira', 'linear'],
+  productivity: ['notion', 'trello', 'asana', 'jira', 'linear', 'clickup'],
 };
 
 /**
@@ -1293,6 +1293,7 @@ PRODUCTIVITY:
 - asana: Asana operations (config: accessToken, operation: create_task/update_task/get_task/list_tasks, taskId, workspaceId, name, notes)
 - jira: Jira operations (config: domain, email, apiToken, operation: create_issue/update_issue/get_issue/list_issues, issueKey, projectKey, summary, description)
 - linear: Linear operations (config: apiKey, operation: create_issue/update_issue/get_issue/list_issues, issueId, teamId, title, description)
+- clickup: ClickUp operations (config: apiKey, operation: create_task/update_task/get_task/delete_task/list_tasks/add_comment/update_status/get_spaces/get_folders/get_lists, taskId, listId, workspaceId, spaceId, folderId, name, description, status, commentText)
 
 SOCIAL MEDIA:
 - twitter: Twitter/X API operations (config: apiKey, apiSecret, accessToken, accessTokenSecret, operation: create_tweet/create_tweet_media/delete_tweet/like_tweet/unlike_tweet/retweet/search_tweets/get_timeline/get_mentions/get_tweet/follow_user/unfollow_user, text, tweetId, mediaUrl, query, username)
@@ -2671,7 +2672,7 @@ CRITICAL RULES FOR ERROR-FREE WORKFLOWS:
     - For e-commerce: Use shopify, woocommerce, stripe, paypal, or bigcommerce based on the platform mentioned
     - For analytics: Use google_analytics, mixpanel, segment, or amplitude based on the service mentioned
     - For communication: Use slack_webhook, discord_webhook, telegram, whatsapp_cloud, twilio, or microsoft_teams based on the platform
-    - For productivity: Use notion, trello, asana, jira, or linear based on the tool mentioned
+    - For productivity: Use notion, trello, asana, jira, linear, or clickup based on the tool mentioned
     - Always match the node type to the service/platform mentioned in the user's prompt
 
 17. CONFIGURATION BEST PRACTICES:

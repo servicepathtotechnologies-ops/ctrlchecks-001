@@ -61,10 +61,10 @@ const FormTriggerNode = memo(({ data, selected }: NodeProps<FormTriggerNodeProps
   return (
     <div
       className={cn(
-        'px-4 py-3 rounded-lg border-2 bg-card shadow-md w-[180px] h-[63px] transition-all relative',
+        'px-5 py-4 rounded-lg border-2 bg-card shadow-md transition-all relative',
         getBorderColor()
       )}
-      style={{ width: '180px', height: '63px' }}
+      style={{ width: '240px', minHeight: '70px' }}
     >
       <Handle
         type="target"
@@ -75,8 +75,8 @@ const FormTriggerNode = memo(({ data, selected }: NodeProps<FormTriggerNodeProps
       <div className="flex items-center gap-2">
         <FileText className="h-4 w-4 text-primary flex-shrink-0" />
         <div className="flex-1 min-w-0">
-          <div className="font-semibold text-sm truncate">{formTitle}</div>
-          <div className="text-xs text-muted-foreground">
+          <div className="font-semibold text-sm leading-tight break-words hyphens-auto">{formTitle}</div>
+          <div className="text-xs text-muted-foreground leading-tight break-words mt-0.5">
             {fieldCount} {fieldCount === 1 ? 'field' : 'fields'}
             {status === 'waiting' && ' • Waiting...'}
             {status === 'success' && ' • Submitted'}

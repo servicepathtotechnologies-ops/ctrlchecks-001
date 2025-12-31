@@ -324,7 +324,8 @@ function fixCustomNodeTypes(nodes: WorkflowNode[]): void {
         'database_read', 'database_write',
         'google_sheets', 'google_gmail', 'google_doc', 'google_drive', 'google_calendar', 'google_tasks', 'google_contacts', 'google_analytics',
         'log_output', 'slack_webhook', 'slack_message',
-        'openai_gpt', 'anthropic_claude', 'google_gemini', 'text_summarizer', 'sentiment_analyzer', 'ai_agent', 'memory', 'llm_chain', 'azure_openai', 'hugging_face', 'cohere', 'ollama', 'embeddings', 'vector_store', 'chat_model'
+        'openai_gpt', 'anthropic_claude', 'google_gemini', 'text_summarizer', 'sentiment_analyzer', 'ai_agent', 'memory', 'llm_chain', 'azure_openai', 'hugging_face', 'cohere', 'ollama', 'embeddings', 'vector_store', 'chat_model',
+        'notion', 'trello', 'asana', 'jira', 'linear', 'clickup'
     ]);
     
     for (const node of nodes) {

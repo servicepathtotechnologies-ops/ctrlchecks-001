@@ -29,7 +29,15 @@ interface WorkflowHeaderProps {
   onImport?: () => void;
 }
 
-export default function WorkflowHeader({ onSave, onRun, isSaving, isRunning, showAI, onToggleAI, onImport }: WorkflowHeaderProps) {
+export default function WorkflowHeader({ 
+  onSave, 
+  onRun, 
+  isSaving, 
+  isRunning, 
+  showAI, 
+  onToggleAI, 
+  onImport
+}: WorkflowHeaderProps) {
   const navigate = useNavigate();
   const { workflowId, workflowName, setWorkflowName, isDirty } = useWorkflowStore();
   const [isEditing, setIsEditing] = useState(false);
