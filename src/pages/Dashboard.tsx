@@ -72,28 +72,76 @@ export default function Dashboard() {
         (workflowsData || []).map(async (workflow) => {
           try {
             // Use maybeSingle() instead of single() to handle workflows with no executions
-            const { data: lastExec, error: execError } = await supabase
-              .from('executions')
-              .select('started_at, status')
-              .eq('workflow_id', workflow.id)
-              .order('started_at', { ascending: false })
-              .limit(1)
-              .maybeSingle();
+            let lastExec = null;
+            let count = 0;
+            
+            try {
+              const { data, error: execError } = await supabase
+                .from('executions')
+                .select('started_at, status')
+                .eq('workflow_id', workflow.id)
+                .order('started_at', { ascending: false })
+                .limit(1)
+                .maybeSingle();
 
-            // Handle errors gracefully - don't fail the entire load if one query fails
-            // 406 errors can occur when RLS policies prevent access or no rows exist
-            if (execError && execError.code !== 'PGRST116' && !execError.message?.includes('406')) {
-              console.warn(`Error loading execution for workflow ${workflow.id}:`, execError);
+              // Suppress 406 errors - they're expected when no executions exist
+              const is406Error = execError && (
+                execError.code === 'PGRST116' || 
+                execError.message?.includes('406') ||
+                (execError as any).status === 406 ||
+                (execError as any).statusCode === 406 ||
+                String(execError).includes('406')
+              );
+              
+              if (!is406Error && execError) {
+                console.warn(`Error loading execution for workflow ${workflow.id}:`, execError);
+              }
+              
+              lastExec = data || null;
+            } catch (execErr: any) {
+              // Suppress 406 errors in catch block as well
+              const is406Error = execErr?.code === 'PGRST116' || 
+                                execErr?.message?.includes('406') ||
+                                execErr?.status === 406 ||
+                                execErr?.statusCode === 406 ||
+                                String(execErr).includes('406');
+              
+              if (!is406Error) {
+                console.warn(`Error loading execution for workflow ${workflow.id}:`, execErr);
+              }
             }
 
-            const { count, error: countError } = await supabase
-              .from('executions')
-              .select('*', { count: 'exact', head: true })
-              .eq('workflow_id', workflow.id);
+            try {
+              const { count: execCount, error: countError } = await supabase
+                .from('executions')
+                .select('*', { count: 'exact', head: true })
+                .eq('workflow_id', workflow.id);
 
-            // Handle 406 errors for count queries as well
-            if (countError && !countError.message?.includes('406')) {
-              console.warn(`Error counting executions for workflow ${workflow.id}:`, countError);
+              // Suppress 406 errors for count queries
+              const isCount406Error = countError && (
+                countError.code === 'PGRST116' || 
+                countError.message?.includes('406') ||
+                (countError as any).status === 406 ||
+                (countError as any).statusCode === 406 ||
+                String(countError).includes('406')
+              );
+              
+              if (!isCount406Error && countError) {
+                console.warn(`Error counting executions for workflow ${workflow.id}:`, countError);
+              }
+              
+              count = execCount || 0;
+            } catch (countErr: any) {
+              // Suppress 406 errors in catch block as well
+              const isCount406Error = countErr?.code === 'PGRST116' || 
+                                     countErr?.message?.includes('406') ||
+                                     countErr?.status === 406 ||
+                                     countErr?.statusCode === 406 ||
+                                     String(countErr).includes('406');
+              
+              if (!isCount406Error) {
+                console.warn(`Error counting executions for workflow ${workflow.id}:`, countErr);
+              }
             }
 
             return {

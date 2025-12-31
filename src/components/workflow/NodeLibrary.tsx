@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { Search } from 'lucide-react';
+import { Search, X } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
@@ -28,9 +28,10 @@ const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
 
 interface NodeLibraryProps {
   onDragStart: (event: React.DragEvent, nodeType: NodeTypeDefinition) => void;
+  onClose?: () => void;
 }
 
-export default function NodeLibrary({ onDragStart }: NodeLibraryProps) {
+export default function NodeLibrary({ onDragStart, onClose }: NodeLibraryProps) {
   const [search, setSearch] = useState('');
 
   const filteredNodes = useMemo(() => 
@@ -58,7 +59,18 @@ export default function NodeLibrary({ onDragStart }: NodeLibraryProps) {
   return (
     <div className="w-72 border-r border-border bg-card h-full flex flex-col">
       <div className="p-4 border-b border-border">
-        <h2 className="font-semibold mb-3">Node Library</h2>
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="font-semibold">Node Library</h2>
+          {onClose && (
+            <button
+              onClick={onClose}
+              className="h-6 w-6 flex items-center justify-center rounded hover:bg-muted transition-colors"
+              title="Close Node Library"
+            >
+              <X className="h-4 w-4 text-muted-foreground" />
+            </button>
+          )}
+        </div>
         <div className="relative">
           <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input

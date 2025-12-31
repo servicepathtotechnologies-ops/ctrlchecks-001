@@ -9,7 +9,17 @@
     "build:dev": "vite build --mode development",
     "lint": "eslint .",
     "preview": "vite preview",
-    "deploy:generate-workflow": "npx supabase functions deploy generate-workflow --project-ref nvrrqvlqnnvlihtlgmzn"
+    "deploy:generate-workflow": "npx supabase functions deploy generate-workflow --project-ref nvrrqvlqnnvlihtlgmzn",
+    "deploy:execute-workflow": "npx supabase functions deploy execute-workflow --project-ref nvrrqvlqnnvlihtlgmzn",
+    "deploy:all": "npm run deploy:admin-templates && npm run deploy:analyze-workflow-requirements && npm run deploy:chat-api && npm run deploy:chatbot && npm run deploy:copy-template && npm run deploy:execute-agent && npm run deploy:execute-workflow && npm run deploy:form-trigger && npm run deploy:generate-workflow && npm run deploy:webhook-trigger",
+    "deploy:admin-templates": "npx supabase functions deploy admin-templates --project-ref nvrrqvlqnnvlihtlgmzn",
+    "deploy:analyze-workflow-requirements": "npx supabase functions deploy analyze-workflow-requirements --project-ref nvrrqvlqnnvlihtlgmzn",
+    "deploy:chat-api": "npx supabase functions deploy chat-api --project-ref nvrrqvlqnnvlihtlgmzn",
+    "deploy:chatbot": "npx supabase functions deploy chatbot --project-ref nvrrqvlqnnvlihtlgmzn",
+    "deploy:copy-template": "npx supabase functions deploy copy-template --project-ref nvrrqvlqnnvlihtlgmzn",
+    "deploy:execute-agent": "npx supabase functions deploy execute-agent --project-ref nvrrqvlqnnvlihtlgmzn",
+    "deploy:form-trigger": "npx supabase functions deploy form-trigger --project-ref nvrrqvlqnnvlihtlgmzn",
+    "deploy:webhook-trigger": "npx supabase functions deploy webhook-trigger --project-ref nvrrqvlqnnvlihtlgmzn"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",

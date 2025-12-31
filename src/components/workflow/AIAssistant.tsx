@@ -35,7 +35,7 @@ export default function AIAssistant({ isOpen, onClose }: AIAssistantProps) {
     const [isLoading, setIsLoading] = useState(false);
     const scrollAreaRef = useRef<HTMLDivElement>(null);
 
-    const { nodes, edges, setNodes, setEdges } = useWorkflowStore();
+    const { nodes, edges, setNodes, setEdges, workflowId } = useWorkflowStore();
 
     useEffect(() => {
         if (scrollAreaRef.current) {
@@ -62,35 +62,103 @@ export default function AIAssistant({ isOpen, onClose }: AIAssistantProps) {
 
         try {
             // Clean unnecessary data from nodes/edges to reduce payload size
+            // Ensure all config values are strings (required by backend)
             const currentWorkflow = {
-                nodes: nodes.map(n => ({
-                    id: n.id,
-                    type: n.type,
-                    position: n.position,
-                    data: {
-                        ...n.data,
-                        // Strip UI-only properties if any
-                        selected: undefined,
+                nodes: nodes.map(n => {
+                    const cleanedNode: any = {
+                        id: n.id,
+                        type: n.type || n.data?.type,
+                        position: n.position,
+                        data: {
+                            type: n.type || n.data?.type,
+                            label: n.data?.label || n.type || 'Node',
+                        }
+                    };
+                    
+                    // Add config if it exists, ensuring all values are strings
+                    if (n.data?.config) {
+                        cleanedNode.config = {};
+                        for (const [key, value] of Object.entries(n.data.config)) {
+                            if (value !== null && value !== undefined) {
+                                if (typeof value === 'object') {
+                                    cleanedNode.config[key] = JSON.stringify(value);
+                                } else {
+                                    cleanedNode.config[key] = String(value);
+                                }
+                            }
+                        }
                     }
-                })),
+                    
+                    return cleanedNode;
+                }),
                 edges: edges.map(e => ({
                     id: e.id,
                     source: e.source,
                     target: e.target,
-                    sourceHandle: e.sourceHandle,
-                    targetHandle: e.targetHandle,
+                    sourceHandle: e.sourceHandle || undefined,
+                    targetHandle: e.targetHandle || undefined,
                 }))
             };
 
+            // Validate the workflow structure before sending
+            if (!Array.isArray(currentWorkflow.nodes) || currentWorkflow.nodes.length === 0) {
+                throw new Error('Current workflow has no nodes. Please add at least one node before using AI edit.');
+            }
+
+            // Fetch execution history for debugging (last 3 failed executions)
+            let executionHistory: any[] = [];
+            let hasExecutionHistory = false;
+            try {
+                if (workflowId) {
+                    const { data: executions } = await supabase
+                        .from('executions')
+                        .select('id, status, error, logs, output, started_at')
+                        .eq('workflow_id', workflowId)
+                        .eq('status', 'failed')
+                        .order('started_at', { ascending: false })
+                        .limit(3);
+                    
+                    if (executions && executions.length > 0) {
+                        executionHistory = executions.map(exec => ({
+                            id: exec.id,
+                            status: exec.status,
+                            error: exec.error,
+                            logs: exec.logs,
+                            output: exec.output,
+                            started_at: exec.started_at,
+                        }));
+                        hasExecutionHistory = true;
+                        console.log(`[AI Editor] Found ${executions.length} failed execution(s) for debugging context`);
+                    }
+                }
+            } catch (execError) {
+                console.warn('Failed to fetch execution history:', execError);
+                // Continue without execution history
+            }
+
+            // Log request for debugging
+            console.log('[AI Assistant] Sending edit request:', {
+                promptLength: userMessage.content.trim().length,
+                nodesCount: currentWorkflow.nodes.length,
+                edgesCount: currentWorkflow.edges.length,
+                executionHistoryCount: executionHistory.length,
+            });
+
             const { data, error } = await supabase.functions.invoke('generate-workflow', {
                 body: {
-                    prompt: userMessage.content,
+                    prompt: userMessage.content.trim(),
                     mode: 'edit',
                     currentWorkflow: currentWorkflow,
+                    executionHistory: executionHistory.length > 0 ? executionHistory : undefined, // Only send if not empty
                 },
             });
 
-            if (error) throw error;
+            if (error) {
+                console.error('[AI Assistant] API Error:', error);
+                // Extract detailed error message
+                const errorDetails = error.message || error.error || 'Unknown error';
+                throw new Error(`AI Edit Error: ${errorDetails}`);
+            }
 
             if (data && data.nodes && data.edges) {
                 // Validate before applying
@@ -102,27 +170,43 @@ export default function AIAssistant({ isOpen, onClose }: AIAssistantProps) {
                 setNodes(data.nodes);
                 setEdges(data.edges);
 
+                const explanation = data.explanation || `I've updated the workflow based on your request.`;
+                const historyNote = hasExecutionHistory 
+                    ? '\n\n💡 Used execution history to help debug and fix issues.' 
+                    : '';
+                
                 setMessages(prev => [...prev, {
                     id: Date.now().toString(),
                     role: 'assistant',
-                    content: data.explanation || `I've updated the workflow based on your request.`,
+                    content: explanation + historyNote,
                     timestamp: new Date(),
                 }]);
             } else {
                 throw new Error('Invalid response format');
             }
 
-        } catch (error) {
+        } catch (error: any) {
             console.error('AI Edit Error:', error);
+            
+            // Extract error message for better user feedback
+            let errorMessage = 'Sorry, I encountered an error while processing your request.';
+            if (error?.message) {
+                errorMessage = `Error: ${error.message}`;
+            } else if (error?.error) {
+                errorMessage = `Error: ${error.error}`;
+            } else if (typeof error === 'string') {
+                errorMessage = `Error: ${error}`;
+            }
+            
             setMessages(prev => [...prev, {
                 id: Date.now().toString(),
                 role: 'assistant',
-                content: 'Sorry, I encountered an error while processing your request. Please try again.',
+                content: errorMessage + ' Please try again or check the console for details.',
                 timestamp: new Date(),
             }]);
             toast({
                 title: 'Error',
-                description: 'Failed to update workflow',
+                description: errorMessage,
                 variant: 'destructive',
             });
         } finally {

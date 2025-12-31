@@ -367,8 +367,38 @@ async function appendToSheet(config: GoogleSheetsConfig): Promise<GoogleSheetsRe
       };
     }
 
+    // Validate that data is a 2D array (array of arrays)
+    if (data.length === 0) {
+      return {
+        success: false,
+        error: 'Data array is empty',
+      };
+    }
+
+    // Ensure all rows are arrays
+    const validatedData: unknown[][] = [];
+    for (let i = 0; i < data.length; i++) {
+      const row = data[i];
+      if (!Array.isArray(row)) {
+        // If row is not an array, wrap it in an array
+        validatedData.push([row]);
+      } else {
+        validatedData.push(row);
+      }
+    }
+
+    // Log data being sent for debugging
+    console.log('Google Sheets Append - Data being sent:', {
+      rowCount: validatedData.length,
+      columnCount: validatedData[0]?.length || 0,
+      firstRow: validatedData[0],
+      sheetName,
+      spreadsheetId,
+    });
+
     // Build range string (sheet name only, API will append to end)
-    let rangeStr = sheetName ? `'${sheetName}'` : 'Sheet1';
+    // For append operation, we need to URL-encode the sheet name
+    let rangeStr = sheetName ? encodeURIComponent(sheetName) : 'Sheet1';
 
     const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${rangeStr}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`;
 
@@ -379,7 +409,7 @@ async function appendToSheet(config: GoogleSheetsConfig): Promise<GoogleSheetsRe
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        values: data,
+        values: validatedData,
       }),
     });
 
@@ -410,15 +440,25 @@ async function appendToSheet(config: GoogleSheetsConfig): Promise<GoogleSheetsRe
 
     const result = await response.json();
     const updatedCells = result.updates?.updatedCells || 0;
+    const updatedRange = result.updates?.updatedRange || '';
+
+    // Log for debugging
+    console.log('Google Sheets Append Result:', {
+      updatedCells,
+      updatedRange,
+      dataRows: validatedData.length,
+      dataColumns: validatedData[0]?.length || 0,
+      firstRow: validatedData[0],
+    });
 
     return {
       success: true,
       data: {
         updatedCells,
-        range: result.updates?.updatedRange,
+        range: updatedRange,
       },
-      rows: data.length,
-      columns: data[0]?.length || 0,
+      rows: validatedData.length,
+      columns: validatedData[0]?.length || 0,
     };
   } catch (error) {
     console.error('Error appending to Google Sheets:', error);

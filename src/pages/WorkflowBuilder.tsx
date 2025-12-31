@@ -5,7 +5,7 @@ import { useWorkflowStore, WorkflowNode } from '@/stores/workflowStore';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
-import { Copy, ExternalLink } from 'lucide-react';
+import { Copy, ExternalLink, PanelLeft, PanelRight } from 'lucide-react';
 import { NodeTypeDefinition } from '@/components/workflow/nodeTypes';
 import WorkflowHeader from '@/components/workflow/WorkflowHeader';
 import NodeLibrary from '@/components/workflow/NodeLibrary';
@@ -24,6 +24,8 @@ export default function WorkflowBuilder() {
   const [isRunning, setIsRunning] = useState(false);
   const [consoleExpanded, setConsoleExpanded] = useState(false);
   const [showAI, setShowAI] = useState(false);
+  const [nodeLibraryOpen, setNodeLibraryOpen] = useState(true);
+  const [propertiesPanelOpen, setPropertiesPanelOpen] = useState(true);
   const {
     nodes,
     edges,
@@ -376,9 +378,49 @@ export default function WorkflowBuilder() {
       />
       <div className="flex-1 flex flex-col overflow-hidden relative">
         <div className="flex-1 flex overflow-hidden">
-          <NodeLibrary onDragStart={onDragStart} />
-          <WorkflowCanvas />
-          <PropertiesPanel />
+          <div
+            className={`transition-all duration-300 ease-in-out overflow-hidden ${
+              nodeLibraryOpen ? 'w-72' : 'w-0'
+            }`}
+          >
+            {nodeLibraryOpen && (
+              <NodeLibrary 
+                onDragStart={onDragStart} 
+                onClose={() => setNodeLibraryOpen(false)}
+              />
+            )}
+          </div>
+          <div className="flex-1 relative">
+            <WorkflowCanvas />
+            {/* Floating buttons to reopen panels when closed */}
+            {!nodeLibraryOpen && (
+              <button
+                onClick={() => setNodeLibraryOpen(true)}
+                className="absolute left-0 top-20 z-50 flex items-center gap-2 pl-2 pr-4 py-3 rounded-r-lg bg-primary text-primary-foreground shadow-lg hover:bg-primary/90 transition-all hover:translate-x-1 group"
+                title="Open Node Library"
+              >
+                <PanelLeft className="h-5 w-5 flex-shrink-0" />
+                <span className="text-sm font-medium whitespace-nowrap">Node Library</span>
+                <div className="absolute left-0 top-0 bottom-0 w-1 bg-primary-foreground/20 rounded-l-lg group-hover:bg-primary-foreground/30 transition-colors" />
+              </button>
+            )}
+            {!propertiesPanelOpen && (
+              <button
+                onClick={() => setPropertiesPanelOpen(true)}
+                className="absolute right-0 top-20 z-50 flex items-center gap-2 pl-4 pr-2 py-3 rounded-l-lg bg-primary text-primary-foreground shadow-lg hover:bg-primary/90 transition-all hover:-translate-x-1 group"
+                title="Open Properties Panel"
+              >
+                <span className="text-sm font-medium whitespace-nowrap">Properties</span>
+                <PanelRight className="h-5 w-5 flex-shrink-0" />
+                <div className="absolute right-0 top-0 bottom-0 w-1 bg-primary-foreground/20 rounded-r-lg group-hover:bg-primary-foreground/30 transition-colors" />
+              </button>
+            )}
+          </div>
+          {propertiesPanelOpen && (
+            <div className="transition-all duration-300 ease-in-out overflow-hidden flex-shrink-0">
+              <PropertiesPanel onClose={() => setPropertiesPanelOpen(false)} />
+            </div>
+          )}
           <AIAssistant isOpen={showAI} onClose={() => setShowAI(false)} />
         </div>
         <ExecutionConsole

@@ -71,10 +71,10 @@ const WorkflowNode = memo(({ data, selected }: NodeProps<WorkflowNodeProps>) => 
   return (
     <div
       className={cn(
-        'px-4 py-3 rounded-lg border-2 bg-card shadow-md w-[180px] h-[63px] transition-all relative',
+        'px-5 py-4 rounded-lg border-2 bg-card shadow-md transition-all relative',
         borderClass
       )}
-      style={{ width: '180px', height: '63px' }}
+      style={{ width: '240px', minHeight: '70px' }}
     >
       {/* Execution Status Indicators */}
       {status === 'running' && (
@@ -100,14 +100,14 @@ const WorkflowNode = memo(({ data, selected }: NodeProps<WorkflowNodeProps>) => 
 
       <div className="flex items-center gap-3">
         <div
-          className="flex h-8 w-8 items-center justify-center rounded-md"
+          className="flex h-8 w-8 items-center justify-center rounded-md flex-shrink-0"
           style={{ backgroundColor: category?.color + '20', color: category?.color }}
         >
           <IconComponent className="h-4 w-4" />
         </div>
-        <div>
-          <div className="font-medium text-sm">{data.label}</div>
-          <div className="text-xs text-muted-foreground capitalize">{data.category}</div>
+        <div className="flex-1 min-w-0">
+          <div className="font-medium text-sm leading-tight break-words hyphens-auto">{data.label}</div>
+          <div className="text-xs text-muted-foreground capitalize leading-tight break-words mt-0.5">{data.category}</div>
         </div>
       </div>
 

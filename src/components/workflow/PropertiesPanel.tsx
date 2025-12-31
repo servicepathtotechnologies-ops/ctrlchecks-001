@@ -34,7 +34,11 @@ const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
   Calculator, Lock, Rss, Target
 };
 
-export default function PropertiesPanel() {
+interface PropertiesPanelProps {
+  onClose?: () => void;
+}
+
+export default function PropertiesPanel({ onClose }: PropertiesPanelProps) {
   const { selectedNode, selectNode, updateNodeConfig, deleteSelectedNode, workflowId } = useWorkflowStore();
   const { toast } = useToast();
 
@@ -164,7 +168,7 @@ export default function PropertiesPanel() {
   if (!selectedNode) {
     return (
       <div
-        className="border-l border-border bg-card h-full flex items-center justify-center p-6 transition-all duration-75 relative"
+        className="border-l border-border bg-card h-full flex flex-col transition-all duration-75 relative"
         style={{ width: width, flexShrink: 0 }}
       >
         {/* Resize Handle */}
@@ -173,10 +177,26 @@ export default function PropertiesPanel() {
           onMouseDown={startResizing}
         />
 
-        <div className="text-center text-muted-foreground">
-          <HelpCircle className="h-8 w-8 mx-auto mb-3 opacity-50" />
-          <p className="text-sm font-medium">No node selected</p>
-          <p className="text-xs mt-1">Click on a node to view its properties and usage guide</p>
+        {/* Header with Close Button */}
+        <div className="p-4 border-b border-border flex items-center justify-between">
+          <h2 className="font-semibold text-sm">Node Properties</h2>
+          {onClose && (
+            <button
+              onClick={onClose}
+              className="h-6 w-6 flex items-center justify-center rounded hover:bg-muted transition-colors"
+              title="Close Properties Panel"
+            >
+              <X className="h-4 w-4 text-muted-foreground" />
+            </button>
+          )}
+        </div>
+
+        <div className="flex-1 flex items-center justify-center p-6">
+          <div className="text-center text-muted-foreground">
+            <HelpCircle className="h-8 w-8 mx-auto mb-3 opacity-50" />
+            <p className="text-sm font-medium">No node selected</p>
+            <p className="text-xs mt-1">Click on a node to view its properties and usage guide</p>
+          </div>
         </div>
       </div>
     );
@@ -366,9 +386,20 @@ export default function PropertiesPanel() {
           <IconComponent className="h-4 w-4 text-primary" />
           <h2 className="font-semibold text-sm">Node Properties</h2>
         </div>
-        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => selectNode(null)}>
-          <X className="h-4 w-4" />
-        </Button>
+        <div className="flex items-center gap-1">
+          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => selectNode(null)} title="Deselect Node">
+            <X className="h-4 w-4" />
+          </Button>
+          {onClose && (
+            <button
+              onClick={onClose}
+              className="h-8 w-8 flex items-center justify-center rounded hover:bg-muted transition-colors"
+              title="Close Properties Panel"
+            >
+              <X className="h-4 w-4 text-muted-foreground" />
+            </button>
+          )}
+        </div>
       </div>
 
       <ScrollArea className="flex-1">
