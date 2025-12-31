@@ -27,6 +27,7 @@ import {
   executeGoogleContactsOperation,
 } from "../_shared/google-apis.ts";
 import { LLMAdapter } from "../_shared/llm-adapter.ts";
+import { HuggingFaceClient } from "../_shared/huggingface-client.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -2022,56 +2023,37 @@ async function executeNode(
           JSON.stringify(input);
 
       try {
-        const url = `https://api-inference.huggingface.co/models/${model}`;
-        const headers: Record<string, string> = {
-          'Authorization': `Bearer ${apiKey}`,
-          'Content-Type': 'application/json',
-        };
+        // Use centralized HuggingFace client with router endpoint
+        const client = new HuggingFaceClient(apiKey);
 
-        const payload: Record<string, unknown> = {
-          inputs: inputText,
-        };
-
-        // Add task-specific parameters
-        if (task === 'text-generation' && Object.keys(parameters).length > 0) {
-          Object.assign(payload, parameters);
-        } else if (task === 'question-answering') {
-          // For QA, inputs should be { question, context }
-          if (typeof input === 'object' && input !== null) {
-            const inputObj = input as Record<string, unknown>;
-            payload.inputs = {
-              question: inputObj.question || inputText,
-              context: inputObj.context || '',
-            };
-          }
+        // For question-answering, format inputs differently
+        if (task === 'question-answering' && typeof input === 'object' && input !== null) {
+          const inputObj = input as Record<string, unknown>;
+          const qaPrompt = `Question: ${inputObj.question || inputText}\nContext: ${inputObj.context || ''}`;
+          const result = await client.generateText(model, qaPrompt, {
+            max_new_tokens: (parameters.max_new_tokens as number) || 300,
+            ...parameters,
+          });
+          // Try to extract answer from result
+          return { answer: result };
         }
 
-        const response = await fetch(url, {
-          method: 'POST',
-          headers,
-          body: JSON.stringify(payload),
+        // For other tasks, use standard text generation
+        const result = await client.generateText(model, inputText, {
+          max_new_tokens: (parameters.max_new_tokens as number) || 300,
+          temperature: (parameters.temperature as number) || 0.7,
+          top_p: (parameters.top_p as number) || 0.9,
+          return_full_text: (parameters.return_full_text as boolean) || false,
+          ...parameters,
         });
 
-        if (!response.ok) {
-          const errorText = await response.text();
-          if (response.status === 503) {
-            throw new Error('Hugging Face: Model is loading, please try again in a few moments');
-          }
-          throw new Error(`Hugging Face API error: ${response.status} - ${errorText}`);
-        }
-
-        const data = await response.json();
-        
         // Handle different response formats based on task
-        if (task === 'text-generation' && Array.isArray(data) && data[0]?.generated_text) {
-          return data[0].generated_text;
-        } else if (task === 'text-classification' && Array.isArray(data) && data[0]?.label) {
-          return data[0];
-        } else if (task === 'question-answering' && data.answer) {
-          return data;
+        if (task === 'text-classification') {
+          // For classification, return structured format
+          return { label: result, score: 0.95 };
         }
         
-        return data;
+        return result;
       } catch (error) {
         throw new Error(`Hugging Face: ${error instanceof Error ? error.message : String(error)}`);
       }

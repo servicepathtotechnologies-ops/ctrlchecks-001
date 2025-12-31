@@ -5,6 +5,7 @@ import { useRole } from "@/hooks/useRole";
 import { supabase } from "@/integrations/supabase/client";
 import { Zap, Plus, Play, CheckCircle, XCircle, FolderOpen, LayoutTemplate, History, Settings, MoreHorizontal, Copy, Trash2, Clock, Bot, Workflow, MessageSquare, Sparkles, Wrench, ArrowLeft } from "lucide-react";
 import GoogleConnectionStatus from "@/components/GoogleConnectionStatus";
+import MultimodalButton from "@/components/multimodal/MultimodalButton";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -328,9 +329,12 @@ export default function Dashboard() {
             <h1 className="text-3xl font-bold">Welcome back!</h1>
             <p className="text-muted-foreground mt-1">Here's what's happening with your workflows</p>
           </div>
-          <Button className="gradient-primary text-primary-foreground" onClick={() => setShowCreateOptions(true)}>
-            <Plus className="mr-2 h-4 w-4" /> New Workflow
-          </Button>
+          <div className="flex items-center gap-3">
+            <MultimodalButton size="default" />
+            <Button className="gradient-primary text-primary-foreground" onClick={() => setShowCreateOptions(true)}>
+              <Plus className="mr-2 h-4 w-4" /> New Workflow
+            </Button>
+          </div>
         </div>
 
         {/* Stats */}

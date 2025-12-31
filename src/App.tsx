@@ -25,6 +25,7 @@ import { AdminRoute } from "./components/admin/AdminRoute";
 import NotFound from "./pages/NotFound";
 import GoogleAuthCallback from "./pages/auth/google/Callback";
 import FormTrigger from "./pages/FormTrigger";
+import MultimodalBuilder from "./pages/MultimodalBuilder";
 
 // Component to conditionally render Chatbot only on landing page
 const ConditionalChatbot = () => {
@@ -69,6 +70,7 @@ const App = () => (
             <Route path="/admin/template/:id/edit" element={<AdminRoute><TemplateEditor /></AdminRoute>} />
             <Route path="/auth/google/callback" element={<GoogleAuthCallback />} />
             <Route path="/form/:workflowId/:nodeId" element={<FormTrigger />} />
+            <Route path="/multimodal" element={<MultimodalBuilder />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
           <ConditionalChatbot />
