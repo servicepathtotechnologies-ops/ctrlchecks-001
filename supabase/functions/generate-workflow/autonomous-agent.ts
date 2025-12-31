@@ -762,11 +762,18 @@ ${JSON.stringify(analysis, null, 2)}
 REQUIRED NODES (based on goal):
 ${JSON.stringify(requiredNodes, null, 2)}
 
+🚨🚨🚨 CRITICAL: EXPLICITLY MENTIONED NODES ARE MANDATORY 🚨🚨🚨
+If the user explicitly listed nodes in a "Nodes Used:" section, those nodes MUST be included in the workflow.
+The required nodes list above includes ALL nodes that MUST be present - do NOT skip any of them.
+
 ${this.nodeKnowledge}
 
 CRITICAL CONSTRUCTION RULES:
 1. ${requiresFormNode ? '🚨🚨🚨 YOU MUST use "form" node as the FIRST node - DO NOT use manual_trigger or any other trigger' : 'Start with appropriate trigger node (manual_trigger, webhook, schedule, etc.)'}
-2. YOU MUST include ALL required nodes listed above - missing any node means workflow is INCOMPLETE
+2. 🚨 YOU MUST include ALL required nodes listed above - missing any node means workflow is INCOMPLETE and WRONG
+3. If "datadog" is in required nodes → YOU MUST use datadog node for monitoring/log operations
+4. If "if_else" or "if" is in required nodes → YOU MUST use if_else node for conditional logic
+5. If "slack" is in required nodes → YOU MUST use slack_webhook or slack_message node
 3. Position nodes with x spacing of 300px, y spacing of 150px (start at x:250, y:100)
 4. Include ALL required configuration fields for each node
 ${requiresFormNode ? `5. Form node MUST have fields configured as JSON string: ${JSON.stringify(formFields)}` : '5. Use template variables ({{input.field}}) for data passing'}
@@ -806,6 +813,9 @@ Build the complete workflow as JSON:
 
 VALIDATION BEFORE RETURNING:
 - Count nodes: Must have trigger + all required nodes from goal
+- 🚨 CRITICAL: Check that ALL nodes in the required nodes list are present in the workflow
+- Check: If "datadog" is in required nodes → MUST have datadog node
+- Check: If "if_else" or "if" is in required nodes → MUST have if_else node
 - Check: If goal mentions "google sheets" → must have google_sheets node
 - Check: If goal mentions "google doc" → must have google_doc node  
 - Check: If goal mentions "gmail" or "email" → must have google_gmail node
@@ -814,7 +824,7 @@ VALIDATION BEFORE RETURNING:
 - CRITICAL: If workflow has google_sheets → MUST have javascript node to parse data
 - CRITICAL: JavaScript node MUST return formatted text in {content, text, body} fields
 - CRITICAL: Output nodes (gmail, slack) MUST use {{input.content}} or {{input.text}} template variables
-- If ANY required node is missing, the workflow is INCOMPLETE and WRONG
+- If ANY required node is missing, the workflow is INCOMPLETE and WRONG - DO NOT return it
 - USE USER PROVIDED CONFIGURATION values in node configs (e.g., documentId, spreadsheetId, webhookUrl, email addresses)
 
 JAVASCRIPT NODE CODE EXAMPLES:
@@ -1469,45 +1479,139 @@ return {
     const goalLower = goal.toLowerCase();
     const required: string[] = [];
     
-    // 🚨 CRITICAL: Check for form keywords FIRST - highest priority
-    const formKeywords = [
-      'form', 'create a form', 'form data', 'user data', 'collect data', 'collect user data',
-      'name', 'email', 'mobile', 'phone', 'contact', 'registration', 'survey', 'feedback',
-      'submission', 'user input', 'input from users', 'contact form', 'registration form',
-      'feedback form', 'data collection', 'take the user data', 'user information',
-      'gather data', 'collect information', 'user submission'
-    ];
-    
-    const requiresFormNode = formKeywords.some(keyword => goalLower.includes(keyword));
-    
-    if (requiresFormNode) {
-      required.push('form'); // Form node is REQUIRED
-      console.log('[EXTRACT NODES] Form keywords detected - form node is REQUIRED');
-    } else {
-      required.push('manual_trigger'); // Default trigger only if no form
+    // 🚨 CRITICAL: Parse explicit "Nodes Used:" section FIRST (highest priority)
+    const nodesUsedMatch = goal.match(/nodes?\s+used[:\s]+([^\n]+)/i);
+    if (nodesUsedMatch) {
+      const nodesUsedText = nodesUsedMatch[1].trim();
+      const explicitNodes = nodesUsedText.split(/[,\n]/).map(n => n.trim()).filter(n => n.length > 0);
+      
+      console.log('[EXTRACT NODES] Found explicit "Nodes Used:" section:', explicitNodes);
+      
+      // Map common node name variations to actual node types
+      const nodeNameMap: Record<string, string> = {
+        'datadog': 'datadog',
+        'data dog': 'datadog',
+        'if': 'if_else',
+        'if/else': 'if_else',
+        'if else': 'if_else',
+        'conditional': 'if_else',
+        'slack': 'slack_webhook',
+        'slack webhook': 'slack_webhook',
+        'slack message': 'slack_message',
+        'webhook': 'webhook',
+        'form': 'form',
+        'schedule': 'schedule',
+        'manual': 'manual_trigger',
+        'manual trigger': 'manual_trigger',
+        'google sheets': 'google_sheets',
+        'google sheet': 'google_sheets',
+        'sheets': 'google_sheets',
+        'google doc': 'google_doc',
+        'google document': 'google_doc',
+        'gmail': 'google_gmail',
+        'email': 'google_gmail',
+        'javascript': 'javascript',
+        'js': 'javascript',
+        'github': 'github',
+        'gitlab': 'gitlab',
+        'pagerduty': 'pagerduty',
+        'jenkins': 'jenkins',
+        'docker': 'docker',
+        'kubernetes': 'kubernetes',
+        'k8s': 'kubernetes',
+      };
+      
+      for (const nodeName of explicitNodes) {
+        const nodeNameLower = nodeName.toLowerCase().trim();
+        const mappedNode = nodeNameMap[nodeNameLower];
+        
+        if (mappedNode) {
+          if (!required.includes(mappedNode)) {
+            required.push(mappedNode);
+            console.log(`[EXTRACT NODES] Mapped "${nodeName}" → "${mappedNode}"`);
+          }
+        } else {
+          // Try direct match (case-insensitive)
+          const directMatch = Object.keys(nodeNameMap).find(key => 
+            key.toLowerCase() === nodeNameLower || 
+            nodeNameLower.includes(key.toLowerCase()) ||
+            key.toLowerCase().includes(nodeNameLower)
+          );
+          if (directMatch && !required.includes(nodeNameMap[directMatch])) {
+            required.push(nodeNameMap[directMatch]);
+            console.log(`[EXTRACT NODES] Direct match: "${nodeName}" → "${nodeNameMap[directMatch]}"`);
+          } else {
+            console.warn(`[EXTRACT NODES] Unknown node name in "Nodes Used:" section: "${nodeName}"`);
+          }
+        }
+      }
     }
     
-    // Google Sheets
-    if (goalLower.includes('google sheet') || goalLower.includes('sheets')) {
+    // 🚨 CRITICAL: Check for form keywords - but only if not already specified
+    if (!required.includes('form') && !required.includes('webhook') && !required.includes('schedule')) {
+      const formKeywords = [
+        'form', 'create a form', 'form data', 'user data', 'collect data', 'collect user data',
+        'name', 'email', 'mobile', 'phone', 'contact', 'registration', 'survey', 'feedback',
+        'submission', 'user input', 'input from users', 'contact form', 'registration form',
+        'feedback form', 'data collection', 'take the user data', 'user information',
+        'gather data', 'collect information', 'user submission'
+      ];
+      
+      const requiresFormNode = formKeywords.some(keyword => goalLower.includes(keyword));
+      
+      if (requiresFormNode) {
+        required.push('form'); // Form node is REQUIRED
+        console.log('[EXTRACT NODES] Form keywords detected - form node is REQUIRED');
+      }
+    }
+    
+    // Add default trigger only if no trigger specified
+    if (!required.some(node => ['form', 'webhook', 'schedule', 'manual_trigger', 'interval', 'chat_trigger'].includes(node))) {
+      required.push('manual_trigger');
+    }
+    
+    // Google Sheets (if not already added)
+    if (!required.includes('google_sheets') && (goalLower.includes('google sheet') || goalLower.includes('sheets'))) {
       required.push('google_sheets');
-      required.push('javascript'); // Always need JS to parse sheets data
+      if (!required.includes('javascript')) {
+        required.push('javascript'); // Always need JS to parse sheets data
+      }
     }
     
-    // Google Doc
-    if (goalLower.includes('google doc') || goalLower.includes('document')) {
+    // Google Doc (if not already added)
+    if (!required.includes('google_doc') && (goalLower.includes('google doc') || goalLower.includes('document'))) {
       required.push('google_doc');
     }
     
-    // Gmail/Email
-    if (goalLower.includes('gmail') || goalLower.includes('email') || goalLower.includes('send email')) {
+    // Gmail/Email (if not already added)
+    if (!required.includes('google_gmail') && (goalLower.includes('gmail') || goalLower.includes('email') || goalLower.includes('send email'))) {
       required.push('google_gmail');
     }
     
-    // Slack
-    if (goalLower.includes('slack')) {
+    // Slack (if not already added)
+    if (!required.includes('slack_webhook') && !required.includes('slack_message') && goalLower.includes('slack')) {
       required.push('slack_webhook'); // Default to slack_webhook
     }
     
+    // Datadog (if not already added, check for monitoring/logs keywords)
+    if (!required.includes('datadog')) {
+      const datadogKeywords = ['datadog', 'data dog', 'monitor logs', 'log monitoring', 'monitoring', 'observability'];
+      if (datadogKeywords.some(keyword => goalLower.includes(keyword))) {
+        required.push('datadog');
+        console.log('[EXTRACT NODES] Datadog keywords detected - datadog node is REQUIRED');
+      }
+    }
+    
+    // If/Else logic (if not already added, check for conditional keywords)
+    if (!required.includes('if_else')) {
+      const ifElseKeywords = ['if', 'else', 'conditional', 'check', 'validate', 'threshold', 'exceed'];
+      if (ifElseKeywords.some(keyword => goalLower.includes(keyword))) {
+        required.push('if_else');
+        console.log('[EXTRACT NODES] Conditional logic keywords detected - if_else node is REQUIRED');
+      }
+    }
+    
+    console.log('[EXTRACT NODES] Final required nodes:', required);
     return required;
   }
 
@@ -1858,8 +1962,48 @@ Goal is achieved ONLY if:
   private verifyGoalProgrammatically(goal: string, workflow: any): { passed: boolean; reason: string; fix: string } {
     const goalLower = goal.toLowerCase();
     const nodeTypes = workflow.nodes?.map((n: any) => n.type || n.data?.type) || [];
+    
+    // 🚨 CRITICAL: Check for explicitly mentioned nodes in "Nodes Used:" section FIRST
+    const nodesUsedMatch = goal.match(/nodes?\s+used[:\s]+([^\n]+)/i);
+    if (nodesUsedMatch) {
+      const nodesUsedText = nodesUsedMatch[1].trim();
+      const explicitNodes = nodesUsedText.split(/[,\n]/).map(n => n.trim().toLowerCase()).filter(n => n.length > 0);
+      
+      // Check for Datadog
+      if (explicitNodes.some(n => n.includes('datadog') || n.includes('data dog'))) {
+        if (!nodeTypes.includes('datadog')) {
+          return {
+            passed: false,
+            reason: 'User explicitly mentioned "Datadog" in "Nodes Used:" section but workflow has no datadog node',
+            fix: 'Add datadog node with appropriate operation (query_metrics, create_event, etc.)',
+          };
+        }
+      }
+      
+      // Check for If/Else
+      if (explicitNodes.some(n => n === 'if' || n.includes('if') || n.includes('else') || n.includes('conditional'))) {
+        if (!nodeTypes.includes('if_else')) {
+          return {
+            passed: false,
+            reason: 'User explicitly mentioned "If" in "Nodes Used:" section but workflow has no if_else node',
+            fix: 'Add if_else node for conditional logic with both true and false output edges',
+          };
+        }
+      }
+      
+      // Check for Slack
+      if (explicitNodes.some(n => n.includes('slack'))) {
+        if (!nodeTypes.includes('slack_webhook') && !nodeTypes.includes('slack_message')) {
+          return {
+            passed: false,
+            reason: 'User explicitly mentioned "Slack" in "Nodes Used:" section but workflow has no slack node',
+            fix: 'Add slack_webhook or slack_message node',
+          };
+        }
+      }
+    }
 
-    // 🚨 CRITICAL: Check for Form node FIRST (highest priority)
+    // 🚨 CRITICAL: Check for Form node (highest priority)
     const formKeywords = [
       'form', 'create a form', 'form data', 'user data', 'collect data', 'collect user data',
       'name', 'email', 'mobile', 'phone', 'contact', 'registration', 'survey', 'feedback',
@@ -1928,6 +2072,35 @@ Goal is achieved ONLY if:
           reason: 'User mentioned "slack" but workflow has no slack_webhook or slack_message node',
           fix: 'Add slack_webhook or slack_message node',
         };
+      }
+    }
+    
+    // Check for Datadog (monitoring/logs)
+    if (goalLower.includes('datadog') || goalLower.includes('data dog') || goalLower.includes('monitor logs') || goalLower.includes('log monitoring')) {
+      if (!nodeTypes.includes('datadog')) {
+        return {
+          passed: false,
+          reason: 'User mentioned "datadog" or "monitoring logs" but workflow has no datadog node',
+          fix: 'Add datadog node with appropriate operation (query_metrics, create_event, etc.)',
+        };
+      }
+    }
+    
+    // Check for If/Else logic (conditional)
+    if (goalLower.includes('if') || goalLower.includes('else') || goalLower.includes('conditional') || goalLower.includes('threshold') || goalLower.includes('exceed')) {
+      if (!nodeTypes.includes('if_else')) {
+        // This is a warning, not always required - but if user explicitly mentioned it, it's required
+        const nodesUsedMatch = goal.match(/nodes?\s+used[:\s]+([^\n]+)/i);
+        if (nodesUsedMatch) {
+          const nodesUsedText = nodesUsedMatch[1].toLowerCase();
+          if (nodesUsedText.includes('if') || nodesUsedText.includes('else')) {
+            return {
+              passed: false,
+              reason: 'User explicitly mentioned "If" in "Nodes Used:" section but workflow has no if_else node',
+              fix: 'Add if_else node for conditional logic with both true and false output edges',
+            };
+          }
+        }
       }
     }
 

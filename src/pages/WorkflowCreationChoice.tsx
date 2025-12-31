@@ -3,7 +3,8 @@ import { useAuth } from '@/lib/auth';
 import { useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Sparkles, Wrench, ArrowLeft } from 'lucide-react';
+import { Sparkles, Wrench, ArrowLeft, Zap } from 'lucide-react';
+import MultimodalButton from '@/components/multimodal/MultimodalButton';
 
 export default function WorkflowCreationChoice() {
   const navigate = useNavigate();
@@ -46,7 +47,7 @@ export default function WorkflowCreationChoice() {
           </p>
         </div>
 
-        <div className="grid md:grid-cols-2 gap-4">
+        <div className="grid md:grid-cols-3 gap-4">
           {/* Manual Creation Option */}
           <Card className="cursor-pointer transition-shadow border hover:shadow-md">
             <CardHeader className="pb-4">
@@ -88,6 +89,23 @@ export default function WorkflowCreationChoice() {
               >
                 Generate with AI
               </Button>
+            </CardContent>
+          </Card>
+
+          {/* Multimodal Agent Builder Option */}
+          <Card className="cursor-pointer transition-shadow border hover:shadow-md border-purple-500/20 bg-gradient-to-br from-purple-50/50 to-pink-50/50 dark:from-purple-950/20 dark:to-pink-950/20">
+            <CardHeader className="pb-4">
+              <div className="flex items-center justify-center w-12 h-12 rounded-full bg-gradient-to-br from-purple-500/20 to-pink-500/20 mb-3">
+                <Zap className="h-5 w-5 text-purple-600 dark:text-purple-400" />
+              </div>
+              <CardTitle className="text-lg font-semibold">Multimodal Agent</CardTitle>
+              <CardDescription className="text-sm mt-1.5">
+                Build AI models with words. Describe what you want - text, images, audio, code - 
+                and we'll create a working interface instantly using free AI models.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <MultimodalButton className="w-full" size="default" />
             </CardContent>
           </Card>
         </div>
