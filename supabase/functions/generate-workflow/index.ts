@@ -52,6 +52,102 @@ const AVAILABLE_NODES = {
   productivity: ['notion', 'trello', 'asana', 'jira', 'linear'],
 };
 
+/**
+ * Generate a simple chat workflow using a template (NO API CALLS)
+ * This is optimized for common chat workflow patterns to reduce API usage to ZERO
+ */
+function generateSimpleChatWorkflow(
+  prompt: string,
+  config: Record<string, any>
+): any {
+  // Template-based generation - no API calls, 100% reliable
+  const workflow = {
+    name: "AI Chatbot with Memory",
+    summary: "Stateful chatbot with conversation memory using Google Gemini",
+    nodes: [
+      {
+        id: "trigger_1",
+        type: "chat_trigger",
+        position: { x: 250, y: 100 },
+        config: {}
+      },
+      {
+        id: "memory_1",
+        type: "memory",
+        position: { x: 550, y: 100 },
+        config: {
+          operation: "retrieve",
+          memoryType: "both",
+          maxMessages: "10"
+        }
+      },
+      {
+        id: "js_1",
+        type: "javascript",
+        position: { x: 850, y: 100 },
+        config: {
+          code: `// Get current user message
+const currentMessage = input.message || '';
+
+// Get conversation history from memory node
+const history = input.messages || [];
+
+// Build conversation context
+let context = '';
+if (history.length > 0) {
+  context = history.map(msg => \`\${msg.role}: \${msg.content}\`).join('\\n');
+}
+
+// Build full prompt with context
+const systemPrompt = 'You are a helpful AI assistant. Your goal is to respond to user queries based on the conversation history.';
+const fullPrompt = context 
+  ? \`\${systemPrompt}\\n\\nConversation History:\\n\${context}\\n\\nUser: \${currentMessage}\\nAssistant:\`
+  : \`\${systemPrompt}\\n\\nUser: \${currentMessage}\\nAssistant:\`;
+
+// Return prompt and session info
+return {
+  prompt: fullPrompt,
+  message: currentMessage,
+  session_id: input.session_id || input._session_id || '',
+  _session_id: input._session_id || '',
+  _workflow_id: input._workflow_id || ''
+};`
+        }
+      },
+      {
+        id: "gemini_1",
+        type: "google_gemini",
+        position: { x: 1150, y: 100 },
+        config: {
+          model: "gemini-2.5-flash",
+          prompt: "{{input.prompt}}",
+          temperature: "0.7"
+        }
+      }
+    ],
+    edges: [
+      {
+        id: "e1",
+        source: "trigger_1",
+        target: "memory_1"
+      },
+      {
+        id: "e2",
+        source: "memory_1",
+        target: "js_1"
+      },
+      {
+        id: "e3",
+        source: "js_1",
+        target: "gemini_1"
+      }
+    ]
+  };
+
+  console.log('[SIMPLE CHAT WORKFLOW] Generated template-based workflow (0 API calls)');
+  return workflow;
+}
+
 serve(async (req) => {
   // CRITICAL: Handle CORS preflight FIRST, before any other code
   // This MUST be the first check to avoid any boot errors blocking OPTIONS
@@ -68,22 +164,51 @@ serve(async (req) => {
     try {
       requestBody = await req.json();
     } catch (error) {
+      console.error('[generate-workflow] JSON parse error:', error);
       return new Response(
-        JSON.stringify({ error: 'Invalid JSON in request body' }),
+        JSON.stringify({ 
+          error: 'Invalid JSON in request body',
+          details: error instanceof Error ? error.message : String(error)
+        }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
+    
+    // Log request for debugging (without sensitive data)
+    console.log('[generate-workflow] Request received:', {
+      hasPrompt: !!requestBody.prompt,
+      promptLength: requestBody.prompt?.length || 0,
+      mode: requestBody.mode,
+      hasCurrentWorkflow: !!requestBody.currentWorkflow,
+      nodesCount: requestBody.currentWorkflow?.nodes?.length || 0,
+      edgesCount: requestBody.currentWorkflow?.edges?.length || 0,
+      hasExecutionHistory: !!requestBody.executionHistory,
+      executionHistoryLength: Array.isArray(requestBody.executionHistory) ? requestBody.executionHistory.length : 'not array',
+    });
 
     // Accept both 'prompt' and 'description' for compatibility
-    // Also accept 'mode' ('create' | 'edit') and 'currentWorkflow'
+    // Also accept 'mode' ('create' | 'edit'), 'currentWorkflow', and 'executionHistory'
     const prompt = requestBody.prompt || requestBody.description;
     const mode = requestBody.mode || 'create';
     const currentWorkflow = requestBody.currentWorkflow;
+    // Safely extract executionHistory - ensure it's an array
+    let executionHistory: any[] = [];
+    if (requestBody.executionHistory) {
+      if (Array.isArray(requestBody.executionHistory)) {
+        executionHistory = requestBody.executionHistory;
+      } else {
+        console.warn('[generate-workflow] executionHistory is not an array, ignoring');
+      }
+    }
     const config = requestBody.config || {}; // User provided configuration values
 
     if (!prompt || typeof prompt !== 'string' || prompt.trim().length === 0) {
+      console.error('[generate-workflow] Missing or invalid prompt:', { prompt, type: typeof prompt });
       return new Response(
-        JSON.stringify({ error: 'Prompt is required and must be a non-empty string' }),
+        JSON.stringify({ 
+          error: 'Prompt is required and must be a non-empty string',
+          received: { prompt, type: typeof prompt, length: prompt?.length || 0 }
+        }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
@@ -113,11 +238,50 @@ serve(async (req) => {
       (requestBody as any)._requiresWebhook = true;
     }
 
-    if (mode === 'edit' && !currentWorkflow) {
-      return new Response(
-        JSON.stringify({ error: 'currentWorkflow is required for edit mode' }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+    if (mode === 'edit') {
+      if (!currentWorkflow) {
+        return new Response(
+          JSON.stringify({ error: 'currentWorkflow is required for edit mode' }),
+          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+      
+      // Validate currentWorkflow structure
+      if (typeof currentWorkflow !== 'object' || currentWorkflow === null) {
+        return new Response(
+          JSON.stringify({ error: 'currentWorkflow must be an object' }),
+          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+      
+      const workflow = currentWorkflow as Record<string, unknown>;
+      if (!Array.isArray(workflow.nodes)) {
+        return new Response(
+          JSON.stringify({ error: 'currentWorkflow.nodes must be an array' }),
+          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+      
+      if (!Array.isArray(workflow.edges)) {
+        return new Response(
+          JSON.stringify({ error: 'currentWorkflow.edges must be an array' }),
+          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+      
+      // Log for debugging (without sensitive data)
+      console.log(`[EDIT MODE] Received workflow with ${workflow.nodes.length} nodes and ${workflow.edges.length} edges`);
+      
+      // Validate executionHistory if provided
+      if (executionHistory && !Array.isArray(executionHistory)) {
+        console.warn('[EDIT MODE] executionHistory is not an array, ignoring it');
+        executionHistory = [];
+      }
+      
+      // Log execution history info
+      if (executionHistory && executionHistory.length > 0) {
+        console.log(`[EDIT MODE] Execution history provided: ${executionHistory.length} failed execution(s)`);
+      }
     }
 
     // Initialize Supabase client
@@ -146,6 +310,88 @@ serve(async (req) => {
     // Build comprehensive system prompt with all available node types and descriptions
     const nodeDescriptions = `
 MASTER SYSTEM PROMPT — GOAL-BASED AI WORKFLOW AGENT
+
+🚨🚨🚨 CRITICAL REMINDER BEFORE YOU START 🚨🚨🚨
+================================================================================
+IF WORKFLOW CONTAINS: HTTP Request → JavaScript → Google Sheets
+THEN JavaScript code MUST use: input.products (NOT input.body.products)
+HTTP Request returns data DIRECTLY at root level, NOT in input.body
+================================================================================
+
+🚨🚨🚨 CRITICAL NODE TYPE RULES - NEVER USE "custom" 🚨🚨🚨
+================================================================================
+❌ FORBIDDEN: type: "custom" - THIS NODE TYPE DOES NOT EXIST
+❌ FORBIDDEN: Inventing node types that are not in the allowed list
+❌ FORBIDDEN: Missing or undefined node types
+
+✅ REQUIRED: Every node MUST have a valid type from the ALLOWED NODE TYPES list below
+✅ REQUIRED: If you need custom logic, use "javascript" node type
+✅ REQUIRED: If you need data transformation, use "function" or "function_item" node types
+
+ALLOWED NODE TYPES (USE ONLY THESE):
+- Triggers: schedule, manual_trigger, webhook, form, chat_trigger, error_trigger, interval, workflow_trigger
+- HTTP: http_request, http_post
+- Logic: javascript, function, function_item, if_else, filter, set, set_variable, merge, switch, loop, wait, error_handler, noop, split_in_batches, stop_and_error
+- Data: database_read, database_write
+- Google: google_sheets, google_gmail, google_doc, google_drive, google_calendar, google_tasks, google_contacts, google_analytics
+- Output: log_output, slack_webhook, slack_message
+- AI: openai_gpt, anthropic_claude, google_gemini, text_summarizer, sentiment_analyzer, ai_agent, memory, llm_chain, azure_openai, hugging_face, cohere, ollama, embeddings, vector_store, chat_model
+- And all other node types explicitly listed in the NODE LIBRARY section below
+
+❌ WRONG EXAMPLES (DO NOT USE):
+{
+  "id": "node_1",
+  "type": "custom",  // ❌ FORBIDDEN - "custom" does not exist
+  "name": "Fetch Data"
+}
+
+{
+  "id": "node_1",
+  "type": "http_request_custom",  // ❌ FORBIDDEN - invented type
+  "name": "Fetch Data"
+}
+
+{
+  "id": "node_1",
+  // ❌ FORBIDDEN - missing type field
+  "name": "Fetch Data"
+}
+
+✅ CORRECT EXAMPLES (ALWAYS USE):
+{
+  "id": "node_1",
+  "type": "http_request",  // ✅ CORRECT - valid node type
+  "name": "Fetch Data"
+}
+
+{
+  "id": "node_1",
+  "type": "javascript",  // ✅ CORRECT - use javascript for custom logic
+  "name": "Transform Data",
+  "config": {
+    "code": "return input.map(item => ({...}));"
+  }
+}
+
+{
+  "id": "node_1",
+  "type": "schedule",  // ✅ CORRECT - valid trigger type
+  "name": "Daily Schedule"
+}
+
+VALIDATION RULE:
+Before outputting any workflow, verify EVERY node has:
+1. A "type" field that exists in the ALLOWED NODE TYPES list
+2. The type is NOT "custom"
+3. The type matches the node's intended functionality
+
+If you're unsure which node type to use:
+- For custom code/logic → use "javascript"
+- For data transformation → use "function" or "function_item"
+- For HTTP requests → use "http_request" or "http_post"
+- For triggers → use appropriate trigger type (schedule, webhook, form, etc.)
+- Check the NODE LIBRARY section below for complete list and descriptions
+================================================================================
 
 You are an advanced, autonomous, goal-based AI Workflow Automation Agent,
 similar to n8n, Zapier, and enterprise automation platforms.
@@ -230,6 +476,10 @@ STEP 3: PLANNING
 STEP 4: NODE SELECTION
 - Select ONLY nodes from the Node Library
 - NEVER invent nodes, parameters, or APIs
+- 🚨 NEVER use type: "custom" - it does NOT exist
+- ALWAYS use valid node types from the ALLOWED NODE TYPES list
+- If you need custom logic, use "javascript" node type
+- Verify every node has a valid "type" field before outputting workflow
 
 STEP 5: WORKFLOW CONSTRUCTION
 - Build workflow strictly from:
@@ -241,25 +491,58 @@ STEP 6: VALIDATION (MANDATORY)
 You MUST validate:
 - Node schema correctness
 - Required inputs & credentials
-- Input/output data compatibility
+- Input/output data compatibility (CRITICAL - see DATA FLOW MAPPING section below)
 - Execution order
 - No dead nodes
 - No infinite loops
 - No missing connections
+- JavaScript code correctness (especially HTTP Request → JavaScript patterns)
+  * If previous node is HTTP Request → use input.property (NOT input.body.property)
+  * If previous node is webhook → use input.body.property
+  * If previous node is form → use input.data.property
+  * If previous node is chat_trigger → use input.message, input.session_id
+  * If previous node is memory (retrieve) → use input.messages (array)
+  * If previous node is google_gemini/openai_gpt → use input directly (string output)
+  * If previous node is google_sheets (read) → use input.data (array of arrays)
+  * If previous node is google_doc (read) → use input.content or input.text
 
 STEP 7: EXECUTION SIMULATION
 - Mentally simulate the full workflow
 - Predict runtime behavior and failures
 
-STEP 8: SELF-HEALING & CORRECTION
+STEP 8: DATA FLOW VALIDATION (CRITICAL - NEW STEP)
+For EVERY edge in the workflow, verify:
+1. Identify source node type and its output format (use RULE 2 reference above)
+2. Identify target node type and its expected input format
+3. Verify data path compatibility:
+   - If source is webhook → target must use input.body.field
+   - If source is form → target must use input.data.field
+   - If source is http_request → target must use input.field (NOT input.body.field)
+   - If source is chat_trigger → target must use input.message, input.session_id
+   - If source is memory (retrieve) → target must use input.messages (array)
+   - If source is AI node → target receives string, may need JavaScript wrapper
+   - If source is google_sheets (read) → target must parse input.data (array-of-arrays)
+   - If source is google_doc (read) → target must use input.content or input.text
+4. Verify template variables match data path:
+   - {{input.body.field}} for webhook data
+   - {{input.data.field}} for form data
+   - {{input.field}} for http_request data
+   - {{input.message}} for chat_trigger data
+   - {{input.content}} for google_doc data
+5. Verify JavaScript code (if present) accesses data correctly based on previous node type
+6. If ANY mismatch found → FIX IMMEDIATELY before outputting workflow
+
+STEP 9: SELF-HEALING & CORRECTION
 - If ANY issue is detected:
   - Fix it automatically
   - Regenerate ONLY the faulty parts
+  - Re-validate data flow for corrected nodes
 - Repeat validation until clean
 
-STEP 9: FINAL RESPONSE
+STEP 10: FINAL RESPONSE
 - Output ONLY the final validated workflow
 - Do NOT include explanations unless asked
+- Ensure ALL data flows are correct (100% accuracy required)
 
 ════════════════════════════════════
 5. OUTPUT FORMAT (STRICT ENFORCEMENT)
@@ -341,6 +624,163 @@ You MUST:
 - Store the successful fix
 - Apply the fix automatically next time
 - Prefer high-success patterns
+
+🚨🚨🚨 CRITICAL LEARNED ERROR PATTERNS (DO NOT REPEAT) 🚨🚨🚨
+================================================================================
+1. HTTP Request → JavaScript → Google Sheets Error:
+   - ERROR: "Cannot read properties of undefined (reading 'body')"
+   - FIX: Access HTTP Request output directly: input.products NOT input.body.products
+   
+2. Google Sheets Append Operation Not Storing Data:
+   - ERROR: Only 2 cells updated instead of all rows when appending to Google Sheets
+   - ROOT CAUSE 1: Using operation: "write" instead of operation: "append"
+     * Write overwrites existing data (only writes to specified range)
+     * Append adds new rows to the end of the sheet
+   - ROOT CAUSE 2: JavaScript returning wrong format or Google Sheets not extracting data correctly
+     * JavaScript MUST return: { values: [[row1], [row2], ...] } (2D array)
+     * Google Sheets automatically extracts: input.values, input.data, or input.rows
+   - FIX:
+     * ALWAYS use operation: "append" when user says "append", "add to", "store in", "save to"
+     * JavaScript code: return { values: products.map(p => [p.id, p.title, p.price]) };
+     * Google Sheets config: { operation: "append", spreadsheetId: "...", sheetName: "Sheet1", data: "" }
+     * Leave data field empty - it will use input.values automatically
+   - CAUSE: JavaScript code tried to access input.body, but HTTP Request returns data DIRECTLY
+   - FIX: Access HTTP Request data at root level: input.products (NOT input.body.products)
+   - EXAMPLE CORRECT CODE FOR HTTP REQUEST → JAVASCRIPT → GOOGLE SHEETS:
+     // 🚨 CRITICAL: HTTP Request can return EITHER single object OR array
+     // Always check and handle both cases
+     
+     // ✅ RECOMMENDED: Use helpers (handles both cases automatically)
+     const items = helpers.toArray(input); // Converts single object to [object] or returns array
+     if (items.length === 0) {
+       return { values: [] };
+     }
+     const rows = helpers.toSheetsRows(items, ['ID', 'Title', 'Description', 'Price', 'Brand', 'Category']);
+     return { values: rows }; // ✅ Use "values" for Google Sheets
+     
+     // ✅ ALTERNATIVE: Manual handling for SINGLE OBJECT
+     // HTTP Request returns: {id: 1, title: "...", price: 9.99, brand: "...", category: "..."}
+     const item = input; // Single object at root level (NOT input.body)
+     if (!item || typeof item !== 'object' || Array.isArray(item)) {
+       return { values: [] };
+     }
+     // Transform single object to row (2D array with one row)
+     const row = [
+       item.id || '',
+       item.title || item.name || '',
+       item.description || '',
+       item.price || 0,
+       item.brand || '',
+       item.category || ''
+     ];
+     return { values: [row] }; // ✅ Wrap in array - Google Sheets expects 2D array [[row]]
+     
+     // ✅ ALTERNATIVE: Manual handling for ARRAY
+     // HTTP Request returns: {products: [{id: 1, ...}, {id: 2, ...}], total: 100}
+     const products = input.products || [];
+     if (products.length === 0) {
+       return { values: [] };
+     }
+     const rows = products.map(product => [
+       product.id || '',
+       product.title || product.name || '',
+       product.description || '',
+       product.price || 0,
+       product.brand || '',
+       product.category || ''
+     ]);
+     return { values: rows }; // ✅ Already 2D array
+   
+   - ❌ WRONG CODE (DO NOT USE):
+     const products = input.body.products || [];  // ❌ ERROR - input.body doesn't exist
+   
+   - ✅ CORRECT CODE (ALWAYS USE):
+     const products = input.products || [];  // ✅ CORRECT - HTTP Request data is at root
+   
+   - ALWAYS REMEMBER: 
+     * HTTP Request output is NOT wrapped in a "body" property
+     * Webhook output IS wrapped in input.body
+     * Form output IS in input.data
+     * Check previous node type before accessing data!
+================================================================================
+2. Google Sheets Append Operation Not Storing Data:
+   - ERROR: Only 2 cells updated instead of all rows when appending to Google Sheets
+   - ROOT CAUSE 1: Using operation: "write" instead of operation: "append"
+     * Write overwrites existing data (only writes to specified range like A1:B1)
+     * Append adds new rows to the end of the sheet
+   - ROOT CAUSE 2: JavaScript returning wrong format or Google Sheets not extracting data correctly
+     * JavaScript MUST return: { values: [[row1], [row2], ...] } (2D array)
+     * Google Sheets automatically extracts: input.values, input.data, or input.rows
+   - FIX:
+     * ALWAYS use operation: "append" when user says "append", "add to", "store in", "save to"
+     * JavaScript code: 
+       const products = input.products || [];
+       if (!products || products.length === 0) {
+         return { values: [] };
+       }
+       const rows = products.map(product => [
+         product.id || '',
+         product.title || '',
+         product.description || '',
+         product.price || 0,
+         product.brand || '',
+         product.category || ''
+       ]);
+       return { values: rows };  // ✅ CORRECT - use "values" not "rows"
+     * Google Sheets config: 
+       { 
+         operation: "append",  // ✅ NOT "write"
+         spreadsheetId: "...",
+         sheetName: "Sheet1",
+         data: ""  // Leave empty - uses input.values automatically
+       }
+   - ❌ WRONG (DO NOT USE):
+     * operation: "write"  // ❌ This overwrites data
+     * return { rows: [...] }  // ❌ Should be "values"
+   - ✅ CORRECT (ALWAYS USE):
+     * operation: "append"  // ✅ Adds new rows
+     * return { values: [...] }  // ✅ Google Sheets extracts this
+================================================================================
+3. HTTP Request Single Object Returns Empty Values:
+   - ERROR: JavaScript returns { values: [] } when HTTP Request returns single object
+   - ROOT CAUSE: HTTP Request can return EITHER:
+     * Single object: {id: 1, title: "...", price: 9.99, brand: "...", category: "..."}
+     * Array of objects: [{id: 1, ...}, {id: 2, ...}]
+     * Object with array property: {products: [{...}], total: 100}
+   - JavaScript code that expects array (e.g., input.products) will return empty when single object is returned
+   - FIX (RECOMMENDED - Use helpers):
+     * const items = helpers.toArray(input); // ✅ Converts single object to [object] or returns array
+     * if (items.length === 0) {
+     *   return { values: [] };
+     * }
+     * const rows = helpers.toSheetsRows(items, ['ID', 'Title', 'Description', 'Price', 'Brand', 'Category']);
+     * return { values: rows };
+   - FIX (MANUAL - For single object):
+     * const item = input; // Single object at root level (NOT input.body, NOT input.products)
+     * if (!item || typeof item !== 'object' || Array.isArray(item)) {
+     *   return { values: [] };
+     * }
+     * const row = [
+     *   item.id || '',
+     *   item.title || item.name || '',
+     *   item.description || '',
+     *   item.price || 0,
+     *   item.brand || '',
+     *   item.category || ''
+     * ];
+     * return { values: [row] }; // ✅ Must be 2D array [[row]]
+   - FIX (MANUAL - For array property):
+     * const products = helpers.getArray(input, 'products'); // ✅ Handles both array and single object
+     * const rows = helpers.toSheetsRows(products, ['ID', 'Title', 'Price']);
+     * return { values: rows };
+   - ❌ WRONG (DO NOT USE):
+     * const products = input.products || []; // ❌ Fails if input is single object (no .products property)
+     * const rows = products.map(...); // ❌ Returns [] if input is single object
+     * return { rows: [...] }; // ❌ Should be "values" not "rows"
+   - ✅ CORRECT (ALWAYS USE):
+     * const items = helpers.toArray(input); // ✅ Handles single object automatically
+     * return { values: helpers.toSheetsRows(items) }; // ✅ Auto-detects format
+================================================================================
 
 ════════════════════════════════════
 11. CONFIDENCE & SAFETY MECHANISM
@@ -469,14 +909,73 @@ LOGIC & CONTROL:
 
 DATA TRANSFORM:
 - javascript: Run custom JavaScript code (config: code, timeout)
-  * ⭐⭐⭐ CRITICAL FOR VALIDATION ⭐⭐⭐
-  * Use javascript node to validate email, name, mobile before sending to output
-  * Example validation code for WEBHOOK trigger:
+  * ⭐⭐⭐ CRITICAL FOR DATA TRANSFORMATION & VALIDATION ⭐⭐⭐
+  * 🚨 HELPER FUNCTIONS AVAILABLE (use helpers.helperName):
+    - helpers.getData(input): Extract data from common locations (input.data, input.body, input.payload, etc.)
+    - helpers.getArray(input, key?): Get array from input (handles arrays, single objects, nested arrays)
+      * If input is array → returns array
+      * If input is single object → wraps in array [object]
+      * If key specified → extracts that property (array or single object)
+    - helpers.toArray(input): Convert single object or array to array (always returns array)
+    - helpers.toSheetsRows(items, fields?): Transform array/object to Google Sheets rows format (2D array with headers)
+      * Handles both arrays and single objects
+      * Auto-detects fields if not specified
+    - helpers.isValidEmail(email): Validate email format
+    - helpers.isValidPhone(phone): Validate phone number (10-15 digits)
+    - helpers.get(obj, path, defaultValue): Safe property access (e.g., helpers.get(input, 'body.email', ''))
+    - helpers.log(...args): Log messages for debugging
+  * 🚨 CRITICAL: HTTP Request can return EITHER:
+    - Single object: {id: 1, title: "...", price: 9.99} 
+    - Array of objects: [{id: 1, ...}, {id: 2, ...}]
+    - Object with array property: {products: [{...}], total: 100}
+  * Example 1: Processing HTTP Request output for Google Sheets (using helpers - RECOMMENDED):
+    // Handles single object OR array automatically
+    const items = helpers.toArray(input); // Converts single object to [object] or returns array
+    if (items.length === 0) {
+      return { values: [] };
+    }
+    // Auto-transform to Google Sheets format with headers
+    const rows = helpers.toSheetsRows(items, ['ID', 'Title', 'Price', 'Stock', 'Category']);
+    return { values: rows }; // ✅ Use "values" for Google Sheets append
+  * Example 2: Processing HTTP Request single object (manual):
+    // HTTP Request returns single object: {id: 1, title: "...", price: 9.99}
+    // Convert to array first, then transform
+    const item = input; // Single object at root level
+    if (!item || typeof item !== 'object') {
+      return { values: [] };
+    }
+    const rows = [[
+      item.id || '',
+      item.title || '',
+      item.price || 0,
+      item.stock || 0,
+      item.category || ''
+    ]];
+    return { values: rows }; // ✅ Use "values" not "rows" for Google Sheets
+  * Example 3: Processing HTTP Request array (manual):
+    const products = input.products || []; // HTTP Request output is directly at root, not input.body
+    if (products.length === 0) {
+      return { values: [] };
+    }
+    const rows = products.map(product => [
+      product.id || '',
+      product.title || '',
+      product.price || 0,
+      product.stock || 0,
+      product.category || ''
+    ]);
+    return { values: rows }; // ✅ Use "values" not "rows" for Google Sheets
+  * Example 3: Safe data access (handles different input formats):
+    // Works with HTTP Request, Webhook, Form, etc.
+    const email = helpers.get(input, 'body.email') || helpers.get(input, 'data.email') || '';
+    const name = helpers.get(input, 'body.name') || helpers.get(input, 'data.name') || '';
+    const products = helpers.getArray(input, 'products'); // Safe array extraction
+  * Example 4: Validation code for WEBHOOK trigger:
     const email = input.body?.email || '';
     const name = input.body?.name || '';
     const mobile = input.body?.mobile || input.body?.mobile_no || '';
   
-  * Example validation code for FORM trigger:
+  * Example 5: Validation code for FORM trigger:
     const email = input.data?.email || '';
     const name = input.data?.name || '';
     const mobile = input.data?.mobile || '';
@@ -484,7 +983,17 @@ DATA TRANSFORM:
   * 🚨 CRITICAL: Always check trigger type first:
     - If trigger is "form" → use input.data.name, input.data.email, input.data.mobile
     - If trigger is "webhook" → use input.body.name, input.body.email, input.body.mobile
-    - For fallback (unknown trigger): use input.data?.email || input.body?.email || ''
+    - If previous node is "http_request" → data is at ROOT LEVEL, NOT in input.body
+      * HTTP Request can return:
+        - Single object: {id: 1, title: "..."} → use: helpers.toArray(input) or [input]
+        - Array: [{id: 1, ...}, {id: 2, ...}] → use: input (if array) or helpers.toArray(input)
+        - Object with array: {products: [...], total: 100} → use: input.products || []
+      * Example: If HTTP Request returns single object {id: 1, title: "..."}
+      * Then use: const items = helpers.toArray(input); // ✅ Converts single object to array
+      * Example: If HTTP Request returns {products: [...], total: 100}
+      * Then use: const products = input.products || []; (NOT input.body.products)
+      * Or use: const products = helpers.getArray(input, 'products'); // ✅ SAFE - handles both array and single object
+    - For fallback (unknown trigger): use helpers.get(input, 'data.email') || helpers.get(input, 'body.email') || ''
     
     // Email validation
     const emailRegex = /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/;
@@ -563,6 +1072,52 @@ STORAGE NODES:
 
 HTTP & API NODES:
 - http_request: Make HTTP API call (config: url, method: GET/POST/PUT/PATCH/DELETE, headers, body, timeout)
+  * 🚨 CRITICAL OUTPUT FORMAT: HTTP Request node returns the API response data DIRECTLY, NOT wrapped in a "body" property
+  * If API returns JSON like {"products": [...], "total": 100}, the output is: {products: [...], total: 100}
+  * If API returns non-JSON, output is: {text: "...", status: 200}
+  * ⚠️ DO NOT use input.body to access HTTP Request output - the data is at the root level of input
+  * Example: If HTTP Request returns {products: [{id: 1, name: "..."}]}], total: 100}
+  * Then in JavaScript: const products = input.products || []; const total = input.total || 0;
+  * For Google Sheets append: Use input.products (array) directly, or transform to rows format
+  * 🚨 CRITICAL: HTTP Request can return EITHER single object OR array
+  * Example JavaScript code for SINGLE OBJECT (RECOMMENDED):
+    // HTTP Request returns single object: {id: 1, title: "...", price: 9.99, ...}
+    const items = helpers.toArray(input); // ✅ Converts single object to [object] or returns array
+    if (items.length === 0) {
+      return { values: [] };
+    }
+    const rows = helpers.toSheetsRows(items, ['ID', 'Title', 'Description', 'Price', 'Brand', 'Category']);
+    return { values: rows }; // ✅ Use "values" for Google Sheets append
+  * Example JavaScript code for SINGLE OBJECT (MANUAL):
+    // HTTP Request returns single object at root level
+    const item = input; // NOT input.body, NOT input.products - just input
+    if (!item || typeof item !== 'object' || Array.isArray(item)) {
+      return { values: [] };
+    }
+    const row = [
+      item.id || '',
+      item.title || item.name || '',
+      item.description || '',
+      item.price || 0,
+      item.brand || '',
+      item.category || ''
+    ];
+    return { values: [row] }; // ✅ Must be 2D array [[row]]
+  * Example JavaScript code for ARRAY:
+    // HTTP Request returns: {products: [{id: 1, ...}, {id: 2, ...}], total: 100}
+    const products = input.products || [];
+    if (products.length === 0) {
+      return { values: [] };
+    }
+    const rows = products.map(product => [
+      product.id || '',
+      product.title || '',
+      product.price || 0,
+      product.stock || 0,
+      product.category || ''
+    ]);
+    return { values: rows }; // ✅ Already 2D array
+  * Google Sheets node automatically extracts input.values - leave data field empty
 - graphql: Execute GraphQL query (config: url, query, variables as JSON, headers, operationName, timeout)
 - respond_to_webhook: Send custom response to webhook caller (config: statusCode, responseBody as JSON, headers)
 - http_post: Send HTTP POST request (config: url, headers, bodyTemplate)
@@ -580,7 +1135,7 @@ OUTPUT & COMMUNICATION:
   * If user doesn't provide webhookUrl, use placeholder: "YOUR_SLACK_WEBHOOK_URL_HERE"
   * User will need to configure this in the workflow editor
   * Use {{input.body.email}}, {{input.body.name}}, {{input.body.mobile}} for webhook data
-  * Use {{input.formData.email}}, {{input.formData.name}}, {{input.formData.mobile}} for form data
+  * Use {{input.data.email}}, {{input.data.name}}, {{input.data.mobile}} for form data (formData is also supported as an alias)
   * Example text: "New submission:\\nName: {{input.body.name}}\\nEmail: {{input.body.email}}\\nMobile: {{input.body.mobile}}"
 - discord_webhook: Send Discord message (config: webhookUrl, content, username, avatarUrl)
 - microsoft_teams: Send Microsoft Teams message (config: webhookUrl, title, text, themeColor)
@@ -590,10 +1145,63 @@ OUTPUT & COMMUNICATION:
 - log_output: Log data for debugging (config: message, level: info/warn/error/debug)
 
 GOOGLE NODES:
-- google_sheets: Read/write Google Sheets (config: operation: read/write/append/update, spreadsheetId, sheetName, range, outputFormat). Get spreadsheetId from URL: /d/SPREADSHEET_ID/edit
+- google_sheets: Read/write/append Google Sheets (config: operation: read/write/append/update, spreadsheetId, sheetName, range, outputFormat). Get spreadsheetId from URL: /d/SPREADSHEET_ID/edit
   * Read operation outputs: {data: [[headers], [row1], [row2], ...], rows, columns, range, formatted, operation, sheetName, spreadsheetId}
   * The "data" field is an array of arrays where first row is headers, subsequent rows are data.
   * CRITICAL: When reading Google Sheets, you MUST use a javascript node to parse the array-of-arrays format.
+  * 🚨🚨🚨 CRITICAL FOR APPEND OPERATION WITH HTTP REQUEST DATA 🚨🚨🚨
+    - HTTP Request returns data DIRECTLY (not in input.body)
+    - You MUST use JavaScript node to transform HTTP Request output to rows format
+    - Example workflow: HTTP Request → JavaScript → Google Sheets (append)
+    - ✅ CORRECT JavaScript code for SINGLE OBJECT (HTTP Request returns one product):
+      // HTTP Request returns single object: {id: 1, title: "...", price: 9.99, ...}
+      // Convert single object to array first, then transform
+      const item = input; // Single object at root level (NOT input.body)
+      if (!item || typeof item !== 'object' || Array.isArray(item)) {
+        return { values: [] };
+      }
+      // Transform single object to row format
+      const row = [
+        item.id || '',
+        item.title || item.name || '',
+        item.description || '',
+        item.price || 0,
+        item.brand || '',
+        item.category || ''
+      ];
+      return { values: [row] }; // ✅ Wrap in array - Google Sheets expects 2D array
+    - ✅ CORRECT JavaScript code for ARRAY (HTTP Request returns array):
+      const products = input.products || [];
+      if (!products || products.length === 0) {
+        return { values: [] };
+      }
+      const rows = products.map(product => [
+        product.id || '',
+        product.title || product.name || '',
+        product.description || '',
+        product.price || 0,
+        product.brand || '',
+        product.category || ''
+      ]);
+      return { values: rows }; // ✅ Already 2D array
+    - ✅ CORRECT JavaScript code using helpers (HANDLES BOTH CASES):
+      // Use helpers.toArray() to handle both single object and array
+      const items = helpers.toArray(input); // Converts single object to [object] or returns array
+      if (items.length === 0) {
+        return { values: [] };
+      }
+      const rows = helpers.toSheetsRows(items, ['ID', 'Title', 'Description', 'Price', 'Brand', 'Category']);
+      return { values: rows }; // ✅ Use "values" for Google Sheets
+    - ✅ CORRECT Google Sheets node configuration:
+      * operation: "append" (NOT "write" - write overwrites, append adds new rows)
+      * spreadsheetId: "YOUR_SPREADSHEET_ID" (extract from URL: /d/SPREADSHEET_ID/edit)
+      * sheetName: "Sheet1" (or your sheet name, default: "Sheet1")
+      * range: Leave empty for append (not needed)
+      * data: Leave empty (will automatically use input.values from JavaScript node)
+    - The Google Sheets node automatically extracts input.values, input.data, or input.rows
+    - ❌ WRONG: operation: "write" (this overwrites existing data)
+    - ✅ CORRECT: operation: "append" (this adds new rows to the end)
+    - When user says "append" or "add to" or "store in" → ALWAYS use operation: "append"
   * Example JavaScript code to parse Google Sheets data:
     const sheetsData = input.data || [];
     let sheetsText = "Data from Google Sheets:\\n";
@@ -686,6 +1294,198 @@ PRODUCTIVITY:
 - jira: Jira operations (config: domain, email, apiToken, operation: create_issue/update_issue/get_issue/list_issues, issueKey, projectKey, summary, description)
 - linear: Linear operations (config: apiKey, operation: create_issue/update_issue/get_issue/list_issues, issueId, teamId, title, description)
 
+SOCIAL MEDIA:
+- twitter: Twitter/X API operations (config: apiKey, apiSecret, accessToken, accessTokenSecret, operation: create_tweet/create_tweet_media/delete_tweet/like_tweet/unlike_tweet/retweet/search_tweets/get_timeline/get_mentions/get_tweet/follow_user/unfollow_user, text, tweetId, mediaUrl, query, username)
+  * Required credentials: apiKey (Consumer Key), apiSecret (Consumer Secret), accessToken, accessTokenSecret
+  * Get credentials from: https://developer.twitter.com/ → Projects & Apps → Keys and tokens
+  * For posting: operation: "create_tweet", text: "Your tweet content" (max 280 characters)
+  * For scheduled posts: Use schedule trigger → twitter node with operation: "create_tweet"
+  * Example workflow: schedule → twitter (create_tweet) for scheduled content posting
+- linkedin: LinkedIn API operations (config: accessToken, accountType: profile/organization, organizationId, operation: create_post/create_article/create_post_media/create_company_post/get_posts/get_org_updates/delete_post/get_engagement, text, articleUrl, mediaUrl, postId)
+  * Required credentials: accessToken (get from https://www.linkedin.com/developers/apps → Auth tab → Generate token)
+  * For personal posts: accountType: "profile", operation: "create_post", text: "Your post content"
+  * For company pages: accountType: "organization", organizationId: "urn:li:organization:123456", operation: "create_company_post"
+  * For scheduled posts: Use schedule trigger → linkedin node with operation: "create_post"
+  * Example workflow: schedule → linkedin (create_post) for scheduled content posting
+- facebook: Facebook API operations (config: accessToken, pageId, operation: create_post/get_posts/delete_post, message, link, imageUrl)
+- instagram: Instagram API operations (config: accessToken, accountId, operation: create_post/get_media, imageUrl, caption)
+
+════════════════════════════════════
+🚨🚨🚨 CRITICAL: DATA FLOW MAPPING RULES 🚨🚨🚨
+════════════════════════════════════
+================================================================================
+YOU MUST ALWAYS VERIFY INPUT/OUTPUT COMPATIBILITY BETWEEN NODES
+================================================================================
+
+RULE 1: ALWAYS CHECK PREVIOUS NODE TYPE BEFORE ACCESSING DATA
+- Each node type outputs data in a SPECIFIC format
+- The next node MUST access data using the CORRECT path based on previous node type
+- NEVER assume data structure - ALWAYS check the previous node's output format
+
+RULE 2: COMMON NODE OUTPUT FORMATS (CRITICAL REFERENCE):
+
+TRIGGER NODES:
+- webhook → Outputs: {body: {...}, headers: {...}, query: {...}, method: "POST"}
+  * Access: input.body.email, input.body.name, input.body.mobile
+  * Template: {{input.body.email}}, {{input.body.name}}
+
+- form → Outputs: {data: {field1: value1, ...}, form: {...}, meta: {...}, files: []}
+  * Access: input.data.email, input.data.name, input.data.mobile
+  * Template: {{input.data.email}}, {{input.data.name}}
+  * ⚠️ CRITICAL: Form outputs in input.data, NOT input.formData
+
+- chat_trigger → Outputs: {trigger: "chat", message: "...", session_id: "...", _session_id: "...", _workflow_id: "..."}
+  * Access: input.message, input.session_id, input._session_id
+  * Template: {{input.message}}, {{input.session_id}}
+
+- manual_trigger → Outputs: {trigger: "manual", _user_id: "...", _workflow_id: "..."}
+  * Access: input directly (usually empty object, use for testing)
+
+HTTP & API NODES:
+- http_request → Outputs: API response data DIRECTLY at root level (NOT in input.body)
+  * If API returns JSON: {products: [...], total: 100} → output is: {products: [...], total: 100}
+  * If API returns single object: {id: 1, name: "..."} → output is: {id: 1, name: "..."}
+  * Access: input.products, input.total, input.id, input.name (NOT input.body.products)
+  * Template: {{input.products}}, {{input.total}}
+  * ⚠️ CRITICAL: HTTP Request data is at ROOT LEVEL, NOT wrapped in body
+
+AI NODES:
+- google_gemini → Outputs: String (AI response text)
+  * Access: input directly (string)
+  * Template: {{input}} or use directly in next node
+  * If next node expects object, wrap: return {response: input, message: input}
+
+- openai_gpt → Outputs: String (AI response text)
+  * Access: input directly (string)
+  * Template: {{input}}
+
+- anthropic_claude → Outputs: String (AI response text)
+  * Access: input directly (string)
+  * Template: {{input}}
+
+MEMORY NODES:
+- memory (retrieve) → Outputs: {messages: [{role: "...", content: "...", timestamp: "..."}, ...], count: N, sessionId: "...", message: "...", session_id: "..."}
+  * Access: input.messages (array), input.count, input.sessionId
+  * Template: {{input.messages}} (for JavaScript processing)
+  * ⚠️ CRITICAL: messages is an ARRAY, not a single object
+
+- memory (store) → Outputs: {success: true, stored: true, sessionId: "...", message: "...", role: "...", content: "..."}
+  * Access: input.success, input.sessionId
+
+GOOGLE NODES:
+- google_sheets (read) → Outputs: {data: [[headers], [row1], [row2], ...], rows: N, columns: [...], range: "...", formatted: {...}, operation: "read", sheetName: "...", spreadsheetId: "..."}
+  * Access: input.data (array of arrays - first row is headers)
+  * ⚠️ CRITICAL: data is array-of-arrays format, MUST use JavaScript to parse
+  * Template: {{input.data}} (for JavaScript processing only)
+
+- google_sheets (append) → Input expects: {values: [[row1], [row2], ...]} from JavaScript node
+  * JavaScript MUST return: {values: [[...], [...]]} (2D array)
+  * Leave google_sheets data field empty - it auto-extracts input.values
+
+- google_doc (read) → Outputs: {documentId: "...", title: "...", content: "...", text: "...", body: "...", contentLength: N, hasContent: true, documentUrl: "..."}
+  * Access: input.content, input.text, input.body (all contain document text)
+  * Template: {{input.content}}, {{input.text}}
+
+- google_gmail (send) → Input expects: {to: "...", subject: "...", body: "..."}
+  * Use templates: {{input.content}} for body from previous node
+
+DATABASE NODES:
+- database_read → Outputs: Array of objects [{field1: value1, ...}, ...]
+  * Access: input directly (array) or input[0] for first record
+  * Template: {{input}} (for JavaScript processing)
+
+- database_write → Input expects: {data: {...}} or data object directly
+  * Use templates: {{input}} from previous node
+
+LOGIC NODES:
+- javascript → Outputs: Whatever the code returns (object, array, string, etc.)
+  * Access: input directly (whatever JavaScript returned)
+  * Template: {{input.fieldName}} if JavaScript returned object
+
+- if_else → Outputs: Same as input (passes through)
+  * Access: input directly (same as previous node)
+  * ⚠️ CRITICAL: Must have both "true" and "false" output edges
+
+OUTPUT NODES:
+- slack_webhook → Input expects: {text: "..."} or {webhookUrl: "...", text: "..."}
+  * Use templates: {{input.body.name}} for webhook data, {{input.data.name}} for form data, {{input.content}} for doc data
+
+- slack_message → Input expects: {message: "..."} or {channel: "...", message: "..."}
+  * Use templates: {{input}} for AI output, {{input.content}} for doc output
+
+- google_gmail (send) → Input expects: {to: "...", subject: "...", body: "..."}
+  * Use templates: {{input.content}} for body from google_doc, {{input}} for AI output
+
+RULE 3: COMMON DATA FLOW PATTERNS (CORRECT MAPPINGS):
+
+Pattern A: webhook → javascript → slack_webhook
+- webhook outputs: {body: {name: "...", email: "..."}}
+- javascript accesses: input.body.name, input.body.email
+- javascript returns: {name: input.body.name, email: input.body.email, message: "..."}
+- slack_webhook uses: text: "{{input.name}} - {{input.email}}"
+
+Pattern B: form → javascript → slack_webhook
+- form outputs: {data: {name: "...", email: "..."}}
+- javascript accesses: input.data.name, input.data.email
+- javascript returns: {name: input.data.name, email: input.data.email, message: "..."}
+- slack_webhook uses: text: "{{input.name}} - {{input.email}}"
+
+Pattern C: http_request → javascript → google_sheets
+- http_request outputs: {products: [{id: 1, ...}], total: 100} OR single object {id: 1, ...}
+- javascript accesses: input.products || helpers.toArray(input)
+- javascript returns: {values: [[id, name, price], [...]]} (2D array)
+- google_sheets uses: operation: "append", data: "" (auto-extracts input.values)
+
+Pattern D: chat_trigger → memory (retrieve) → javascript → google_gemini
+- chat_trigger outputs: {message: "...", session_id: "..."}
+- memory (retrieve) outputs: {messages: [...], message: "...", session_id: "..."}
+- javascript accesses: input.message (from chat_trigger), input.messages (from memory)
+- javascript returns: {prompt: "full prompt with context", message: "...", session_id: "..."}
+- google_gemini uses: prompt: "{{input.prompt}}"
+- google_gemini outputs: String (AI response)
+
+Pattern E: google_sheets (read) → javascript → slack_webhook
+- google_sheets outputs: {data: [[headers], [row1], [row2], ...]}
+- javascript accesses: input.data (array of arrays)
+- javascript parses: const headers = input.data[0]; const rows = input.data.slice(1);
+- javascript returns: {formattedText: "...", count: N, slackMessage: "..."}
+- slack_webhook uses: text: "{{input.slackMessage}}"
+
+Pattern F: google_doc (read) → google_gmail (send)
+- google_doc outputs: {content: "...", text: "...", body: "..."}
+- google_gmail uses: body: "{{input.content}}"
+
+RULE 4: VALIDATION CHECKLIST (MUST VERIFY FOR EACH NODE):
+Before generating a workflow, for EACH node connection, verify:
+1. ✅ What does the previous node output? (check format above)
+2. ✅ What does the current node expect as input? (check node documentation)
+3. ✅ Is the data path correct? (input.body for webhook, input.data for form, input.property for http_request)
+4. ✅ Are template variables correct? ({{input.body.field}} for webhook, {{input.data.field}} for form)
+5. ✅ Does JavaScript code access data correctly? (input.body.field for webhook, input.data.field for form, input.field for http_request)
+6. ✅ Is the output format compatible? (string vs object vs array)
+7. ✅ Are required fields present? (check node config requirements)
+
+RULE 5: COMMON MISTAKES TO AVOID:
+❌ WRONG: Using input.body.property after http_request (http_request doesn't wrap in body)
+✅ CORRECT: Use input.property after http_request
+
+❌ WRONG: Using input.formData.property after form (form outputs in input.data)
+✅ CORRECT: Use input.data.property after form
+
+❌ WRONG: Using input.messages as string after memory (retrieve) (messages is array)
+✅ CORRECT: Use input.messages (array) and process in JavaScript
+
+❌ WRONG: Using input.data directly in slack_webhook after google_sheets (data is array-of-arrays)
+✅ CORRECT: Parse input.data in JavaScript first, then use formatted output
+
+❌ WRONG: Using input.body after chat_trigger (chat_trigger outputs message at root)
+✅ CORRECT: Use input.message after chat_trigger
+
+❌ WRONG: Not wrapping AI output in object when next node expects object
+✅ CORRECT: Use JavaScript to wrap: return {response: input, message: input}
+
+================================================================================
+
 ════════════════════════════════════
 COMMON WORKFLOW PATTERNS
 ════════════════════════════════════
@@ -706,6 +1506,65 @@ Structure: form → javascript (validation) → if_else → slack_webhook (on tr
 - javascript: Access data via input.data.email, input.data.name, input.data.mobile (NOT input.formData)
 - if_else: condition: "{{input.isValid}}"
 - slack_webhook: text: "New form submission: Name: {{input.data.name}}, Email: {{input.data.email}}, Mobile: {{input.data.mobile}}"
+
+PATTERN 3: CHAT WORKFLOW WITH MEMORY (CRITICAL FOR CHATBOT WORKFLOWS)
+User says: "Create a chat workflow using [AI] that remembers previous user messages and responds intelligently"
+Structure: chat_trigger → memory (retrieve) → javascript (build prompt with context) → [AI node] → memory (store)
+- chat_trigger: Receives {message, session_id, _session_id, _workflow_id, _user_id} from chat API
+  * Outputs: {trigger: "chat", message: "user message", session_id: "...", _session_id: "...", _workflow_id: "...", _user_id: "..."}
+  * Access user message: input.message or {{input.message}}
+- memory (retrieve): Retrieves previous conversation history
+  * Config: {operation: "retrieve", memoryType: "both", maxMessages: 10}
+  * Outputs: {messages: [{role: "user", content: "...", timestamp: "..."}, ...], count: N, sessionId: "...", message: "...", session_id: "..."}
+  * The messages array contains full conversation history
+- javascript (Memory + Prompt Builder): Combines user message with conversation history
+  * Code example:
+    // Get current user message
+    const currentMessage = input.message || '';
+    // Get conversation history from memory node
+    const history = input.messages || [];
+    // Build conversation context
+    let context = '';
+    if (history.length > 0) {
+      context = history.map(msg => \`\${msg.role}: \${msg.content}\`).join('\\n');
+    }
+    // Build full prompt with context
+    const fullPrompt = context ? \`\${context}\\n\\nuser: \${currentMessage}\\nassistant:\` : \`user: \${currentMessage}\\nassistant:\`;
+    // Return prompt for AI node
+    return {
+      prompt: fullPrompt,
+      message: currentMessage,
+      context: context,
+      // Pass through session info for memory storage later
+      session_id: input.session_id || input._session_id,
+      _session_id: input._session_id,
+      _workflow_id: input._workflow_id
+    };
+- google_gemini (or openai_gpt/anthropic_claude): Processes the prompt with context
+  * Config: {model: "gemini-2.5-flash", prompt: "{{input.prompt}}", temperature: 0.7}
+  * Input: Use {{input.prompt}} from JavaScript node
+  * Outputs: AI response text (string)
+- memory (store): Stores the AI response for future context (OPTIONAL but recommended)
+  * Config: {operation: "store", memoryType: "both"}
+  * Input: Should receive AI response and session info
+  * JavaScript code before memory store (if needed):
+    return {
+      message: input, // AI response from previous node
+      role: "assistant",
+      session_id: input.session_id || input._session_id,
+      _session_id: input._session_id,
+      _workflow_id: input._workflow_id
+    };
+  * Memory node will extract message content automatically
+
+🚨 CRITICAL FOR CHAT WORKFLOWS:
+1. ALWAYS use "chat_trigger" as the first node when user mentions "chat", "chatbot", "conversation", "AI assistant"
+2. ALWAYS include memory (retrieve) node after chat_trigger to get conversation history
+3. ALWAYS use javascript node to build prompt combining user message + history
+4. The AI node's output is automatically returned to the chat - no "respond_to_chat" node needed
+5. Access chat_trigger data: input.message (user message), input.session_id (session ID)
+6. Memory (retrieve) outputs: input.messages (array of {role, content, timestamp})
+7. For chat workflows, the final AI node output becomes the chat response automatically
 
 ⚠️ CRITICAL RULES FOR VALIDATION WORKFLOWS:
 1. NEVER use error_handler node for validation in main flow
@@ -745,6 +1604,70 @@ Structure: form → javascript (validation) → if_else → slack_webhook (on tr
     if (mode === 'create') {
       try {
         console.log('[AUTONOMOUS AGENT] Starting autonomous workflow generation...');
+        
+        // 🚨 CRITICAL: Check for common workflow patterns that can use template-based generation
+        // This reduces API calls and prevents quota exhaustion
+        const promptLower = prompt.toLowerCase();
+        const isChatWorkflow = promptLower.includes('chat') && 
+                              promptLower.includes('gemini') && 
+                              (promptLower.includes('remember') || promptLower.includes('memory'));
+        
+        // For chat workflows, use a template-based approach (ZERO API CALLS)
+        if (isChatWorkflow) {
+          console.log('[WORKFLOW GENERATOR] ✅ Detected chat workflow pattern - using template-based generation (0 API calls)');
+          console.log('[WORKFLOW GENERATOR] Pattern match details:', {
+            hasChat: promptLower.includes('chat'),
+            hasGemini: promptLower.includes('gemini'),
+            hasRemember: promptLower.includes('remember'),
+            hasMemory: promptLower.includes('memory')
+          });
+          
+          try {
+            // Use template-based generation - no API calls, 100% reliable
+            const simpleWorkflow = generateSimpleChatWorkflow(prompt, config);
+            console.log('[WORKFLOW GENERATOR] ✅ Template workflow generated');
+            console.log('[WORKFLOW GENERATOR] Template workflow structure:', {
+              nodeCount: simpleWorkflow.nodes?.length,
+              edgeCount: simpleWorkflow.edges?.length,
+              nodeTypes: simpleWorkflow.nodes?.map((n: any) => n.type),
+              nodeDetails: simpleWorkflow.nodes?.map((n: any) => ({ id: n.id, type: n.type, hasConfig: !!n.config }))
+            });
+            
+            // Validate the workflow structure BEFORE passing to validateAndFixWorkflow
+            if (!simpleWorkflow.nodes || !Array.isArray(simpleWorkflow.nodes) || simpleWorkflow.nodes.length === 0) {
+              throw new Error('Template workflow has no nodes');
+            }
+            if (!simpleWorkflow.edges || !Array.isArray(simpleWorkflow.edges) || simpleWorkflow.edges.length === 0) {
+              throw new Error('Template workflow has no edges');
+            }
+            
+            // Validate the workflow
+            const validatedWorkflow = validateAndFixWorkflow(simpleWorkflow);
+            console.log('[WORKFLOW GENERATOR] ✅ Workflow validated by validateAndFixWorkflow');
+            console.log('[WORKFLOW GENERATOR] Validated workflow structure:', {
+              nodeCount: validatedWorkflow.nodes?.length,
+              edgeCount: validatedWorkflow.edges?.length,
+              nodeTypes: validatedWorkflow.nodes?.map((n: any) => n.type || n.data?.type)
+            });
+            
+            // Double-check validation passed
+            if (validatedWorkflow && validatedWorkflow.nodes && validatedWorkflow.edges && 
+                validatedWorkflow.nodes.length > 0 && validatedWorkflow.edges.length > 0) {
+              console.log('[WORKFLOW GENERATOR] ✅ Returning validated template workflow - BYPASSING MAIN VALIDATION');
+              // Return immediately - skip all main validation steps
+              return new Response(
+                JSON.stringify(validatedWorkflow),
+                { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 }
+              );
+            } else {
+              throw new Error(`Template workflow validation returned invalid structure: nodes=${validatedWorkflow?.nodes?.length}, edges=${validatedWorkflow?.edges?.length}`);
+            }
+          } catch (simpleError) {
+            console.error('[WORKFLOW GENERATOR] ❌ Template generation failed:', simpleError);
+            console.error('[WORKFLOW GENERATOR] Error details:', simpleError instanceof Error ? simpleError.stack : String(simpleError));
+            // Fall through to autonomous agent
+          }
+        }
         
         // Check if client wants streaming progress updates
         const streamProgress = req.headers.get('accept')?.includes('text/event-stream') || 
@@ -928,7 +1851,19 @@ Structure: form → javascript (validation) → if_else → slack_webhook (on tr
         }
 
         // Validate and fix workflow structure
+        // This includes automatic fix for HTTP Request → JavaScript code errors
         const validatedWorkflow = validateAndFixWorkflow(workflow);
+        
+        // Additional validation: Check for HTTP Request → JavaScript pattern
+        const hasHttpRequest = validatedWorkflow.nodes?.some((n: any) => 
+          n.type === 'http_request' || n.data?.type === 'http_request'
+        );
+        const hasJavaScript = validatedWorkflow.nodes?.some((n: any) => 
+          n.type === 'javascript' || n.data?.type === 'javascript'
+        );
+        if (hasHttpRequest && hasJavaScript) {
+          console.log('[POST-PROCESSING] Detected HTTP Request → JavaScript pattern - code has been auto-fixed if needed');
+        }
 
         // CRITICAL: ALWAYS replace email_resend with google_gmail (email_resend doesn't exist in node library)
         validatedWorkflow.nodes = validatedWorkflow.nodes.map((node: any) => {
@@ -1081,13 +2016,13 @@ Structure: form → javascript (validation) → if_else → slack_webhook (on tr
                   // Update template variables to use formData
                   Object.keys(targetNode.config).forEach(key => {
                     if (typeof targetNode.config[key] === 'string') {
-                      // Replace {{input.field}} with {{input.formData.field}}
+                      // Replace {{input.field}} with {{input.data.field}} (formData is also supported as an alias)
                       targetNode.config[key] = targetNode.config[key]
-                        .replace(/\{\{input\.name\}\}/g, '{{input.formData.name}}')
-                        .replace(/\{\{input\.email\}\}/g, '{{input.formData.email}}')
-                        .replace(/\{\{input\.mobile\}\}/g, '{{input.formData.mobile}}')
-                        .replace(/\{\{input\.phone\}\}/g, '{{input.formData.mobile}}')
-                        .replace(/\{\{input\.message\}\}/g, '{{input.formData.message}}');
+                        .replace(/\{\{input\.name\}\}/g, '{{input.data.name}}')
+                        .replace(/\{\{input\.email\}\}/g, '{{input.data.email}}')
+                        .replace(/\{\{input\.mobile\}\}/g, '{{input.data.mobile}}')
+                        .replace(/\{\{input\.phone\}\}/g, '{{input.data.mobile}}')
+                        .replace(/\{\{input\.message\}\}/g, '{{input.data.message}}');
                     }
                   });
                   
@@ -1095,7 +2030,7 @@ Structure: form → javascript (validation) → if_else → slack_webhook (on tr
                   if (targetNode.type === 'slack_webhook' || targetNode.type === 'slack_message') {
                     const formDataText = fieldNames.map(fn => {
                       const label = fn.charAt(0).toUpperCase() + fn.slice(1);
-                      return `${label}: {{input.formData.${fn}}}`;
+                      return `${label}: {{input.data.${fn}}}`;
                     }).join('\\n');
                     targetNode.config.text = targetNode.config.text || `New Form Submission:\\n${formDataText}`;
                   }
@@ -1397,8 +2332,8 @@ ${JSON.stringify(config, null, 2)}
 FORM WORKFLOWS (HIGHEST PRIORITY):
 - "create a form", "form", "form data", "user data", "collect data", "name", "email", "mobile", "phone", "contact", "registration", "survey", "feedback", "submission" → ALWAYS use "form" node as trigger
 - Example: "Create a form take the user data of name, email, mobile and send to slack" → form (with fields: name, email, mobile) + slack_webhook
-- Form node outputs: {formData: {name: "...", email: "...", mobile: "..."}, files: [], meta: {...}}
-- Access form data: {{input.formData.name}}, {{input.formData.email}}, {{input.formData.mobile}}
+- Form node outputs: {data: {name: "...", email: "...", mobile: "..."}, files: [], meta: {...}}
+- Access form data: {{input.data.name}}, {{input.data.email}}, {{input.data.mobile}} (formData is also supported as an alias)
 - Form fields config example: [{"name":"name","label":"Name","type":"text","required":true,"placeholder":"Enter your name"},{"name":"email","label":"Email","type":"email","required":true,"placeholder":"Enter your email"},{"name":"mobile","label":"Mobile","type":"tel","required":true,"placeholder":"Enter your mobile number"}]
 - NEVER use manual_trigger when user wants to collect data from users via a form
 
@@ -1527,8 +2462,25 @@ Based on this analysis, you must generate a workflow that:
 5. Resolves any potential issues mentioned
 ` : '';
 
-      systemPrompt = `🚨🚨🚨 CRITICAL: FORM NODE DETECTION 🚨🚨🚨
-IF THE USER MENTIONS: "form", "create a form", "form data", "user data", "collect data", "name", "email", "mobile", "phone", "contact", "registration", "survey", "feedback", "submission", "user input", "take the user data" → YOU MUST USE "form" NODE AS THE TRIGGER. DO NOT USE manual_trigger. THE FORM NODE MUST BE THE FIRST NODE.
+      systemPrompt = `🚨🚨🚨🚨🚨 CRITICAL: DATA FLOW & TRIGGER DETECTION 🚨🚨🚨🚨🚨
+1. IF THE USER MENTIONS: "chat", "chatbot", "conversation", "AI assistant", "remembers previous messages", "chat workflow" → YOU MUST USE "chat_trigger" NODE AS THE TRIGGER AND FOLLOW PATTERN 3 (chat workflow with memory). DO NOT USE manual_trigger.
+2. IF THE USER MENTIONS: "form", "create a form", "form data", "user data", "collect data", "name", "email", "mobile", "phone", "contact", "registration", "survey", "feedback", "submission", "user input", "take the user data" → YOU MUST USE "form" NODE AS THE TRIGGER. DO NOT USE manual_trigger. THE FORM NODE MUST BE THE FIRST NODE.
+
+🚨🚨🚨 CRITICAL: DATA FLOW VALIDATION (100% ACCURACY REQUIRED) 🚨🚨🚨
+- For EVERY node connection, you MUST verify correct input/output mapping
+- Check the DATA FLOW MAPPING RULES section for exact output formats
+- webhook → use input.body.field
+- form → use input.data.field (NOT input.formData)
+- http_request → use input.field (NOT input.body.field)
+- chat_trigger → use input.message, input.session_id
+- memory (retrieve) → use input.messages (array)
+- google_sheets (read) → parse input.data (array-of-arrays) in JavaScript first
+- google_doc (read) → use input.content or input.text
+- AI nodes → output string, may need JavaScript wrapper for next node
+- ALWAYS verify template variables match the data path
+- ALWAYS verify JavaScript code accesses data correctly based on previous node type
+- If you generate incorrect data flow → the workflow WILL FAIL at runtime
+- 100% accuracy in data flow mapping is MANDATORY
 
 You are an expert workflow automation agent with advanced reasoning capabilities. Your task is to analyze a user's workflow description and generate a structured, error-free workflow with nodes and edges using ONLY the available node types listed below.
 
@@ -1538,13 +2490,14 @@ ${nodeDescriptions}
 
 AGENT REASONING PROCESS:
 Before generating the workflow, you must:
-1. 🚨 CHECK FOR FORM KEYWORDS FIRST: If user mentions "form", "user data", "collect data", "name", "email", "mobile", etc. → YOU MUST use "form" node as trigger. DO NOT use manual_trigger.
-2. UNDERSTAND: Carefully read and understand the user's requirements
-3. ANALYZE: Identify what actions need to be performed
-4. SELECT: Choose the appropriate nodes from the available list (form node if form keywords detected)
-5. PLAN: Determine the correct order and connections
-6. CONFIGURE: Set all required configuration values correctly (form fields if using form node)
-7. VALIDATE: Ensure the workflow will execute without errors
+1. 🚨 CHECK FOR CHAT KEYWORDS FIRST: If user mentions "chat", "chatbot", "conversation", "AI assistant", "remembers previous messages" → YOU MUST use "chat_trigger" node as trigger and follow PATTERN 3 (chat workflow with memory). DO NOT use manual_trigger.
+2. 🚨 CHECK FOR FORM KEYWORDS: If user mentions "form", "user data", "collect data", "name", "email", "mobile", etc. → YOU MUST use "form" node as trigger. DO NOT use manual_trigger.
+3. UNDERSTAND: Carefully read and understand the user's requirements
+4. ANALYZE: Identify what actions need to be performed
+5. SELECT: Choose the appropriate nodes from the available list (chat_trigger + memory + javascript + AI for chat workflows, form node if form keywords detected)
+6. PLAN: Determine the correct order and connections (for chat: chat_trigger → memory (retrieve) → javascript → AI node)
+7. CONFIGURE: Set all required configuration values correctly (memory operation, JavaScript prompt builder code, AI model settings)
+8. VALIDATE: Ensure the workflow will execute without errors
 
 You must respond with a valid JSON object in this exact format:
 {
@@ -1576,9 +2529,12 @@ If a value matches a node property (e.g. 'google_sheet_id' for 'spreadsheetId', 
 
 CRITICAL RULES FOR ERROR-FREE WORKFLOWS:
 1. 🚨 TRIGGER SELECTION (CRITICAL):
+   - IF user mentions: "chat", "chatbot", "conversation", "AI assistant", "chat workflow", "remembers previous messages" → YOU MUST use "chat_trigger" node as trigger
    - IF user mentions: "form", "create a form", "form data", "user data", "collect data", "name", "email", "mobile", "phone", "contact", "registration", "survey", "feedback", "submission" → YOU MUST use "form" node as trigger
+   - IF user mentions: "webhook", "when a webhook", "webhook receives" → YOU MUST use "webhook" node as trigger
    - Otherwise, start with appropriate trigger: form, manual_trigger, webhook, schedule, chat_trigger, error_trigger, interval, or workflow_trigger
    - NEVER use manual_trigger when user wants to collect data from users via a form
+   - NEVER use manual_trigger when user wants a chat/chatbot workflow
 2. Connect nodes in a logical flow from trigger to output - each node should connect to the next
 3. Position nodes with x spacing of 300px and y spacing of 150px (start at x:250, y:100)
 4. Use ONLY the node types listed above - do not invent new node types
@@ -1599,13 +2555,43 @@ CRITICAL RULES FOR ERROR-FREE WORKFLOWS:
 8. Always end with an output action (http_post, slack_message, discord_webhook, database_write, log_output, or google_gmail with operation: send) if the workflow should produce results
 9. Use proper node IDs: format like "trigger_1", "ai_1", "output_1" etc.
 10. Ensure all edges connect valid node IDs
-11. CRITICAL FOR FORM WORKFLOWS:
+11. CRITICAL FOR CHAT WORKFLOWS (chatbot with memory):
+    - If user mentions "chat", "chatbot", "conversation", "AI assistant", "remembers previous messages", "chat workflow" → ALWAYS use "chat_trigger" node as trigger
+    - Required structure: chat_trigger → memory (retrieve) → javascript (build prompt) → [AI node: google_gemini/openai_gpt/anthropic_claude]
+    - chat_trigger: No config needed, receives {message, session_id, _session_id, _workflow_id} automatically
+    - memory (retrieve): Config {operation: "retrieve", memoryType: "both", maxMessages: 10}
+      * Outputs: {messages: [{role, content, timestamp}, ...], count, sessionId, message, session_id}
+    - javascript: Build prompt combining conversation history + current message
+      * Access user message: input.message (from chat_trigger)
+      * Access history: input.messages (array from memory node)
+      * Code example:
+        const currentMessage = input.message || '';
+        const history = input.messages || [];
+        let context = '';
+        if (history.length > 0) {
+          context = history.map(msg => \`\${msg.role}: \${msg.content}\`).join('\\n');
+        }
+        const fullPrompt = context ? \`\${context}\\n\\nuser: \${currentMessage}\\nassistant:\` : \`user: \${currentMessage}\\nassistant:\`;
+        return {
+          prompt: fullPrompt,
+          message: currentMessage,
+          context: context,
+          session_id: input.session_id || input._session_id,
+          _session_id: input._session_id,
+          _workflow_id: input._workflow_id
+        };
+    - AI node: Use {{input.prompt}} from JavaScript node, set model, temperature: 0.7
+    - The AI node's output is automatically returned to chat - no output node needed
+    - Optional: Add memory (store) node after AI to save response for future context
+    - Example workflow structure:
+      chat_trigger → memory (retrieve) → javascript (prompt builder) → google_gemini → [optional: memory (store)]
+12. CRITICAL FOR FORM WORKFLOWS:
     - If user mentions "form", "create a form", "user data", "collect data", "name", "email", "mobile", etc. → ALWAYS use "form" node as trigger
     - Form node must have fields configured: [{"name":"fieldName","label":"Field Label","type":"text|email|tel|textarea","required":true,"placeholder":"Enter..."}]
     - Access form data in downstream nodes: {{input.formData.fieldName}}
     - Example: form -> slack_webhook with text: "Name: {{input.formData.name}}\nEmail: {{input.formData.email}}"
 
-12. CRITICAL FOR GOOGLE DOC + OUTPUT WORKFLOWS:
+13. CRITICAL FOR GOOGLE DOC + OUTPUT WORKFLOWS:
     - If user wants to "read data from Google Doc and send to [destination]", ALWAYS create: manual_trigger -> google_doc (operation: read) -> [output_node]
     - For google_doc read: Set operation: "read" and documentId (from config or prompt)
     - The google_doc node outputs: {content, text, body, title, documentId} - all contain the document text
@@ -1617,7 +2603,7 @@ CRITICAL RULES FOR ERROR-FREE WORKFLOWS:
     - ALWAYS use template variables to pass data: {{input.content}} for document text
     - Example for Slack: { "type": "slack_webhook", "config": { "webhookUrl": "...", "text": "{{input.content}}" } }
     - Example for Gmail: { "type": "google_gmail", "config": { "operation": "send", "to": "...", "subject": "Document", "body": "{{input.content}}" } }
-13. CRITICAL FOR CONDITIONAL NODES (if_else):
+14. CRITICAL FOR CONDITIONAL NODES (if_else):
     - You MUST generate exactly two outgoing edges for every "if_else" node.
     - One edge MUST have a "true" label (for when condition is met).
     - One edge MUST have a "false" label (for when condition is not met).
@@ -1627,17 +2613,17 @@ CRITICAL RULES FOR ERROR-FREE WORKFLOWS:
     - Example edge structure:
       { "id": "e1", "source": "if_1", "target": "action_true", "sourceHandle": "true" }
       { "id": "e2", "source": "if_1", "target": "log_false", "sourceHandle": "false" }
-14. IMPORTANT: If the workflow starts with a "manual_trigger" but requires data for validation (like in "check if mark > 50"):
+15. IMPORTANT: If the workflow starts with a "manual_trigger" but requires data for validation (like in "check if mark > 50"):
     - You MUST add a "javascript" node immediately after the trigger to define mock data.
     - Example config for JS node: { "code": "return { mark: 85, student: 'John' };" }
     - Connect: manual_trigger -> javascript -> if_else
     - This ensures the workflow is testable immediately.
-15. SYSTEMATIC DATA STRUCTURE (CRITICAL):
+16. SYSTEMATIC DATA STRUCTURE (CRITICAL):
     - The user prefers "Systematic" data flow.
     - Always ensure nodes pass data as structured JSON objects.
     - When fetching properties in downstream nodes (like If/Else), use dot notation: "{{input.age}}", "{{input.name}}".
     - Avoid flat unstructured values; prefer nested objects where logical.
-16. DATA PASSING BETWEEN NODES:
+17. DATA PASSING BETWEEN NODES:
     - Use template variables like {{input.fieldName}} to pass data from one node to another
     - google_doc read outputs: content, text, body, title, documentId - use {{input.content}} to access document text
     - google_sheets read outputs: {data: [[headers], [row1], ...], rows, columns} - the data field is an array of arrays
@@ -1667,11 +2653,11 @@ CRITICAL RULES FOR ERROR-FREE WORKFLOWS:
 16. 🚨 FORM WORKFLOW RULES (CRITICAL) 🚨:
     - ⚠️ IF USER MENTIONS: "form", "create a form", "form data", "user data", "collect data", "name", "email", "mobile", "phone", "contact", "registration", "survey", "feedback", "submission" → YOU MUST USE "form" NODE AS TRIGGER
     - ⚠️ NEVER use manual_trigger when user wants to collect data from users
-    - Form node outputs: {formData: {name: "...", email: "...", mobile: "..."}, files: [], meta: {...}}
-    - Access form data in downstream nodes: {{input.formData.name}}, {{input.formData.email}}, {{input.formData.mobile}}
+    - Form node outputs: {data: {name: "...", email: "...", mobile: "..."}, files: [], meta: {...}}
+    - Access form data in downstream nodes: {{input.data.name}}, {{input.data.email}}, {{input.data.mobile}} (formData is also supported as an alias)
     - Example form fields for "name, email, mobile":
       fields: [{"name":"name","label":"Name","type":"text","required":true,"placeholder":"Enter your name"},{"name":"email","label":"Email","type":"email","required":true,"placeholder":"Enter your email"},{"name":"mobile","label":"Mobile","type":"tel","required":true,"placeholder":"Enter your mobile number"}]
-    - For Slack output: Use slack_webhook with text: "Name: {{input.formData.name}}\nEmail: {{input.formData.email}}\nMobile: {{input.formData.mobile}}"
+    - For Slack output: Use slack_webhook with text: "Name: {{input.data.name}}\nEmail: {{input.data.email}}\nMobile: {{input.data.mobile}}"
     - Workflow structure: form → [processing nodes] → slack_webhook/slack_message
 
 17. NODE SELECTION GUIDANCE:
@@ -1729,7 +2715,7 @@ EXAMPLES:
         "label": "Slack Incoming Webhook",
         "config": {
           "webhookUrl": "YOUR_WEBHOOK_URL",
-          "text": "New Form Submission:\nName: {{input.formData.name}}\nEmail: {{input.formData.email}}\nMobile: {{input.formData.mobile}}"
+          "text": "New Form Submission:\nName: {{input.data.name}}\nEmail: {{input.data.email}}\nMobile: {{input.data.mobile}}"
         }
       }
     }
@@ -1890,7 +2876,88 @@ CRITICAL: All config field values MUST be strings. Examples:
 Generate a workflow based on this description. Think step by step, validate your choices, and return ONLY valid JSON with the structure shown above (including "summary" and "reasoning" fields). No markdown or explanations outside the JSON.`;
 
     } else if (mode === 'edit') {
-      const currentWorkflowJson = JSON.stringify(currentWorkflow, null, 2);
+      // Safely stringify currentWorkflow - handle circular references
+      let currentWorkflowJson = '';
+      try {
+        currentWorkflowJson = JSON.stringify(currentWorkflow, null, 2);
+      } catch (stringifyError) {
+        console.error('[EDIT MODE] Error stringifying currentWorkflow:', stringifyError);
+        return new Response(
+          JSON.stringify({ 
+            error: 'Failed to serialize current workflow. Please try again.',
+            details: stringifyError instanceof Error ? stringifyError.message : String(stringifyError)
+          }),
+          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+      
+      // Format execution history for debugging context
+      let executionHistoryContext = '';
+      if (executionHistory && Array.isArray(executionHistory) && executionHistory.length > 0) {
+        try {
+          const safeStringify = (obj: any, maxLength: number = 1000): string => {
+            try {
+              if (obj === null || obj === undefined) return 'null';
+              const str = JSON.stringify(obj);
+              return str.length > maxLength ? str.substring(0, maxLength) + '...' : str;
+            } catch (e) {
+              return String(obj).substring(0, maxLength);
+            }
+          };
+          
+          const historyText = executionHistory.map((exec, idx) => {
+            try {
+              const errorText = exec?.error ? safeStringify(exec.error, 500) : 'No error message';
+              const logsText = exec?.logs ? safeStringify(exec.logs, 1000) : 'No logs';
+              const outputText = exec?.output ? safeStringify(exec.output, 500) : 'No output';
+              const startedAt = exec?.started_at ? new Date(exec.started_at).toISOString() : 'Unknown time';
+              const status = exec?.status || 'unknown';
+              
+              return `
+Execution ${idx + 1} (${startedAt}):
+- Status: ${status}
+- Error: ${errorText}
+- Logs: ${logsText}
+- Output: ${outputText}
+`;
+            } catch (execError) {
+              console.warn(`[generate-workflow] Error formatting execution ${idx}:`, execError);
+              return `\nExecution ${idx + 1}: (Error formatting execution data)`;
+            }
+          }).join('\n');
+          
+          executionHistoryContext = `\n\n🔍 EXECUTION HISTORY & DEBUGGING CONTEXT:
+The workflow has failed ${executionHistory.length} time(s) recently. Use this information to:
+1. Identify which nodes are causing errors
+2. Understand what data format is expected vs. what's being received
+3. Fix node properties based on actual execution outputs
+4. Adjust configurations to match previous execution results
+
+Recent Execution Failures:
+${historyText}
+
+🚨 CRITICAL DEBUGGING RULES:
+1. If a node failed, check its configuration against the error message
+2. If data format mismatch (e.g., "Cannot read property X"), adjust the node to match actual data structure
+3. If JavaScript node returns empty values, check if it's handling single objects vs arrays correctly
+4. If Google Sheets append fails, ensure JavaScript returns { values: [[...]] } format
+5. If HTTP Request output is accessed incorrectly, fix to use input.property (NOT input.body.property)
+6. Learn from execution outputs: If previous execution shows output format, use that format in node configs
+7. Adjust node properties based on what actually worked or failed in previous executions
+
+When user asks to "fix" or "debug", analyze the execution history above and:
+- Identify the root cause from error messages
+- Update node configurations to match expected data formats
+- Fix JavaScript code to handle actual data structures from previous executions
+- Adjust node properties based on execution outputs shown above
+`;
+        } catch (historyError) {
+          console.error('[generate-workflow] Error formatting execution history:', historyError);
+          // Continue without execution history if formatting fails
+          executionHistoryContext = '';
+        }
+      }
+      
       systemPrompt = `Role: You are an embedded AI workflow editor assistant that lives inside the workflow builder page.
 You fully understand the current workflow graph, including Nodes, Connections, Conditions, Execution order, and Node states.
 You can modify the existing workflow in real time based on user instructions.
@@ -1900,6 +2967,7 @@ Before making any change, you must:
 1. Read the current workflow structure provided below.
 2. Identify Node types, Node IDs, Connections (edges), and Conditional paths.
 3. Confirm how the workflow currently behaves.
+4. ${executionHistoryContext ? 'Analyze execution history to understand failures and fix them.' : ''}
 ❗ Never assume an empty workflow.
 
 ✏️ Editing Rules (CRITICAL)
@@ -1908,6 +2976,7 @@ Safe Editing:
 - Preserve all unrelated nodes and connections.
 - Prefer rewiring connections instead of deleting nodes.
 - Never recreate the whole workflow unless explicitly requested.
+- ${executionHistoryContext ? 'When fixing errors, update node properties based on execution outputs shown in history.' : ''}
 
 IF / ELSE Handling:
 - Always maintain Separate TRUE and FALSE outputs.
@@ -1918,20 +2987,24 @@ Allowed Operations:
 - Add nodes (Use ONLY available types: ${Object.values(AVAILABLE_NODES).flat().join(', ')})
 - Remove connections
 - Rewire paths
-- Update node configurations
+- Update node configurations (especially based on execution history if provided)
 - Rename nodes
 - Change conditions
+- Fix node properties based on previous execution outputs
+- Adjust JavaScript code to match actual data formats from executions
 
 You may NOT:
 - Delete nodes silently
 - Break execution flow
 - Merge conditional branches incorrectly
+- Ignore execution history when user asks to fix/debug
 
 🛑 Forbidden Behavior
 ❌ Do not regenerate the entire workflow (keep existing IDs for unchanged nodes)
 ❌ Do not ignore current workflow context
 ❌ Do not ask the user to recreate nodes
 ❌ Do not apply destructive edits without confirmation
+❌ Do not ignore execution history when debugging is requested
 
 Response Format (IMPORTANT):
 Return a valid JSON object containing the UPDATED workflow structure (full nodes and edges lists) and a brief explanation.
@@ -1943,17 +3016,34 @@ Return a valid JSON object containing the UPDATED workflow structure (full nodes
 
 Current Workflow:
 ${currentWorkflowJson}
+${executionHistoryContext}
 
 User Instruction: "${prompt}"
 
 Generate the updated workflow JSON. Return ONLY valid JSON, no markdown or explanations outside the JSON object.`;
+      
+      // Validate system prompt was created successfully
+      if (!systemPrompt || systemPrompt.length === 0) {
+        console.error('[EDIT MODE] System prompt is empty');
+        return new Response(
+          JSON.stringify({ 
+            error: 'Failed to generate system prompt for edit mode',
+            details: 'System prompt generation failed'
+          }),
+          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+      
+      console.log(`[EDIT MODE] System prompt generated, length: ${systemPrompt.length}`);
     }
 
-    // Use Google Gemini (free version) to generate workflow
+    // Use Google Gemini API to generate workflow
+    // Model: gemini-2.5-flash (default)
+    // API Endpoint: https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent
+    // API Key: GEMINI_API_KEY (from Supabase Edge Function secrets)
+    // Documentation: See AI_EDITOR_DOCUMENTATION.md
     const provider = 'gemini';
-    // Use gemini-2.5-flash as default (user's preferred model)
-    // Maps to gemini-2.0-flash-exp in the API
-    const model = 'gemini-2.5-flash';
+    const model = 'gemini-2.5-flash'; // Fast, cost-effective model for workflow generation
 
     const messages: LLMMessage[] = [
       { role: 'system', content: systemPrompt },
@@ -2256,15 +3346,31 @@ Generate the updated workflow JSON. Return ONLY valid JSON, no markdown or expla
     // Add backward compatibility types
     validNodeTypes.add('webhook_trigger_response'); // Legacy webhook type
     
+    console.log(`[VALIDATION] Validating ${workflowData.nodes.length} nodes against ${validNodeTypes.size} valid node types`);
+    console.log(`[VALIDATION] Valid node types include: chat_trigger=${validNodeTypes.has('chat_trigger')}, memory=${validNodeTypes.has('memory')}, javascript=${validNodeTypes.has('javascript')}, google_gemini=${validNodeTypes.has('google_gemini')}`);
+    
     workflowData.nodes.forEach((node: any) => {
+      // Check both node.type and node.data?.type (for frontend compatibility)
+      const nodeType = node.type || node.data?.type;
+      
       // CRITICAL VALIDATION: Reject any node type not in the allowed list
-      if (!validNodeTypes.has(node.type)) {
-        const errorMsg = `INVALID NODE TYPE DETECTED: "${node.type}" in node ${node.id}. This node type does not exist in the system. Valid types are: ${Array.from(validNodeTypes).sort().join(', ')}`;
+      if (!nodeType) {
+        const errorMsg = `INVALID NODE: Node ${node.id} has no type specified. Node structure: ${JSON.stringify(node)}`;
         console.error(`[VALIDATION ERROR] ${errorMsg}`);
+        validationErrors.push(errorMsg);
+        return;
+      }
+      
+      if (!validNodeTypes.has(nodeType)) {
+        const errorMsg = `INVALID NODE TYPE: "${nodeType}" in node ${node.id}. This node type does not exist in the system. Valid types are: ${Array.from(validNodeTypes).sort().join(', ')}`;
+        console.error(`[VALIDATION ERROR] ${errorMsg}`);
+        console.error(`[VALIDATION ERROR] Full node structure:`, JSON.stringify(node, null, 2));
         validationErrors.push(errorMsg);
         // DO NOT continue processing invalid nodes - they will cause runtime errors
         return;
       }
+      
+      console.log(`[VALIDATION] ✓ Node ${node.id} has valid type: ${nodeType}`);
       
       // Ensure all config values are strings (not null, undefined, or objects)
       if (node.config && typeof node.config === 'object') {
@@ -2362,14 +3468,40 @@ Generate the updated workflow JSON. Return ONLY valid JSON, no markdown or expla
       
       // AI nodes validation
       if (['openai_gpt', 'anthropic_claude', 'google_gemini'].includes(node.type)) {
+        if (!node.config) {
+          node.config = {};
+        }
         if (!node.config.prompt) {
-          validationErrors.push(`${node.type} node ${node.id} missing required field: prompt`);
+          // For chat workflows, prompt might come from previous JavaScript node
+          // Set a default template that will work with chat workflows
+          node.config.prompt = '{{input.prompt}}' || '{{input}}' || 'Process the input';
+          console.warn(`[VALIDATION] ${node.type} node ${node.id} missing prompt - auto-setting default template`);
+          // Don't treat this as a critical error - it can be auto-fixed
+          // validationErrors.push(`${node.type} node ${node.id} missing required field: prompt`);
         }
         if (!node.config.model) {
           // Set default model
           if (node.type === 'openai_gpt') node.config.model = 'gpt-4o-mini';
           else if (node.type === 'anthropic_claude') node.config.model = 'claude-3-haiku';
           else if (node.type === 'google_gemini') node.config.model = 'gemini-2.5-flash';
+        }
+      }
+      
+      // Memory nodes validation
+      if (node.type === 'memory') {
+        if (!node.config) {
+          node.config = {};
+        }
+        if (!node.config.operation) {
+          // Default to retrieve for chat workflows
+          node.config.operation = 'retrieve';
+          console.warn(`[VALIDATION] memory node ${node.id} missing operation - defaulting to retrieve`);
+        }
+        if (!node.config.memoryType) {
+          node.config.memoryType = 'both';
+        }
+        if (!node.config.maxMessages) {
+          node.config.maxMessages = 10;
         }
       }
       
@@ -2485,8 +3617,12 @@ Generate the updated workflow JSON. Return ONLY valid JSON, no markdown or expla
     const triggerTypes = AVAILABLE_NODES.triggers;
     const nodesWithIncoming = new Set(workflowData.edges.map((e: any) => e.target));
     workflowData.nodes.forEach((node: any) => {
-      if (!triggerTypes.includes(node.type) && !nodesWithIncoming.has(node.id)) {
-        validationErrors.push(`Node ${node.id} (${node.type}) has no incoming edges`);
+      const nodeType = node.type || node.data?.type;
+      if (!triggerTypes.includes(nodeType) && !nodesWithIncoming.has(node.id)) {
+        // This is a warning, not a critical error - auto-fix can handle this
+        console.warn(`[VALIDATION] Node ${node.id} (${nodeType}) has no incoming edges - will attempt auto-fix`);
+        // Don't treat orphaned nodes as critical errors - they can be auto-fixed
+        // validationErrors.push(`Node ${node.id} (${nodeType}) has no incoming edges`);
       }
     });
     
@@ -2503,11 +3639,13 @@ Generate the updated workflow JSON. Return ONLY valid JSON, no markdown or expla
       if (hasCriticalError) {
         // For critical errors (invalid node types, missing if_else edges), reject immediately
         console.error('🚨 CRITICAL validation errors detected - rejecting workflow');
+        console.error('Validation errors:', JSON.stringify(validationErrors, null, 2));
         return new Response(
           JSON.stringify({
             error: 'Workflow validation failed',
             validationErrors,
-            message: 'The generated workflow contains invalid node types or structural errors. Please try again with a clearer description.'
+            details: validationErrors.join('; '),
+            message: `The generated workflow contains errors: ${validationErrors.slice(0, 3).join('; ')}${validationErrors.length > 3 ? '...' : ''}. Please try again.`
           }),
           { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
@@ -2515,6 +3653,7 @@ Generate the updated workflow JSON. Return ONLY valid JSON, no markdown or expla
       
       // For non-critical errors, log warning but continue (auto-fix will attempt to resolve)
       console.warn('⚠️ Non-critical validation errors found - attempting auto-fix');
+      console.warn('Non-critical errors:', JSON.stringify(validationErrors, null, 2));
     } else {
       console.log('✅ Workflow validation passed - all checks successful');
     }
@@ -2618,16 +3757,22 @@ Generate the updated workflow JSON. Return ONLY valid JSON, no markdown or expla
       }
     );
   } catch (error) {
-    console.error('Error generating workflow:', error);
+    console.error('[generate-workflow] Error generating workflow:', error);
     const errorMessage = error instanceof Error ? error.message : String(error);
     const errorStack = error instanceof Error ? error.stack : undefined;
 
     // Log full error details for debugging
-    console.error('Full error details:', {
+    console.error('[generate-workflow] Full error details:', {
       message: errorMessage,
       stack: errorStack,
       error: error,
+      errorType: error instanceof Error ? error.constructor.name : typeof error,
     });
+    
+    // If error is already a Response (from validation), return it
+    if (error instanceof Response) {
+      return error;
+    }
 
     // Detect quota/rate limit errors and provide helpful message
     const errorLower = errorMessage.toLowerCase();

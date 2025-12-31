@@ -148,12 +148,46 @@ export class LLMAdapter {
         try {
           const errorJson = JSON.parse(errorText);
           const apiError = errorJson.error || errorJson;
-          errorMessage = apiError.message || apiError.error?.message || errorMessage;
+          const apiErrorMessage = apiError.message || apiError.error?.message || errorText;
+          errorMessage = apiErrorMessage;
+
+          // 🚨 CRITICAL: Check for quota/rate limit errors (429)
+          if (response.status === 429 || 
+              apiErrorMessage.toLowerCase().includes('quota') || 
+              apiErrorMessage.toLowerCase().includes('rate limit') ||
+              apiErrorMessage.toLowerCase().includes('resource exhausted') ||
+              apiErrorMessage.toLowerCase().includes('quota exceeded')) {
+            // Extract retry-after if available
+            const retryAfter = response.headers.get('Retry-After');
+            let quotaError = 'QUOTA_EXCEEDED: Gemini API quota exceeded. ';
+            if (retryAfter) {
+              const retrySeconds = parseInt(retryAfter, 10);
+              quotaError += `Please wait ${retrySeconds} seconds before trying again. `;
+            } else {
+              // Try to extract retry time from error message
+              const retryMatch = apiErrorMessage.match(/retry in ([\d.]+)s/i) || 
+                               apiErrorMessage.match(/wait ([\d]+) seconds/i);
+              if (retryMatch) {
+                const retrySeconds = Math.ceil(parseFloat(retryMatch[1]));
+                quotaError += `Please wait ${retrySeconds} seconds before trying again. `;
+              } else {
+                quotaError += 'Please wait a few minutes before trying again. ';
+              }
+            }
+            quotaError += 'To increase limits, upgrade your Gemini API plan at https://ai.google.dev/pricing';
+            const quotaErr = new Error(quotaError);
+            (quotaErr as any).isQuotaError = true;
+            (quotaErr as any).statusCode = 429;
+            throw quotaErr;
+          }
 
           if (response.status === 404) {
             errorMessage = `Model "${attemptModel}" not found in ${apiVersion} API. ${errorMessage}. Please verify your API key has access to Gemini models and check available models.`;
           }
-        } catch {
+        } catch (parseError) {
+          if ((parseError as any).isQuotaError) {
+            throw parseError; // Re-throw quota errors
+          }
           errorMessage += ` - ${errorText}`;
         }
 

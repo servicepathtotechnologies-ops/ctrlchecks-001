@@ -4,7 +4,7 @@
 // Replace this URL with your actual webhook URL from CtrlChecks
 // Example: https://your-project.supabase.co/functions/v1/chat-webhook
 // OR: https://your-project.supabase.co/functions/v1/webhook-trigger/{workflow-id}
-const WEBHOOK_URL = "https://nvrrqvlqnnvlihtlgmzn.supabase.co/functions/v1/webhook-trigger/a6519c95-3bf5-48ad-8981-0be00090b18b";
+const WEBHOOK_URL = "https://nvrrqvlqnnvlihtlgmzn.supabase.co/functions/v1/webhook-trigger/7603163d-abfd-4d82-a71f-064864810461";
 
 // ============================================
 // CHAT FUNCTIONALITY

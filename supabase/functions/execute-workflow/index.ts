@@ -2605,13 +2605,152 @@ async function executeNode(
       }
       
       try {
+        // Helper functions for common data transformations
+        const helpers = {
+          // Extract data from different input formats
+          getData: (input: unknown): unknown => {
+            if (typeof input !== 'object' || input === null) return input;
+            const obj = input as Record<string, unknown>;
+            // Try common data locations
+            return obj.data || obj.body || obj.payload || obj.result || obj.response || input;
+          },
+          
+          // Get array from input (supports multiple formats)
+          // Handles: arrays, single objects (converts to array), nested arrays
+          getArray: (input: unknown, key?: string): unknown[] => {
+            if (typeof input !== 'object' || input === null) return [];
+            const obj = input as Record<string, unknown>;
+            
+            // If key specified, try that first
+            if (key) {
+              const value = obj[key];
+              if (Array.isArray(value)) return value as unknown[];
+              // If it's a single object, wrap it in an array
+              if (value && typeof value === 'object') return [value];
+            }
+            
+            // Try common array property names
+            const arrayKeys = ['items', 'products', 'data', 'results', 'array', 'list', 'rows'];
+            for (const k of arrayKeys) {
+              const value = obj[k];
+              if (Array.isArray(value)) return value as unknown[];
+              // If it's a single object, wrap it in an array
+              if (value && typeof value === 'object' && !Array.isArray(value)) return [value];
+            }
+            
+            // If input itself is an array
+            if (Array.isArray(input)) return input as unknown[];
+            
+            // If input is a single object (not an array), wrap it in an array
+            // This handles cases where HTTP Request returns a single object
+            if (typeof input === 'object' && input !== null) {
+              // Check if it looks like a data object (has common properties)
+              const hasDataProperties = 'id' in obj || 'title' in obj || 'name' in obj || 'email' in obj;
+              if (hasDataProperties) {
+                return [input];
+              }
+            }
+            
+            return [];
+          },
+          
+          // Convert single object or array to array (always returns array)
+          toArray: (input: unknown): unknown[] => {
+            if (Array.isArray(input)) return input;
+            if (typeof input === 'object' && input !== null) return [input];
+            return [];
+          },
+          
+          // Transform array of objects to Google Sheets rows format
+          // Handles both arrays and single objects
+          toSheetsRows: (items: unknown, fields?: string[]): unknown[][] => {
+            // Convert to array if needed
+            const itemsArray = Array.isArray(items) ? items : (items && typeof items === 'object' ? [items] : []);
+            if (itemsArray.length === 0) return [];
+            
+            const rows: unknown[][] = [];
+            
+            // If fields specified, use them
+            if (fields && fields.length > 0) {
+              rows.push(fields); // Header row
+              itemsArray.forEach(item => {
+                if (typeof item === 'object' && item !== null) {
+                  const obj = item as Record<string, unknown>;
+                  const row = fields.map(field => obj[field] ?? '');
+                  rows.push(row);
+                }
+              });
+            } else {
+              // Auto-detect fields from first item
+              if (itemsArray.length > 0 && typeof itemsArray[0] === 'object' && itemsArray[0] !== null) {
+                const firstItem = itemsArray[0] as Record<string, unknown>;
+                // Filter out nested objects and arrays for cleaner output
+                const autoFields = Object.keys(firstItem).filter(k => {
+                  const val = firstItem[k];
+                  // Include primitive values and arrays, exclude nested objects
+                  return val === null || val === undefined || 
+                         typeof val !== 'object' || 
+                         Array.isArray(val);
+                });
+                rows.push(autoFields); // Header row
+                itemsArray.forEach(item => {
+                  if (typeof item === 'object' && item !== null) {
+                    const obj = item as Record<string, unknown>;
+                    const row = autoFields.map(field => {
+                      const val = obj[field];
+                      if (val === null || val === undefined) return '';
+                      if (typeof val === 'object' && !Array.isArray(val)) return JSON.stringify(val);
+                      return val;
+                    });
+                    rows.push(row);
+                  }
+                });
+              }
+            }
+            
+            return rows;
+          },
+          
+          // Validate email format
+          isValidEmail: (email: string): boolean => {
+            const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+            return emailRegex.test(email);
+          },
+          
+          // Validate phone number
+          isValidPhone: (phone: string): boolean => {
+            const phoneRegex = /^[0-9]{10,15}$/;
+            return phoneRegex.test(phone.replace(/[^0-9]/g, ''));
+          },
+          
+          // Safe property access with fallback
+          get: (obj: unknown, path: string, defaultValue: unknown = null): unknown => {
+            if (typeof obj !== 'object' || obj === null) return defaultValue;
+            const keys = path.split('.');
+            let current: unknown = obj;
+            for (const key of keys) {
+              if (current && typeof current === 'object' && key in current) {
+                current = (current as Record<string, unknown>)[key];
+              } else {
+                return defaultValue;
+              }
+            }
+            return current ?? defaultValue;
+          },
+          
+          // Log helper for debugging
+          log: (...args: unknown[]): void => {
+            console.log('[JavaScript Node]:', ...args);
+          }
+        };
+        
         // Check if code is already a function expression/arrow function
         const trimmedCode = code.trim();
         if (trimmedCode.startsWith('(') || trimmedCode.startsWith('function') || trimmedCode.startsWith('async')) {
           // Try as function expression first
           try {
-            const fn = new Function("input", `return (${code})(input);`);
-            const result = fn(input);
+            const fn = new Function("input", "helpers", `return (${code})(input, helpers);`);
+            const result = fn(input, helpers);
             // Ensure result is JSON-serializable
             if (result !== undefined && result !== null) {
               try {
@@ -2629,12 +2768,19 @@ async function executeNode(
         }
         
         // Execute as function body (supports const, let, var, and other statements)
-        const fn = new Function("input", code);
-        const result = fn(input);
+        // Provide helpers as a global object
+        const fn = new Function("input", "helpers", `
+          // Make helpers available
+          const { getData, getArray, toSheetsRows, isValidEmail, isValidPhone, get, log } = helpers;
+          ${code}
+        `);
+        const result = fn(input, helpers);
+        
         // If function doesn't return anything, return the input
         if (result === undefined) {
           return input;
         }
+        
         // Ensure result is JSON-serializable
         try {
           JSON.stringify(result);
@@ -2645,7 +2791,26 @@ async function executeNode(
         }
       } catch (error) {
         console.error(`JavaScript node execution error:`, error);
-        throw new Error(`JavaScript execution failed: ${error instanceof Error ? error.message : String(error)}`);
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        
+        // Provide helpful error messages for common issues
+        if (errorMessage.includes("Cannot read properties of undefined") || errorMessage.includes("Cannot read property")) {
+          const propertyMatch = errorMessage.match(/Cannot read propert(?:y|ies) (?:of undefined \(reading '|')([^']+)/);
+          if (propertyMatch) {
+            const property = propertyMatch[1];
+            throw new Error(
+              `JavaScript execution failed: Cannot access property '${property}' because it doesn't exist.\n\n` +
+              `Common causes:\n` +
+              `  - HTTP Request output is at root level (use input.${property}, not input.body.${property})\n` +
+              `  - Webhook output is in input.body (use input.body.${property})\n` +
+              `  - Form output is in input.data (use input.data.${property})\n\n` +
+              `Try using: helpers.get(input, '${property}') or helpers.getArray(input, '${property}') for safe access.\n\n` +
+              `Original error: ${errorMessage}`
+            );
+          }
+        }
+        
+        throw new Error(`JavaScript execution failed: ${errorMessage}`);
       }
     }
 
@@ -3459,7 +3624,8 @@ async function executeNode(
         } else {
           // Try to extract from input
           const inputObj = extractInputObject(input);
-          const inputData = inputObj.data || inputObj.rows || input;
+          // Support multiple formats: input.values, input.data, input.rows, or direct array
+          const inputData = inputObj.values || inputObj.data || inputObj.rows || input;
           if (Array.isArray(inputData)) {
             // Check if it's already a 2D array
             if (inputData.length > 0 && Array.isArray(inputData[0])) {
@@ -3469,7 +3635,30 @@ async function executeNode(
               writeData = [inputData as unknown[]];
             }
           } else {
-            throw new Error('Google Sheets: No data provided for write operation. Add data in node config or pass it in input (as input.data or input.rows).');
+            // Check if we have empty values array - this is valid for append (skip operation)
+            const inputObj = extractInputObject(input);
+            const hasEmptyValues = inputObj.values && Array.isArray(inputObj.values) && inputObj.values.length === 0;
+            
+            if (hasEmptyValues && operation === 'append') {
+              // For append operation, empty array is valid - just skip the operation
+              console.log('[Google Sheets] Empty values array received for append operation - skipping');
+              return {
+                data: {
+                  updatedCells: 0,
+                  range: '',
+                },
+                rows: 0,
+                columns: 0,
+                formatted: 'json',
+                operation: 'append',
+                sheetName: sheetName || 'Sheet1',
+                spreadsheetId,
+                _skipped: true,
+                _message: 'No data to append - values array is empty',
+              };
+            }
+            
+            throw new Error('Google Sheets: No data provided for write operation. Add data in node config or pass it in input (as input.values, input.data, or input.rows).');
           }
         }
       }
@@ -6682,16 +6871,25 @@ async function executeNode(
     }
 
     case "ai_agent": {
-      // AI Agent: Autonomous AI agent with tool usage
+      // AI Agent: STRICT PROVIDER ISOLATION - NO FALLBACKS, NO SHARED CODE
       const apiKey = getStringProperty(config, 'apiKey', '');
-      const model = getStringProperty(config, 'model', 'gpt-4o');
+      // CRITICAL: Do NOT use default value - if model is missing, throw error
+      const model = getStringProperty(config, 'model', '');
       const prompt = getStringProperty(config, 'prompt', 'You are an AI agent that can use tools.');
       const toolsStr = getStringProperty(config, 'tools', '[]');
       const maxIterations = getNumberProperty(config, 'maxIterations', 5);
       const temperature = (config.temperature as number) || 0.7;
       
+      // Log raw config for debugging
+      console.log(`AI Agent: Raw config.model = "${config.model}", typeof = ${typeof config.model}`);
+      console.log(`AI Agent: Raw config.apiKey prefix = "${(config.apiKey as string)?.substring(0, 10) || 'MISSING'}..."`);
+      
       if (!apiKey) {
         throw new Error('AI Agent: API Key is required');
+      }
+      
+      if (!model || model.trim() === '') {
+        throw new Error(`AI Agent: Model is required. Current model value: "${model}". Please select a model in the node properties.`);
       }
 
       const tools = parseJSONSafe(toolsStr, 'tools') as Array<Record<string, unknown>>;
@@ -6703,74 +6901,221 @@ async function executeNode(
           (input as Record<string, unknown>)?.message as string || 
           JSON.stringify(input);
 
+      // STRICT PROVIDER RESOLUTION - NO FALLBACKS, NO DEFAULTS
+      function resolveProviderFromModel(modelName: string): 'openai' | 'claude' | 'gemini' {
+        const modelLower = modelName.toLowerCase().trim();
+        
+        // Log for debugging
+        console.log(`AI Agent: Resolving provider for model: "${modelName}" (lowercase: "${modelLower}")`);
+        
+        // HARD MATCH: Check for Gemini FIRST (most specific)
+        if (modelLower.includes('gemini')) {
+          console.log(`AI Agent: Detected GEMINI provider from model: ${modelName}`);
+          return 'gemini';
+        }
+        
+        // Check for Claude
+        if (modelLower.includes('claude')) {
+          console.log(`AI Agent: Detected CLAUDE provider from model: ${modelName}`);
+          return 'claude';
+        }
+        
+        // Check for OpenAI (gpt-)
+        if (modelLower.startsWith('gpt-')) {
+          console.log(`AI Agent: Detected OPENAI provider from model: ${modelName}`);
+          return 'openai';
+        }
+        
+        // NO FALLBACK - THROW ERROR IF UNKNOWN
+        throw new Error(`AI Agent: Unknown model provider for model "${modelName}". Model must start with "gpt-", contain "gemini", or contain "claude".`);
+      }
+
+      // HARD FAIL SAFETY CHECK - Provider must match API key format
+      function assertProviderKey(provider: 'openai' | 'claude' | 'gemini', key: string): void {
+        if (provider === 'gemini' && !key.toUpperCase().startsWith('AIZA')) {
+          throw new Error(`AI Agent: Provider mismatch. Gemini model requires Gemini API key (starts with AIza), but got key starting with "${key.substring(0, 10)}..."`);
+        }
+        if (provider === 'claude' && !key.startsWith('sk-ant-')) {
+          throw new Error(`AI Agent: Provider mismatch. Claude model requires Claude API key (starts with sk-ant-), but got key starting with "${key.substring(0, 10)}..."`);
+        }
+        if (provider === 'openai' && (!key.startsWith('sk-') || key.startsWith('sk-ant-'))) {
+          throw new Error(`AI Agent: Provider mismatch. OpenAI model requires OpenAI API key (starts with sk-), but got key starting with "${key.substring(0, 10)}..."`);
+        }
+      }
+
+      // Resolve provider from model - HARD STOP if unknown
+      console.log(`AI Agent: Starting provider resolution. Model from config: "${model}", API Key prefix: "${apiKey.substring(0, 10)}..."`);
+      const provider = resolveProviderFromModel(model);
+      
+      // HARD FAIL: Provider must match API key
+      assertProviderKey(provider, apiKey);
+      
+      console.log(`AI Agent: FINAL RESOLUTION - Provider=${provider}, Model=${model}, KeyPrefix=${apiKey.substring(0, 10)}...`);
+      
+      // CRITICAL SAFETY CHECK: If provider is Gemini but API key is OpenAI format, throw error
+      if (provider === 'gemini' && apiKey.startsWith('sk-')) {
+        throw new Error(`AI Agent: CRITICAL ERROR - Provider detected as 'gemini' but API key is OpenAI format (starts with sk-). Model: "${model}", Key: "${apiKey.substring(0, 15)}..."`);
+      }
+      
+      // CRITICAL SAFETY CHECK: If provider is OpenAI but API key is Gemini format, throw error
+      if (provider === 'openai' && apiKey.toUpperCase().startsWith('AIZA')) {
+        throw new Error(`AI Agent: CRITICAL ERROR - Provider detected as 'openai' but API key is Gemini format (starts with AIza). Model: "${model}", Key: "${apiKey.substring(0, 15)}..."`);
+      }
+
+      // ISOLATED EXECUTION PATHS - NO SHARED CODE
       try {
-        // Simple agent implementation - iterate with tool calling
-        let currentInput = task;
-        let iteration = 0;
         let finalResponse = '';
+        let iterations = 0;
 
-        while (iteration < maxIterations) {
-          const messages: Array<{ role: string; content: string }> = [
-            { role: 'system', content: `${prompt}\n\nAvailable tools: ${JSON.stringify(tools.map(t => t.name))}` },
-            { role: 'user', content: currentInput }
-          ];
-
-          const response = await fetch('https://api.openai.com/v1/chat/completions', {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${apiKey}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              model,
-              messages,
-              tools: tools.length > 0 ? tools.map(tool => ({
-                type: 'function',
-                function: {
-                  name: tool.name,
-                  description: tool.description || '',
-                  parameters: tool.parameters || {},
-                }
-              })) : undefined,
-              tool_choice: tools.length > 0 ? 'auto' : undefined,
-              temperature,
-            }),
-          });
-
-          if (!response.ok) {
-            const errorText = await response.text();
-            throw new Error(`AI Agent API error: ${response.status} - ${errorText}`);
-          }
-
-          const data = await response.json();
-          const message = data.choices?.[0]?.message;
+        // GEMINI EXECUTION - COMPLETELY ISOLATED
+        if (provider === 'gemini') {
+          console.log(`AI Agent: ENTERING GEMINI EXECUTION BLOCK`);
           
-          if (message.tool_calls && message.tool_calls.length > 0) {
-            // Agent wants to use tools - simulate tool execution
-            // In a full implementation, you would execute the actual tools
-            const toolResults = message.tool_calls.map((toolCall: Record<string, unknown>) => ({
-              tool_call_id: toolCall.id,
-              role: 'tool',
-              name: toolCall.function?.name,
-              content: JSON.stringify({ result: 'Tool executed (simulated)' }),
-            }));
-            
-            messages.push(message);
-            messages.push(...toolResults);
-            currentInput = 'Continue with the next step';
-          } else {
-            // Agent provided final answer
-            finalResponse = message.content || '';
-            break;
+          // Triple-check: This should NEVER happen if provider is gemini
+          if (apiKey.startsWith('sk-')) {
+            throw new Error(`AI Agent: FATAL ERROR - In Gemini block but API key is OpenAI format! Model: "${model}", Key: "${apiKey.substring(0, 15)}..."`);
+          }
+          
+          if (!apiKey.toUpperCase().startsWith('AIZA')) {
+            throw new Error(`AI Agent: Gemini API key missing or invalid. Expected key starting with AIza, got: "${apiKey.substring(0, 15)}..."`);
           }
 
-          iteration++;
+          const llmAdapter = new LLMAdapter();
+          const systemPrompt = `${prompt}\n\nAvailable tools: ${JSON.stringify(tools.map(t => t.name))}`;
+          const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: task }
+          ];
+          
+          console.log(`AI Agent: Calling Gemini API for model ${model} with Gemini key ${apiKey.substring(0, 10)}...`);
+          const response = await llmAdapter.chat('gemini', messages, {
+            model,
+            temperature,
+            apiKey,
+          });
+          
+          console.log(`AI Agent: Gemini API call successful. Response length: ${response.content?.length || 0}`);
+          finalResponse = response.content || '';
+          iterations = 1;
+
+        // CLAUDE EXECUTION - COMPLETELY ISOLATED
+        } else if (provider === 'claude') {
+          if (!apiKey.startsWith('sk-ant-')) {
+            throw new Error('AI Agent: Claude API key missing or invalid');
+          }
+
+          const llmAdapter = new LLMAdapter();
+          const systemPrompt = `${prompt}\n\nAvailable tools: ${JSON.stringify(tools.map(t => t.name))}`;
+          const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: task }
+          ];
+          
+          console.log(`AI Agent: Calling Claude API for model ${model}`);
+          const response = await llmAdapter.chat('claude', messages, {
+            model,
+            temperature,
+            apiKey,
+          });
+          
+          finalResponse = response.content || '';
+          iterations = 1;
+
+        // OPENAI EXECUTION - COMPLETELY ISOLATED
+        } else if (provider === 'openai') {
+          console.log(`AI Agent: ENTERING OPENAI EXECUTION BLOCK`);
+          
+          // Triple-check: This should NEVER happen if provider is openai
+          if (apiKey.toUpperCase().startsWith('AIZA')) {
+            throw new Error(`AI Agent: FATAL ERROR - In OpenAI block but API key is Gemini format! Model: "${model}", Key: "${apiKey.substring(0, 15)}..."`);
+          }
+          
+          if (!apiKey.startsWith('sk-') || apiKey.startsWith('sk-ant-')) {
+            throw new Error(`AI Agent: OpenAI API key missing or invalid. Expected key starting with sk- (not sk-ant-), got: "${apiKey.substring(0, 15)}..."`);
+          }
+
+          let currentInput = task;
+          iterations = 0;
+
+          while (iterations < maxIterations) {
+            const systemPrompt = `${prompt}\n\nAvailable tools: ${JSON.stringify(tools.map(t => t.name))}`;
+            const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
+              { role: 'system', content: systemPrompt },
+              { role: 'user', content: currentInput }
+            ];
+
+            if (tools.length > 0) {
+              // OpenAI with tools - direct API call
+              console.log(`AI Agent: Calling OpenAI API for model ${model} with tools`);
+              const response = await fetch('https://api.openai.com/v1/chat/completions', {
+                method: 'POST',
+                headers: {
+                  'Authorization': `Bearer ${apiKey}`,
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                  model,
+                  messages,
+                  tools: tools.map(tool => ({
+                    type: 'function',
+                    function: {
+                      name: tool.name,
+                      description: tool.description || '',
+                      parameters: tool.parameters || {},
+                    }
+                  })),
+                  tool_choice: 'auto',
+                  temperature,
+                }),
+              });
+
+              if (!response.ok) {
+                const errorText = await response.text();
+                throw new Error(`AI Agent OpenAI API error: ${response.status} - ${errorText}`);
+              }
+
+              const data = await response.json();
+              const message = data.choices?.[0]?.message;
+              
+              if (message.tool_calls && message.tool_calls.length > 0) {
+                const toolResults = message.tool_calls.map((toolCall: Record<string, unknown>) => ({
+                  tool_call_id: toolCall.id,
+                  role: 'tool',
+                  name: toolCall.function?.name,
+                  content: JSON.stringify({ result: 'Tool executed (simulated)' }),
+                }));
+                
+                messages.push(message);
+                messages.push(...toolResults);
+                currentInput = 'Continue with the next step';
+              } else {
+                finalResponse = message.content || '';
+                break;
+              }
+            } else {
+              // OpenAI without tools - use LLMAdapter
+              const llmAdapter = new LLMAdapter();
+              console.log(`AI Agent: Calling OpenAI API via LLMAdapter for model ${model}`);
+              const response = await llmAdapter.chat('openai', messages, {
+                model,
+                temperature,
+                apiKey,
+              });
+              
+              finalResponse = response.content || '';
+              break;
+            }
+
+            iterations++;
+          }
+        } else {
+          throw new Error(`AI Agent: Unsupported provider: ${provider}`);
         }
 
         return {
           response: finalResponse,
-          iterations: iteration,
-          completed: iteration < maxIterations,
+          iterations: iterations,
+          completed: iterations < maxIterations,
         };
       } catch (error) {
         throw new Error(`AI Agent: ${error instanceof Error ? error.message : String(error)}`);
@@ -13755,6 +14100,13 @@ function replaceTemplates(template: unknown, input: unknown): string {
 
     if (input && typeof input === "object" && input !== null) {
       const inputObj = input as Record<string, unknown>;
+      
+      // Special handling: formData is an alias for data (form triggers output data in input.data)
+      if (path.startsWith('formData.')) {
+        path = path.replace('formData.', 'data.');
+        console.log(`[TEMPLATE] Mapped formData to data, new path: ${path}`);
+      }
+      
       const keys = path.split('.');
       let value: unknown = inputObj;
       let found = true;
