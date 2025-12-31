@@ -4014,7 +4014,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
         type: 'text',
         placeholder: 'Your Datadog API key',
         required: true,
-        helpText: 'How to get Datadog API Key: 1) Log in to Datadog 2) Go to Organization Settings → API Keys 3) Click "New Key" 4) Give it a name (e.g., "Workflow Integration") 5) Click "Create Key" 6) Copy the API key immediately (long alphanumeric string) - you won\'t see it again! 7) This key is used for API authentication',
+        helpText: 'How to get Datadog API Key: 1) Log in to your Datadog account at https://app.datadoghq.com (or your regional site) 2) Click on your profile icon in the top right corner 3) Select "Organization Settings" from the dropdown menu 4) Navigate to "API Keys" in the left sidebar 5) Click the "New Key" button 6) Give your key a descriptive name (e.g., "Workflow Integration") 7) Click "Create Key" 8) ⚠️ IMPORTANT: Copy the API key immediately (long alphanumeric string) - you won\'t be able to see it again! 9) This key is used for API authentication 10) Paste the key securely into the input field',
       },
       {
         key: 'appKey',
@@ -4022,7 +4022,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
         type: 'text',
         placeholder: 'Your Datadog app key',
         required: true,
-        helpText: 'How to get Datadog Application Key: 1) Log in to Datadog 2) Go to Organization Settings → Application Keys 3) Click "New Key" 4) Give it a name (e.g., "Workflow Integration") 5) Click "Create Key" 6) Copy the Application Key immediately (long alphanumeric string) - you won\'t see it again! 7) Note: Application Key is different from API Key - you need both for full API access',
+        helpText: 'How to get Datadog Application Key: 1) Log in to your Datadog account at https://app.datadoghq.com (or your regional site) 2) Click on your profile icon in the top right corner 3) Select "Organization Settings" from the dropdown menu 4) Navigate to "Application Keys" in the left sidebar (different from API Keys) 5) Click the "New Key" button 6) Give your key a descriptive name (e.g., "Workflow Integration") 7) Click "Create Key" 8) ⚠️ IMPORTANT: Copy the Application Key immediately (long alphanumeric string) - you won\'t be able to see it again! 9) Note: Application Key is different from API Key - you need BOTH for full API access 10) The Application Key provides additional permissions beyond the API Key 11) Paste the key securely into the input field',
       },
       {
         key: 'site',
@@ -4035,7 +4035,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
           { label: 'US5 (us5.datadoghq.com)', value: 'us5.datadoghq.com' },
         ],
         defaultValue: 'datadoghq.com',
-        helpText: 'Datadog site region',
+        helpText: 'How to get Datadog Site: 1) The Datadog Site is the regional endpoint where your account is hosted 2) Check your login URL: datadoghq.com (US), datadoghq.eu (EU), us3.datadoghq.com (US3), or us5.datadoghq.com (US5) 3) Go to Organization Settings → API Keys to see your site 4) Most US users use datadoghq.com (default) 5) Select the correct site from the dropdown to ensure API calls reach the right region',
       },
       {
         key: 'operation',
@@ -6832,7 +6832,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
         type: 'text',
         placeholder: 'your-shop.myshopify.com',
         required: true,
-        helpText: 'How to get Shop Domain: 1) Log into your Shopify admin 2) Check the URL - it shows your-shop.myshopify.com 3) Copy the domain (e.g., "mystore.myshopify.com") 4) Paste it here',
+        helpText: 'How to get Shopify Store URL/Shop Domain: 1) Log in to your Shopify Admin panel at https://admin.shopify.com 2) Look at the URL in your browser address bar - it shows your-shop.myshopify.com 3) Alternatively, go to Settings → General → Store details to see your Store address 4) Copy the entire domain (e.g., "mystore.myshopify.com") - do NOT include "https://" or "www" 5) Paste the domain exactly as it appears into the input field',
       },
       {
         key: 'accessToken',
@@ -6840,7 +6840,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
         type: 'text',
         placeholder: 'shpat_...',
         required: true,
-        helpText: 'How to get Shopify Access Token: 1) Go to Shopify Admin → Settings → Apps and sales channels → Develop apps 2) Create a new app 3) Configure API scopes 4) Install app and copy the Admin API access token (starts with shpat_) 5) Paste it here',
+        helpText: 'How to get Shopify Admin API Access Token: 1) Log in to your Shopify Admin panel at https://admin.shopify.com 2) Navigate to Settings → Apps and sales channels 3) Click on "Develop apps" (enable developer mode if needed) 4) Click "Create an app" and give it a name (e.g., "Workflow Integration") 5) Click "Configure Admin API scopes" and select required scopes (read_orders, write_inventory, read_products, etc.) 6) Go to "API credentials" tab and click "Install app" 7) Click "Reveal token once" or "Reveal token" 8) ⚠️ IMPORTANT: Copy the Admin API access token immediately (starts with shpat_) - you won\'t be able to see it again! 9) The token format: shpat_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx 10) Paste the token securely into the input field 11) Keep this token secure and never share it publicly',
       },
       {
         key: 'productId',

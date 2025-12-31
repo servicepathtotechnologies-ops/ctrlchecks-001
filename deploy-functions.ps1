@@ -31,10 +31,12 @@ param(
 $AllFunctions = @(
     "admin-templates",
     "analyze-workflow-requirements",
+    "build-multimodal-agent",
     "chat-api",
     "chatbot",
     "copy-template",
     "execute-agent",
+    "execute-multimodal-agent",
     "execute-workflow",
     "form-trigger",
     "generate-workflow",

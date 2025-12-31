@@ -695,6 +695,525 @@ const HELP_TOPICS: Record<string, { title: string; steps: string[]; linkLabel: s
       "Copy the generated Access Token immediately.",
       "Paste it into the input field. ⚠️ Note: This token expires after 60 days - you'll need to regenerate it.",
       "For production use, implement OAuth 2.0 flow to automatically refresh tokens."
+  },
+  postgresql_host: {
+    title: "How to get PostgreSQL Host",
+    linkLabel: "PostgreSQL Host",
+    keywords: ['postgresql_host', 'postgresql host', 'postgres host', 'database host', 'db host', 'host'],
+    steps: [
+      "The PostgreSQL host is the server address where your database is running.",
+      "For local databases: Use 'localhost' or '127.0.0.1'",
+      "For cloud databases (AWS RDS, Google Cloud SQL, Azure, etc.):",
+      "  • Check your cloud provider's database dashboard",
+      "  • Look for 'Endpoint', 'Host', or 'Connection String'",
+      "  • Example format: 'your-db-instance.xxxxx.us-east-1.rds.amazonaws.com'",
+      "For managed PostgreSQL services (Heroku, DigitalOcean, etc.):",
+      "  • Check your service dashboard → Database settings",
+      "  • Copy the hostname from the connection string",
+      "  • Usually in format: 'hostname.provider.com' or an IP address",
+      "Enter the host address (without 'postgresql://' or port number) into the input field."
+    ]
+  },
+  postgresql_port: {
+    title: "How to get PostgreSQL Port",
+    linkLabel: "PostgreSQL Port",
+    keywords: ['postgresql_port', 'postgresql port', 'postgres port', 'database port', 'db port', 'port'],
+    steps: [
+      "The PostgreSQL port is the network port your database server listens on.",
+      "Default PostgreSQL port is 5432 (most common).",
+      "For most databases, use the default: 5432",
+      "If using a custom port:",
+      "  • Check your database server configuration",
+      "  • Look in postgresql.conf file (port setting)",
+      "  • Check your cloud provider's database settings",
+      "  • Some managed services use different ports (check documentation)",
+      "Common ports:",
+      "  • 5432 - Standard PostgreSQL port",
+      "  • 5433 - Alternative port (if 5432 is in use)",
+      "Enter the port number (usually 5432) into the input field."
+    ]
+  },
+  postgresql_database: {
+    title: "How to get PostgreSQL Database Name",
+    linkLabel: "PostgreSQL Database Name",
+    keywords: ['postgresql_database', 'postgresql database', 'postgresql database name', 'postgres database', 'database name', 'db name'],
+    steps: [
+      "The database name is the specific database you want to connect to within your PostgreSQL server.",
+      "To find your database name:",
+      "  • Connect to your PostgreSQL server using psql or a database client",
+      "  • Run: SELECT datname FROM pg_database; (lists all databases)",
+      "  • Or check your application's database configuration",
+      "For cloud/managed databases:",
+      "  • Check your cloud provider's database dashboard",
+      "  • Look for 'Database Name' in connection details",
+      "  • It's usually the name you created when setting up the database",
+      "Common database names:",
+      "  • 'postgres' - Default database",
+      "  • 'mydb' or 'appdb' - Custom application databases",
+      "Enter the exact database name (case-sensitive) into the input field."
+    ]
+  },
+  postgresql_username: {
+    title: "How to get PostgreSQL Username",
+    linkLabel: "PostgreSQL Username",
+    keywords: ['postgresql_username', 'postgresql username', 'postgres username', 'database username', 'db username', 'username', 'user'],
+    steps: [
+      "The PostgreSQL username is the database user account for authentication.",
+      "To find or create a username:",
+      "  • Default superuser is usually 'postgres'",
+      "  • Connect as superuser and run: SELECT usename FROM pg_user; (lists all users)",
+      "  • To create a new user: CREATE USER myuser WITH PASSWORD 'mypassword';",
+      "For cloud/managed databases:",
+      "  • Check your cloud provider's database dashboard",
+      "  • Look for 'Master Username' or 'Database User' in connection settings",
+      "  • It's usually set when you first create the database instance",
+      "Best practices:",
+      "  • Use a dedicated user (not 'postgres' superuser) for applications",
+      "  • Grant only necessary permissions to the user",
+      "Enter the username (case-sensitive) into the input field."
+    ]
+  },
+  postgresql_password: {
+    title: "How to get PostgreSQL Password",
+    linkLabel: "PostgreSQL Password",
+    keywords: ['postgresql_password', 'postgresql password', 'postgres password', 'database password', 'db password', 'password'],
+    steps: [
+      "The PostgreSQL password is the authentication password for your database user.",
+      "If you forgot your password:",
+      "  • For local PostgreSQL: Reset via pg_hba.conf or command line",
+      "  • For cloud/managed databases: Use your provider's password reset feature",
+      "To set a new password:",
+      "  • Connect as superuser: ALTER USER username WITH PASSWORD 'newpassword';",
+      "  • Or use your cloud provider's dashboard → Database settings → Reset password",
+      "For cloud/managed databases:",
+      "  • Check your cloud provider's database dashboard",
+      "  • Look for 'Master Password' or 'Database Password'",
+      "  • You may need to reset it if you don't remember",
+      "Security best practices:",
+      "  • Use a strong, unique password",
+      "  • Never share passwords publicly",
+      "  • Consider using environment variables or secrets management",
+      "Enter the password into the input field (it will be hidden for security)."
+    ]
+  },
+  postgresql_table: {
+    title: "How to get PostgreSQL Table Name",
+    linkLabel: "Table Name",
+    keywords: ['postgresql_table', 'postgresql table', 'postgres table', 'table name', 'table', 'table name to clean'],
+    steps: [
+      "The table name is the name of the PostgreSQL table you want to query or modify.",
+      "To find table names in your database:",
+      "  • Connect to your PostgreSQL database",
+      "  • Run: SELECT table_name FROM information_schema.tables WHERE table_schema = 'public';",
+      "  • Or use: \\dt command in psql",
+      "  • Or check your application's database schema/migrations",
+      "Table naming conventions:",
+      "  • Usually lowercase with underscores (e.g., 'user_profiles', 'order_items')",
+      "  • Case-sensitive in PostgreSQL (use quotes for mixed case)",
+      "  • Must match exactly as it appears in the database",
+      "For the cleanup workflow:",
+      "  • Enter the table name that contains records you want to delete",
+      "  • Example: 'logs', 'sessions', 'temp_data', 'old_records'",
+      "Enter the exact table name (case-sensitive) into the input field."
+    ]
+  },
+  timestamp_column: {
+    title: "How to get Timestamp Column for Age",
+    linkLabel: "Timestamp Column for Age",
+    keywords: ['timestamp_column', 'timestamp column', 'timestamp column for age', 'created_at', 'updated_at', 'date column', 'age column'],
+    steps: [
+      "The timestamp column is the date/time column used to determine record age.",
+      "To find timestamp columns in your table:",
+      "  • Connect to your PostgreSQL database",
+      "  • Run: SELECT column_name, data_type FROM information_schema.columns WHERE table_name = 'your_table';",
+      "  • Look for columns with types: TIMESTAMP, TIMESTAMPTZ, DATE, or DATETIME",
+      "Common timestamp column names:",
+      "  • 'created_at' - When record was created",
+      "  • 'updated_at' - When record was last updated",
+      "  • 'deleted_at' - Soft delete timestamp",
+      "  • 'timestamp' - Generic timestamp",
+      "  • 'date_created', 'date_updated' - Alternative naming",
+      "For the cleanup workflow:",
+      "  • Choose the column that represents when records were created or last modified",
+      "  • The workflow will delete records where this column's value is older than the specified days",
+      "  • Example: If using 'created_at', records older than X days from 'created_at' will be deleted",
+      "Enter the exact column name (case-sensitive, usually lowercase) into the input field."
+    ]
+  },
+  records_older_than: {
+    title: "How to set Records Older Than (Days)",
+    linkLabel: "Records Older Than (Days)",
+    keywords: ['records_older_than', 'records older than', 'older than days', 'days', 'age threshold', 'retention days'],
+    steps: [
+      "This field specifies how many days old records must be before they are deleted.",
+      "How it works:",
+      "  • The workflow calculates: Current Date - Timestamp Column Value",
+      "  • If the difference is greater than this number of days, the record is deleted",
+      "  • Example: If set to 30, records with timestamp older than 30 days will be deleted",
+      "Choosing the right value:",
+      "  • Consider your data retention policy",
+      "  • Common values: 30 (1 month), 90 (3 months), 365 (1 year), 730 (2 years)",
+      "  • For logs: Often 7-30 days",
+      "  • For sessions: Often 1-7 days",
+      "  • For audit trails: Often 90-365 days",
+      "Best practices:",
+      "  • Start with a conservative value (higher number) and adjust",
+      "  • Test with a small number first to verify behavior",
+      "  • Consider backing up data before deletion",
+      "  • Document your retention policy",
+      "Enter the number of days (e.g., 30, 90, 365) into the input field."
+    ]
+  },
+  datadog_api_key: {
+    title: "How to get Datadog API Key",
+    linkLabel: "Datadog API Key",
+    keywords: ['datadog_api_key', 'datadog api key', 'datadog apikey', 'apiKey', 'datadog'],
+    steps: [
+      "Log in to your Datadog account at https://app.datadoghq.com (or your regional site).",
+      "Click on your profile icon in the top right corner.",
+      "Select 'Organization Settings' from the dropdown menu.",
+      "Navigate to 'API Keys' in the left sidebar.",
+      "Click the 'New Key' button.",
+      "Give your key a descriptive name (e.g., 'Workflow Integration').",
+      "Click 'Create Key'.",
+      "⚠️ IMPORTANT: Copy the API key immediately - you won't be able to see it again!",
+      "The API key is a long alphanumeric string used for API authentication.",
+      "Paste the key securely into the input field."
+    ]
+  },
+  datadog_application_key: {
+    title: "How to get Datadog Application Key",
+    linkLabel: "Datadog Application Key",
+    keywords: ['datadog_app_key', 'datadog application key', 'datadog appkey', 'appKey', 'application key', 'datadog app key'],
+    steps: [
+      "Log in to your Datadog account at https://app.datadoghq.com (or your regional site).",
+      "Click on your profile icon in the top right corner.",
+      "Select 'Organization Settings' from the dropdown menu.",
+      "Navigate to 'Application Keys' in the left sidebar (different from API Keys).",
+      "Click the 'New Key' button.",
+      "Give your key a descriptive name (e.g., 'Workflow Integration').",
+      "Click 'Create Key'.",
+      "⚠️ IMPORTANT: Copy the Application Key immediately - you won't be able to see it again!",
+      "Note: Application Key is different from API Key - you need BOTH for full API access.",
+      "The Application Key provides additional permissions beyond the API Key.",
+      "Paste the key securely into the input field."
+    ]
+  },
+  datadog_site: {
+    title: "How to get Datadog Site",
+    linkLabel: "Datadog Site",
+    keywords: ['datadog_site', 'datadog site', 'datadog region', 'site'],
+    steps: [
+      "The Datadog Site is the regional endpoint where your Datadog account is hosted.",
+      "Check the URL when you log in to Datadog:",
+      "  • If URL contains 'datadoghq.com' → Use 'datadoghq.com' (US)",
+      "  • If URL contains 'datadoghq.eu' → Use 'datadoghq.eu' (EU)",
+      "  • If URL contains 'us3.datadoghq.com' → Use 'us3.datadoghq.com' (US3)",
+      "  • If URL contains 'us5.datadoghq.com' → Use 'us5.datadoghq.com' (US5)",
+      "Alternatively, go to Organization Settings → API Keys → Your API key will show the site.",
+      "Most users in the US use 'datadoghq.com' (default).",
+      "Select the correct site from the dropdown to ensure API calls reach the right region."
+    ]
+  },
+  shopify_store_url: {
+    title: "How to get Shopify Store URL/Domain",
+    linkLabel: "Shopify Store Domain",
+    keywords: ['shopify_store_url', 'shopify store url', 'shopify store domain', 'shopify url', 'shop domain', 'shopify domain', 'store url', 'store domain', 'myshopify.com', 'shopdomain', 'shopify_store_domain'],
+    steps: [
+      "Log in to your Shopify Admin panel at https://admin.shopify.com.",
+      "Once logged in, look at the URL in your browser's address bar.",
+      "Your Shopify store URL will be in the format: your-store-name.myshopify.com",
+      "You can also find it by:",
+      "  • Going to Settings → General → Store details",
+      "  • The 'Store address' field shows your myshopify.com domain",
+      "Copy the entire domain (e.g., 'mystore.myshopify.com') - do NOT include 'https://' or 'www'",
+      "Paste the domain exactly as it appears (e.g., 'your-shop.myshopify.com') into the input field."
+    ]
+  },
+  shopify_access_token: {
+    title: "How to get Shopify Admin API Access Token",
+    linkLabel: "Shopify Admin API Access Token",
+    keywords: ['shopify_access_token', 'shopify access token', 'shopify admin api', 'shopify admin api access token', 'shopify api token', 'shopify token', 'access token', 'admin api access token', 'shpat_', 'shopify_access_token'],
+    steps: [
+      "Log in to your Shopify Admin panel at https://admin.shopify.com.",
+      "Navigate to Settings → Apps and sales channels.",
+      "Click on 'Develop apps' (you may need to enable developer mode if this is your first time).",
+      "Click 'Create an app' button.",
+      "Give your app a name (e.g., 'Workflow Integration' or 'API Integration').",
+      "Click 'Create app'.",
+      "In the app configuration page, click 'Configure Admin API scopes'.",
+      "Select the required API scopes based on your workflow needs:",
+      "  • For orders: 'read_orders', 'write_orders'",
+      "  • For inventory: 'read_inventory', 'write_inventory'",
+      "  • For products: 'read_products', 'write_products'",
+      "  • For customers: 'read_customers', 'write_customers'",
+      "Click 'Save' to save the scopes.",
+      "Go to the 'API credentials' tab.",
+      "Click 'Install app' if prompted, then click 'Reveal token once' or 'Reveal token'.",
+      "⚠️ IMPORTANT: Copy the Admin API access token immediately - it starts with 'shpat_' and you won't be able to see it again!",
+      "The token looks like: shpat_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "Paste the token securely into the input field.",
+      "Note: Keep this token secure and never share it publicly. If you lose it, you'll need to generate a new one."
+    ]
+  },
+  postgresql_host: {
+    title: "How to get PostgreSQL Host",
+    linkLabel: "PostgreSQL Host",
+    keywords: ['postgresql_host', 'postgresql host', 'postgres host', 'database host', 'db host', 'host'],
+    steps: [
+      "The PostgreSQL host is the server address where your database is running.",
+      "For local databases: Use 'localhost' or '127.0.0.1'",
+      "For cloud databases (AWS RDS, Google Cloud SQL, Azure, etc.):",
+      "  • Check your cloud provider's database dashboard",
+      "  • Look for 'Endpoint', 'Host', or 'Connection String'",
+      "  • Example format: 'your-db-instance.xxxxx.us-east-1.rds.amazonaws.com'",
+      "For managed PostgreSQL services (Heroku, DigitalOcean, etc.):",
+      "  • Check your service dashboard → Database settings",
+      "  • Copy the hostname from the connection string",
+      "  • Usually in format: 'hostname.provider.com' or an IP address",
+      "Enter the host address (without 'postgresql://' or port number) into the input field."
+    ]
+  },
+  postgresql_port: {
+    title: "How to get PostgreSQL Port",
+    linkLabel: "PostgreSQL Port",
+    keywords: ['postgresql_port', 'postgresql port', 'postgres port', 'database port', 'db port', 'port'],
+    steps: [
+      "The PostgreSQL port is the network port your database server listens on.",
+      "Default PostgreSQL port is 5432 (most common).",
+      "For most databases, use the default: 5432",
+      "If using a custom port:",
+      "  • Check your database server configuration",
+      "  • Look in postgresql.conf file (port setting)",
+      "  • Check your cloud provider's database settings",
+      "  • Some managed services use different ports (check documentation)",
+      "Common ports:",
+      "  • 5432 - Standard PostgreSQL port",
+      "  • 5433 - Alternative port (if 5432 is in use)",
+      "Enter the port number (usually 5432) into the input field."
+    ]
+  },
+  postgresql_database: {
+    title: "How to get PostgreSQL Database Name",
+    linkLabel: "PostgreSQL Database Name",
+    keywords: ['postgresql_database', 'postgresql database', 'postgresql database name', 'postgres database', 'database name', 'db name'],
+    steps: [
+      "The database name is the specific database you want to connect to within your PostgreSQL server.",
+      "To find your database name:",
+      "  • Connect to your PostgreSQL server using psql or a database client",
+      "  • Run: SELECT datname FROM pg_database; (lists all databases)",
+      "  • Or check your application's database configuration",
+      "For cloud/managed databases:",
+      "  • Check your cloud provider's database dashboard",
+      "  • Look for 'Database Name' in connection details",
+      "  • It's usually the name you created when setting up the database",
+      "Common database names:",
+      "  • 'postgres' - Default database",
+      "  • 'mydb' or 'appdb' - Custom application databases",
+      "Enter the exact database name (case-sensitive) into the input field."
+    ]
+  },
+  postgresql_username: {
+    title: "How to get PostgreSQL Username",
+    linkLabel: "PostgreSQL Username",
+    keywords: ['postgresql_username', 'postgresql username', 'postgres username', 'database username', 'db username', 'username', 'user'],
+    steps: [
+      "The PostgreSQL username is the database user account for authentication.",
+      "To find or create a username:",
+      "  • Default superuser is usually 'postgres'",
+      "  • Connect as superuser and run: SELECT usename FROM pg_user; (lists all users)",
+      "  • To create a new user: CREATE USER myuser WITH PASSWORD 'mypassword';",
+      "For cloud/managed databases:",
+      "  • Check your cloud provider's database dashboard",
+      "  • Look for 'Master Username' or 'Database User' in connection settings",
+      "  • It's usually set when you first create the database instance",
+      "Best practices:",
+      "  • Use a dedicated user (not 'postgres' superuser) for applications",
+      "  • Grant only necessary permissions to the user",
+      "Enter the username (case-sensitive) into the input field."
+    ]
+  },
+  postgresql_password: {
+    title: "How to get PostgreSQL Password",
+    linkLabel: "PostgreSQL Password",
+    keywords: ['postgresql_password', 'postgresql password', 'postgres password', 'database password', 'db password', 'password'],
+    steps: [
+      "The PostgreSQL password is the authentication password for your database user.",
+      "If you forgot your password:",
+      "  • For local PostgreSQL: Reset via pg_hba.conf or command line",
+      "  • For cloud/managed databases: Use your provider's password reset feature",
+      "To set a new password:",
+      "  • Connect as superuser: ALTER USER username WITH PASSWORD 'newpassword';",
+      "  • Or use your cloud provider's dashboard → Database settings → Reset password",
+      "For cloud/managed databases:",
+      "  • Check your cloud provider's database dashboard",
+      "  • Look for 'Master Password' or 'Database Password'",
+      "  • You may need to reset it if you don't remember",
+      "Security best practices:",
+      "  • Use a strong, unique password",
+      "  • Never share passwords publicly",
+      "  • Consider using environment variables or secrets management",
+      "Enter the password into the input field (it will be hidden for security)."
+    ]
+  },
+  postgresql_table: {
+    title: "How to get PostgreSQL Table Name",
+    linkLabel: "Table Name",
+    keywords: ['postgresql_table', 'postgresql table', 'postgres table', 'table name', 'table', 'table name to clean'],
+    steps: [
+      "The table name is the name of the PostgreSQL table you want to query or modify.",
+      "To find table names in your database:",
+      "  • Connect to your PostgreSQL database",
+      "  • Run: SELECT table_name FROM information_schema.tables WHERE table_schema = 'public';",
+      "  • Or use: \\dt command in psql",
+      "  • Or check your application's database schema/migrations",
+      "Table naming conventions:",
+      "  • Usually lowercase with underscores (e.g., 'user_profiles', 'order_items')",
+      "  • Case-sensitive in PostgreSQL (use quotes for mixed case)",
+      "  • Must match exactly as it appears in the database",
+      "For the cleanup workflow:",
+      "  • Enter the table name that contains records you want to delete",
+      "  • Example: 'logs', 'sessions', 'temp_data', 'old_records'",
+      "Enter the exact table name (case-sensitive) into the input field."
+    ]
+  },
+  timestamp_column: {
+    title: "How to get Timestamp Column for Age",
+    linkLabel: "Timestamp Column for Age",
+    keywords: ['timestamp_column', 'timestamp column', 'timestamp column for age', 'created_at', 'updated_at', 'date column', 'age column'],
+    steps: [
+      "The timestamp column is the date/time column used to determine record age.",
+      "To find timestamp columns in your table:",
+      "  • Connect to your PostgreSQL database",
+      "  • Run: SELECT column_name, data_type FROM information_schema.columns WHERE table_name = 'your_table';",
+      "  • Look for columns with types: TIMESTAMP, TIMESTAMPTZ, DATE, or DATETIME",
+      "Common timestamp column names:",
+      "  • 'created_at' - When record was created",
+      "  • 'updated_at' - When record was last updated",
+      "  • 'deleted_at' - Soft delete timestamp",
+      "  • 'timestamp' - Generic timestamp",
+      "  • 'date_created', 'date_updated' - Alternative naming",
+      "For the cleanup workflow:",
+      "  • Choose the column that represents when records were created or last modified",
+      "  • The workflow will delete records where this column's value is older than the specified days",
+      "  • Example: If using 'created_at', records older than X days from 'created_at' will be deleted",
+      "Enter the exact column name (case-sensitive, usually lowercase) into the input field."
+    ]
+  },
+  records_older_than: {
+    title: "How to set Records Older Than (Days)",
+    linkLabel: "Records Older Than (Days)",
+    keywords: ['records_older_than', 'records older than', 'older than days', 'days', 'age threshold', 'retention days'],
+    steps: [
+      "This field specifies how many days old records must be before they are deleted.",
+      "How it works:",
+      "  • The workflow calculates: Current Date - Timestamp Column Value",
+      "  • If the difference is greater than this number of days, the record is deleted",
+      "  • Example: If set to 30, records with timestamp older than 30 days will be deleted",
+      "Choosing the right value:",
+      "  • Consider your data retention policy",
+      "  • Common values: 30 (1 month), 90 (3 months), 365 (1 year), 730 (2 years)",
+      "  • For logs: Often 7-30 days",
+      "  • For sessions: Often 1-7 days",
+      "  • For audit trails: Often 90-365 days",
+      "Best practices:",
+      "  • Start with a conservative value (higher number) and adjust",
+      "  • Test with a small number first to verify behavior",
+      "  • Consider backing up data before deletion",
+      "  • Document your retention policy",
+      "Enter the number of days (e.g., 30, 90, 365) into the input field."
+    ]
+  },
+  datadog_api_key: {
+    title: "How to get Datadog API Key",
+    linkLabel: "Datadog API Key",
+    keywords: ['datadog_api_key', 'datadog api key', 'datadog apikey', 'apiKey', 'datadog'],
+    steps: [
+      "Log in to your Datadog account at https://app.datadoghq.com (or your regional site).",
+      "Click on your profile icon in the top right corner.",
+      "Select 'Organization Settings' from the dropdown menu.",
+      "Navigate to 'API Keys' in the left sidebar.",
+      "Click the 'New Key' button.",
+      "Give your key a descriptive name (e.g., 'Workflow Integration').",
+      "Click 'Create Key'.",
+      "⚠️ IMPORTANT: Copy the API key immediately - you won't be able to see it again!",
+      "The API key is a long alphanumeric string used for API authentication.",
+      "Paste the key securely into the input field."
+    ]
+  },
+  datadog_application_key: {
+    title: "How to get Datadog Application Key",
+    linkLabel: "Datadog Application Key",
+    keywords: ['datadog_app_key', 'datadog application key', 'datadog appkey', 'appKey', 'application key', 'datadog app key'],
+    steps: [
+      "Log in to your Datadog account at https://app.datadoghq.com (or your regional site).",
+      "Click on your profile icon in the top right corner.",
+      "Select 'Organization Settings' from the dropdown menu.",
+      "Navigate to 'Application Keys' in the left sidebar (different from API Keys).",
+      "Click the 'New Key' button.",
+      "Give your key a descriptive name (e.g., 'Workflow Integration').",
+      "Click 'Create Key'.",
+      "⚠️ IMPORTANT: Copy the Application Key immediately - you won't be able to see it again!",
+      "Note: Application Key is different from API Key - you need BOTH for full API access.",
+      "The Application Key provides additional permissions beyond the API Key.",
+      "Paste the key securely into the input field."
+    ]
+  },
+  datadog_site: {
+    title: "How to get Datadog Site",
+    linkLabel: "Datadog Site",
+    keywords: ['datadog_site', 'datadog site', 'datadog region', 'site'],
+    steps: [
+      "The Datadog Site is the regional endpoint where your Datadog account is hosted.",
+      "Check the URL when you log in to Datadog:",
+      "  • If URL contains 'datadoghq.com' → Use 'datadoghq.com' (US)",
+      "  • If URL contains 'datadoghq.eu' → Use 'datadoghq.eu' (EU)",
+      "  • If URL contains 'us3.datadoghq.com' → Use 'us3.datadoghq.com' (US3)",
+      "  • If URL contains 'us5.datadoghq.com' → Use 'us5.datadoghq.com' (US5)",
+      "Alternatively, go to Organization Settings → API Keys → Your API key will show the site.",
+      "Most users in the US use 'datadoghq.com' (default).",
+      "Select the correct site from the dropdown to ensure API calls reach the right region."
+    ]
+  },
+  shopify_store_url: {
+    title: "How to get Shopify Store URL/Domain",
+    linkLabel: "Shopify Store Domain",
+    keywords: ['shopify_store_url', 'shopify store url', 'shopify store domain', 'shopify url', 'shop domain', 'shopify domain', 'store url', 'store domain', 'myshopify.com', 'shopdomain', 'shopify_store_domain'],
+    steps: [
+      "Log in to your Shopify Admin panel at https://admin.shopify.com.",
+      "Once logged in, look at the URL in your browser's address bar.",
+      "Your Shopify store URL will be in the format: your-store-name.myshopify.com",
+      "You can also find it by:",
+      "  • Going to Settings → General → Store details",
+      "  • The 'Store address' field shows your myshopify.com domain",
+      "Copy the entire domain (e.g., 'mystore.myshopify.com') - do NOT include 'https://' or 'www'",
+      "Paste the domain exactly as it appears (e.g., 'your-shop.myshopify.com') into the input field."
+    ]
+  },
+  shopify_access_token: {
+    title: "How to get Shopify Admin API Access Token",
+    linkLabel: "Shopify Admin API Access Token",
+    keywords: ['shopify_access_token', 'shopify access token', 'shopify admin api', 'shopify admin api access token', 'shopify api token', 'shopify token', 'access token', 'admin api access token', 'shpat_', 'shopify_access_token'],
+    steps: [
+      "Log in to your Shopify Admin panel at https://admin.shopify.com.",
+      "Navigate to Settings → Apps and sales channels.",
+      "Click on 'Develop apps' (you may need to enable developer mode if this is your first time).",
+      "Click 'Create an app' button.",
+      "Give your app a name (e.g., 'Workflow Integration' or 'API Integration').",
+      "Click 'Create app'.",
+      "In the app configuration page, click 'Configure Admin API scopes'.",
+      "Select the required API scopes based on your workflow needs:",
+      "  • For orders: 'read_orders', 'write_orders'",
+      "  • For inventory: 'read_inventory', 'write_inventory'",
+      "  • For products: 'read_products', 'write_products'",
+      "  • For customers: 'read_customers', 'write_customers'",
+      "Click 'Save' to save the scopes.",
+      "Go to the 'API credentials' tab.",
+      "Click 'Install app' if prompted, then click 'Reveal token once' or 'Reveal token'.",
+      "⚠️ IMPORTANT: Copy the Admin API access token immediately - it starts with 'shpat_' and you won't be able to see it again!",
+      "The token looks like: shpat_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "Paste the token securely into the input field.",
+      "Note: Keep this token secure and never share it publicly. If you lose it, you'll need to generate a new one."
     ]
   }
 };
@@ -1506,10 +2025,10 @@ export default function AIWorkflowBuilder() {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
+    <div className="fixed inset-0 z-50 overflow-y-auto">
       <div className="absolute inset-0 bg-background/80 backdrop-blur-md" />
 
-      <div className="relative z-10 w-full max-w-3xl px-4 py-6">
+      <div className="relative z-10 w-full max-w-3xl mx-auto px-4 py-6 flex flex-col">
         <Button
           variant="ghost"
           onClick={() => navigate('/workflows')}
@@ -1710,7 +2229,7 @@ export default function AIWorkflowBuilder() {
             )}
           </CardContent>
 
-          <CardFooter className="bg-muted/10 flex justify-between pt-6 flex-shrink-0">
+          <CardFooter className="bg-muted/10 flex justify-between pt-6 border-t flex-shrink-0">
             {step === 'config' ? (
               <>
                 <Button variant="ghost" onClick={() => setStep('prompt')}>
