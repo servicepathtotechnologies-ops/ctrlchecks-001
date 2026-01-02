@@ -19,6 +19,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { validateAndFixWorkflow } from "./workflow-validation.ts";
 import { AutonomousWorkflowAgent } from "./autonomous-agent.ts";
 import { LLMAdapter } from "./llm-adapter.ts";
+import { getTrainingExamplesSection, getRelevantExamples, getTrainingExampleContext } from "./training-examples.ts";
 
 // CORS headers - comprehensive configuration for browser access
 const corsHeaders = {
@@ -1578,6 +1579,8 @@ Structure: chat_trigger → memory (retrieve) → javascript (build prompt with 
 8. 🚨 CRITICAL: Always detect trigger type and use correct input path:
    - Form trigger → input.data.fieldName
    - Webhook trigger → input.body.fieldName
+
+${getTrainingExamplesSection()}
 `;
 
     // Initialize LLM adapter and API key early
@@ -1685,6 +1688,10 @@ Structure: chat_trigger → memory (retrieve) → javascript (build prompt with 
                 // Initialize autonomous agent with progress callback
                 // CRITICAL: Set maxIterations to 1 to prevent quota exhaustion
                 // Each iteration makes 6-7 API calls, so 1 iteration = ~7 calls max
+                
+                // Get relevant training examples with detailed context
+                const examplesContext = getTrainingExampleContext(prompt, 3);
+                
                 const agent = new AutonomousWorkflowAgent(
                   {
                     apiKey,
@@ -1698,7 +1705,7 @@ Structure: chat_trigger → memory (retrieve) → javascript (build prompt with 
                       controller.enqueue(new TextEncoder().encode(progressLine));
                     },
                   },
-                  nodeDescriptions
+                  nodeDescriptions + examplesContext
                 );
 
                 // Execute autonomous agent with timeout (this will call onProgress callbacks)
@@ -1827,6 +1834,10 @@ Structure: chat_trigger → memory (retrieve) → javascript (build prompt with 
         
         // Initialize autonomous agent with full node knowledge
         // CRITICAL: Set maxIterations to 1 to prevent quota exhaustion
+        
+        // Get relevant training examples with detailed context
+        const examplesContext = getTrainingExampleContext(prompt, 3);
+        
         const agent = new AutonomousWorkflowAgent(
           {
             apiKey,
@@ -1838,7 +1849,7 @@ Structure: chat_trigger → memory (retrieve) → javascript (build prompt with 
               lastProgress = progress;
             },
           },
-          nodeDescriptions
+          nodeDescriptions + examplesContext
         );
 
         // Execute autonomous agent with timeout

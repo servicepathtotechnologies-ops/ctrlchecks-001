@@ -334,19 +334,84 @@ export class AutonomousWorkflowAgent {
   }
 
   /**
+   * PHASE 0: SUMMARIZE & CLARIFY
+   * First, create a clear, structured summary of the user's intent
+   */
+  private async phase0_SummarizeAndClarify(userGoal: string): Promise<string> {
+    console.log('[PHASE 0] Summarizing and clarifying user goal...');
+
+    const summaryPrompt = `You are an expert at understanding natural language workflow requests. 
+Your task is to create a clear, structured summary of what the user wants.
+
+USER REQUEST: "${userGoal}"
+
+Create a comprehensive summary that:
+1. Identifies the MAIN GOAL (what the workflow should accomplish)
+2. Extracts KEY ACTIONS (what steps need to happen)
+3. Identifies TRIGGER TYPE (what starts the workflow)
+4. Lists REQUIRED INTEGRATIONS (which services/tools are needed)
+5. Identifies OUTPUT DESTINATION (where results should go)
+
+Respond with a JSON object:
+{
+  "mainGoal": "One sentence describing the primary objective",
+  "keyActions": ["action 1", "action 2", "action 3"],
+  "triggerType": "webhook|form|schedule|chat|manual|error|interval",
+  "integrations": ["service1", "service2"],
+  "outputDestination": "where the final result goes",
+  "clarifiedPrompt": "A clear, structured version of the user's request that removes ambiguity"
+}
+
+Be precise. If the user says "webhook", use "webhook" trigger. If they say "form", use "form" trigger.
+If they say "schedule" or "daily" or "every day", use "schedule" trigger.
+If they say "chat" or "chatbot", use "chat" trigger.`;
+
+    const messages: LLMMessage[] = [
+      { role: 'system', content: 'You are a precise summarization agent. Always respond with valid JSON only.' },
+      { role: 'user', content: summaryPrompt },
+    ];
+
+    const response = await this.llm.chat('gemini', messages, {
+      model: this.config.model,
+      temperature: 0.1, // Very low temperature for precise summarization
+      apiKey: this.config.apiKey,
+    });
+
+    let summaryText = response.content.trim();
+    if (summaryText.includes('```json')) {
+      summaryText = summaryText.split('```json')[1].split('```')[0].trim();
+    } else if (summaryText.includes('```')) {
+      summaryText = summaryText.split('```')[1].split('```')[0].trim();
+    }
+
+    const summary = JSON.parse(summaryText);
+    console.log('[PHASE 0] Summary complete:', JSON.stringify(summary, null, 2));
+    
+    // Return the clarified prompt for use in next phase
+    return summary.clarifiedPrompt || userGoal;
+  }
+
+  /**
    * PHASE 1: UNDERSTAND & SUMMARIZE
    * Deeply analyze the USER_GOAL and extract intent, inputs, outputs, constraints
+   * Now enhanced with training example references
    */
   private async phase1_UnderstandAndSummarize(userGoal: string, userConfig: Record<string, any>): Promise<void> {
-    console.log('[PHASE 1] Understanding and summarizing goal...');
+    console.log('[PHASE 1] Understanding and summarizing goal with training examples...');
+
+    // First, get a clear summary
+    const clarifiedGoal = await this.phase0_SummarizeAndClarify(userGoal);
+    
+    // Import training examples helper
+    const { getTrainingExampleContext } = await import('./training-examples.ts');
+    const trainingContext = getTrainingExampleContext(clarifiedGoal, 3);
 
     // Detect email/gmail keywords for special handling
-    const goalLower = userGoal.toLowerCase();
+    const goalLower = clarifiedGoal.toLowerCase();
     const hasGmail = goalLower.includes('gmail') || goalLower.includes('email');
     const emailPreference = hasGmail ? 'google_gmail' : null;
 
     // 🚨 CRITICAL: Check for form keywords
-    // goalLower already declared above, reuse it
     const formKeywords = [
       'form', 'create a form', 'form data', 'user data', 'collect data', 'collect user data',
       'name', 'email', 'mobile', 'phone', 'contact', 'registration', 'survey', 'feedback',
@@ -358,12 +423,22 @@ export class AutonomousWorkflowAgent {
 
     const prompt = `You are an expert workflow analysis agent. Analyze the user's goal and extract all critical information.
 
-USER GOAL: "${userGoal}"
+ORIGINAL USER GOAL: "${userGoal}"
+CLARIFIED GOAL: "${clarifiedGoal}"
 
 USER PROVIDED CONFIGURATION:
 ${JSON.stringify(userConfig, null, 2)}
 
+${trainingContext}
+
 ${this.nodeKnowledge}
+
+🚨🚨🚨 CRITICAL: REFERENCE TRAINING EXAMPLES ABOVE 🚨🚨🚨
+If you see similar workflows in the training examples section, you MUST:
+1. Use the SAME node types as shown in the examples
+2. Follow the SAME data flow pattern
+3. Apply the SAME structural approach
+4. Match the trigger type from similar examples
 
 🚨🚨🚨 CRITICAL TRIGGER SELECTION RULES 🚨🚨🚨
 ${requiresFormNode ? `
@@ -371,8 +446,8 @@ ${requiresFormNode ? `
 - User goal contains form-related keywords: "${formKeywords.filter(k => goalLower.includes(k)).join(', ')}"
 - YOU MUST use "form" node as the trigger
 - DO NOT use manual_trigger, webhook, or any other trigger
-- Form node outputs: {formData: {field1: value1, ...}, files: [], meta: {...}}
-- Access form data in downstream nodes using: {{input.formData.fieldName}}
+- Form node outputs: {data: {field1: value1, ...}, files: [], meta: {...}}
+- Access form data in downstream nodes using: {{input.data.fieldName}} (NOT input.formData)
 - Extract field names from user goal (e.g., "name", "email", "mobile")
 ` : ''}
 
@@ -392,11 +467,14 @@ Analyze this goal and respond with a JSON object containing:
   "summary": "Concise internal goal summary for the agent",
   "triggerType": "${requiresFormNode ? 'form' : 'manual_trigger'}",
   "emailNodeType": "${emailPreference || 'google_gmail'}",
+  "similarTrainingExample": "Which training example (if any) is most similar? Reference its number and key patterns",
+  "nodesToUse": ["list of node types that MUST be included based on training examples and user goal"],
   ${requiresFormNode ? `"formFields": ["extract field names from goal like name, email, mobile"],` : ''}
   ${requiresFormNode ? `"formConfig": {"fields": "JSON array of form fields with name, label, type, required, placeholder"},` : ''}
 }
 
-Be thorough and precise. Resolve ambiguities using best-practice assumptions.`;
+Be thorough and precise. Resolve ambiguities using best-practice assumptions.
+CRITICAL: If a training example above matches the user's goal, explicitly reference it and use its node pattern.`;
 
     const messages: LLMMessage[] = [
       { role: 'system', content: 'You are a precise workflow analysis agent. Always respond with valid JSON only.' },
@@ -426,15 +504,20 @@ Be thorough and precise. Resolve ambiguities using best-practice assumptions.`;
   /**
    * PHASE 2: PLANNING (GOAL DECOMPOSITION)
    * Break goal into atomic sub-tasks and map to workflow nodes
+   * Enhanced with training example references
    */
   private async phase2_Planning(): Promise<void> {
-    console.log('[PHASE 2] Planning workflow structure...');
+    console.log('[PHASE 2] Planning workflow structure with training examples...');
 
     const analysisContext = this.state.analysis;
     const memoryContext = this.buildMemoryContext();
     const goalLower = this.state.goal.toLowerCase();
     const hasGmail = goalLower.includes('gmail') || goalLower.includes('email');
     const requiredNodes = this.extractRequiredNodes(this.state.goal);
+    
+    // Get training examples for planning phase
+    const { getTrainingExampleContext } = await import('./training-examples.ts');
+    const trainingContext = getTrainingExampleContext(this.state.goal, 3);
     
     // 🚨 Check if form node is required
     const formKeywords = [
@@ -463,8 +546,17 @@ USER GOAL: "${this.state.goal}"
 GOAL ANALYSIS:
 ${JSON.stringify(analysisContext, null, 2)}
 
+${trainingContext}
+
 REQUIRED NODES (MUST be included in plan):
 ${JSON.stringify(requiredNodes, null, 2)}
+
+🚨🚨🚨 CRITICAL: USE TRAINING EXAMPLES ABOVE 🚨🚨🚨
+If a similar training example exists above:
+1. Use the EXACT same node types from that example
+2. Follow the EXACT same data flow pattern
+3. Match the EXACT same structure
+4. Reference the example number in your plan
 
 ${requiresFormNode ? `
 🚨🚨🚨 CRITICAL: FORM NODE REQUIRED 🚨🚨🚨
@@ -497,7 +589,8 @@ Create a detailed execution plan as JSON:
       "nodeType": "node_type_from_available_list",
       "config": {"key": "value"},
       "order": 1,
-      "dependencies": []
+      "dependencies": [],
+      "basedOnTrainingExample": "Which training example (if any) this task is based on"
     }
   ],
   "executionOrder": ["task_1", "task_2", ...],
@@ -505,15 +598,18 @@ Create a detailed execution plan as JSON:
     "retryLogic": "description of retry strategy",
     "fallbackPaths": ["description of fallback actions"]
   },
-  "dataFlow": "Description of how data flows between nodes"
+  "dataFlow": "Description of how data flows between nodes",
+  "trainingExampleReference": "${analysisContext.similarTrainingExample || 'None'}",
+  "nodesFromTrainingExample": ["list of nodes that match the training example pattern"]
 }
 
 Ensure:
 - Every sub-task maps to a valid node type
 - ALL required nodes from the list above are included in subTasks
+- If a training example matches, use its EXACT node pattern
 - Execution order is logical (DAG - no cycles)
 - Error handling is included for critical nodes
-- Data flow is clearly defined`;
+- Data flow matches the training example pattern (if applicable)`;
 
     const messages: LLMMessage[] = [
       { role: 'system', content: 'You are a precise workflow planning agent. Always respond with valid JSON only.' },
@@ -698,9 +794,10 @@ Ensure:
   /**
    * PHASE 3: WORKFLOW CONSTRUCTION
    * Build the complete workflow with correct node configurations
+   * Enhanced to use training examples for accurate node selection
    */
   private async phase3_WorkflowConstruction(): Promise<void> {
-    console.log('[PHASE 3] Constructing workflow...');
+    console.log('[PHASE 3] Constructing workflow using training examples...');
 
     const plan = this.state.plan;
     const analysis = this.state.analysis;
@@ -710,6 +807,13 @@ Ensure:
     
     // Extract required nodes from goal for validation
     const requiredNodes = this.extractRequiredNodes(this.state.goal);
+    
+    // Get training examples for construction phase
+    const { getTrainingExampleContext } = await import('./training-examples.ts');
+    const trainingContext = getTrainingExampleContext(this.state.goal, 3);
+    
+    // Extract similar training example from analysis if available
+    const similarExample = analysis?.similarTrainingExample || '';
     
     // 🚨 Check if form node is required
     const formKeywords = [
@@ -759,8 +863,22 @@ ${JSON.stringify(plan, null, 2)}
 ANALYSIS:
 ${JSON.stringify(analysis, null, 2)}
 
+${trainingContext}
+
 REQUIRED NODES (based on goal):
 ${JSON.stringify(requiredNodes, null, 2)}
+
+🚨🚨🚨 CRITICAL: FOLLOW TRAINING EXAMPLES EXACTLY 🚨🚨🚨
+${similarExample ? `Similar Training Example Identified: ${similarExample}` : ''}
+If a training example above matches this workflow:
+1. Use the EXACT same node types in the EXACT same order
+2. Follow the EXACT same data flow pattern
+3. Use the EXACT same node configurations
+4. Match the EXACT same structure
+5. Reference the example number in your reasoning
+
+CRITICAL: The training examples are PROVEN, PRODUCTION-READY workflows.
+If your workflow matches a training example, you MUST replicate its structure exactly.
 
 🚨🚨🚨 CRITICAL: EXPLICITLY MENTIONED NODES ARE MANDATORY 🚨🚨🚨
 If the user explicitly listed nodes in a "Nodes Used:" section, those nodes MUST be included in the workflow.
