@@ -24,3 +24,6 @@ Pillow>=10.0.0
 # Note: We use HuggingFace Inference API, NOT local models
 # This keeps memory usage low and deployment simple
 
+
+# Validated Cloud API
+huggingface_hub>=0.20.0
