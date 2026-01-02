@@ -79,7 +79,7 @@ def get_text_to_image_processor():
 # Request/Response Schemas
 class ProcessRequest(BaseModel):
     """Request schema for /process endpoint"""
-    task: str = Field(..., description="Task type: image_caption, story, image_prompt, text_to_image, summarize, translate, extract, sentiment, generate, qa")
+    task: str = Field(..., description="Task type: image_caption, story, image_prompt, text_to_image, summarize, translate, extract, sentiment, generate, qa, chat")
     image: Optional[str] = Field(None, description="Base64 encoded image for image tasks")
     input: Optional[str] = Field(None, description="Input text for text tasks")
     sentence_count: Optional[int] = Field(5, description="Number of sentences for story mode (2-10)")
@@ -212,6 +212,12 @@ async def process_task(request: ProcessRequest):
                 raise HTTPException(status_code=400, detail="Question is required for QA task")
             processor = get_text_processor()
             result, model_used = await processor.answer_question(request.question, request.context or request.input)
+            
+        elif request.task == "chat":
+            if not request.input:
+                raise HTTPException(status_code=400, detail="Input text is required for chat task")
+            processor = get_text_processor()
+            result, model_used = await processor.chat(request.input)
         
         else:
             raise HTTPException(
@@ -239,6 +245,15 @@ async def process_task(request: ProcessRequest):
             error=str(e),
             processing_time=round(processing_time, 2)
         )
+
+
+@app.post("/api/agent/execute", response_model=ProcessResponse)
+async def execute_agent_tool(request: ProcessRequest):
+    """
+    Unified entry point for Multi-Agent Tools.
+    Routes to /process logic.
+    """
+    return await process_task(request)
 
 
 if __name__ == "__main__":

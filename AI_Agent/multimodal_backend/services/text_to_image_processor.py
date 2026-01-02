@@ -5,6 +5,7 @@ Matches Streamlit implementation exactly
 """
 
 import logging
+import os
 import base64
 import io
 from typing import Tuple
