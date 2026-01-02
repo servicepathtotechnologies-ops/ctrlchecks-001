@@ -2023,31 +2023,36 @@ async function executeNode(
           JSON.stringify(input);
 
       try {
-        // Use centralized HuggingFace client with router endpoint
+        // Use OpenAI-compatible router client
         const client = new HuggingFaceClient(apiKey);
 
+        // Format as messages for chat completions
+        let messages: Array<{ role: 'user' | 'assistant' | 'system'; content: string }>;
+        
         // For question-answering, format inputs differently
         if (task === 'question-answering' && typeof input === 'object' && input !== null) {
           const inputObj = input as Record<string, unknown>;
-          const qaPrompt = `Question: ${inputObj.question || inputText}\nContext: ${inputObj.context || ''}`;
-          const result = await client.generateText(model, qaPrompt, {
-            max_new_tokens: (parameters.max_new_tokens as number) || 300,
-            ...parameters,
-          });
-          // Try to extract answer from result
-          return { answer: result };
+          const question = String(inputObj.question || inputText);
+          const context = String(inputObj.context || '');
+          messages = [
+            { role: 'system', content: 'You are a helpful assistant that answers questions based on provided context.' },
+            { role: 'user', content: `Context: ${context}\n\nQuestion: ${question}` }
+          ];
+        } else {
+          messages = [{ role: 'user', content: inputText }];
         }
 
-        // For other tasks, use standard text generation
-        const result = await client.generateText(model, inputText, {
-          max_new_tokens: (parameters.max_new_tokens as number) || 300,
+        // Use OpenAI-compatible parameters
+        const result = await client.generateText(model, messages, {
+          max_tokens: (parameters.max_tokens as number) || (parameters.max_new_tokens as number) || 300,
           temperature: (parameters.temperature as number) || 0.7,
           top_p: (parameters.top_p as number) || 0.9,
-          return_full_text: (parameters.return_full_text as boolean) || false,
-          ...parameters,
         });
 
         // Handle different response formats based on task
+        if (task === 'question-answering') {
+          return { answer: result };
+        }
         if (task === 'text-classification') {
           // For classification, return structured format
           return { label: result, score: 0.95 };

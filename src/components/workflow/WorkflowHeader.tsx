@@ -1,6 +1,6 @@
 import { useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Play, Save, Settings, Sparkles, Upload } from 'lucide-react';
+import { ArrowLeft, Play, Save, Settings, Sparkles, Upload, Download } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -18,6 +18,7 @@ import ScheduleSettings from './ScheduleSettings';
 import AgentSettings from './AgentSettings';
 import GoogleConnectionStatus from '@/components/GoogleConnectionStatus';
 import { toast } from '@/hooks/use-toast';
+import { supabase } from '@/integrations/supabase/client';
 
 interface WorkflowHeaderProps {
   onSave: () => void;
@@ -39,8 +40,9 @@ export default function WorkflowHeader({
   onImport
 }: WorkflowHeaderProps) {
   const navigate = useNavigate();
-  const { workflowId, workflowName, setWorkflowName, isDirty } = useWorkflowStore();
+  const { workflowId, workflowName, setWorkflowName, isDirty, nodes, edges } = useWorkflowStore();
   const [isEditing, setIsEditing] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleImportClick = () => {
@@ -72,6 +74,109 @@ export default function WorkflowHeader({
     // Reset file input
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
+    }
+  };
+
+  const handleExportClick = async () => {
+    if (nodes.length === 0) {
+      toast({
+        title: 'No workflow to export',
+        description: 'Add some nodes to your workflow before exporting',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setIsExporting(true);
+    try {
+      // Prepare base workflow data from store
+      const exportData: any = {
+        name: workflowName || 'Untitled Workflow',
+        nodes: nodes.map(node => {
+          // Remove execution status and other runtime data for clean export
+          const { executionStatus, ...cleanData } = node.data;
+          return {
+            ...node,
+            data: cleanData,
+          };
+        }),
+        edges: edges.map(edge => {
+          // Remove style properties that are runtime-specific
+          const { style, ...cleanEdge } = edge;
+          return cleanEdge;
+        }),
+      };
+
+      // If workflow is saved, fetch additional metadata from database
+      if (workflowId) {
+        try {
+          const { data: workflowData, error } = await supabase
+            .from('workflows')
+            .select('description, viewport, cron_expression, workflow_type, agent_config, memory_config')
+            .eq('id', workflowId)
+            .single();
+
+          if (!error && workflowData) {
+            // Add shareable metadata (exclude user-specific data)
+            if (workflowData.description) {
+              exportData.description = workflowData.description;
+            }
+            if (workflowData.viewport) {
+              exportData.viewport = workflowData.viewport;
+            }
+            if (workflowData.cron_expression) {
+              exportData.cron_expression = workflowData.cron_expression;
+            }
+            if (workflowData.workflow_type) {
+              exportData.workflow_type = workflowData.workflow_type;
+            }
+            if (workflowData.agent_config) {
+              exportData.agent_config = workflowData.agent_config;
+            }
+            if (workflowData.memory_config) {
+              exportData.memory_config = workflowData.memory_config;
+            }
+          }
+        } catch (error) {
+          console.warn('Could not fetch additional workflow metadata:', error);
+          // Continue with export even if metadata fetch fails
+        }
+      }
+
+      // Add export metadata
+      exportData.exported_at = new Date().toISOString();
+      exportData.version = '1.0';
+
+      // Create JSON blob and download
+      const jsonString = JSON.stringify(exportData, null, 2);
+      const blob = new Blob([jsonString], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      // Sanitize filename: remove special characters and replace spaces with underscores
+      const sanitizedName = (workflowName || 'workflow')
+        .replace(/[^a-z0-9]/gi, '_')
+        .replace(/_+/g, '_')
+        .replace(/^_|_$/g, '');
+      link.download = `${sanitizedName}_${Date.now()}.json`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+
+      toast({
+        title: 'Export successful',
+        description: 'Workflow exported as JSON file',
+      });
+    } catch (error) {
+      console.error('Error exporting workflow:', error);
+      toast({
+        title: 'Export failed',
+        description: `Failed to export workflow: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        variant: 'destructive',
+      });
+    } finally {
+      setIsExporting(false);
     }
   };
 
@@ -146,7 +251,10 @@ export default function WorkflowHeader({
               <Upload className="mr-2 h-4 w-4" />
               Import JSON
             </DropdownMenuItem>
-            <DropdownMenuItem>Export as JSON</DropdownMenuItem>
+            <DropdownMenuItem onClick={handleExportClick} disabled={isExporting}>
+              <Download className="mr-2 h-4 w-4" />
+              {isExporting ? 'Exporting...' : 'Export as JSON'}
+            </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem>Workflow Settings</DropdownMenuItem>
             <DropdownMenuItem>Version History</DropdownMenuItem>

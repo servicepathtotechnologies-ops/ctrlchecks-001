@@ -133,6 +133,7 @@ export default function FormTrigger() {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
+            'Accept': 'application/json',
             'X-Idempotency-Key': idempotencyKey,
             'apikey': supabaseKey || '',
             'Authorization': `Bearer ${supabaseKey || ''}`,

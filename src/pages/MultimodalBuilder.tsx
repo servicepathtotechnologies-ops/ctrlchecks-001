@@ -12,6 +12,7 @@ import { toast } from '@/hooks/use-toast';
 import DynamicUIRenderer from '@/components/multimodal/DynamicUIRenderer';
 import WorkflowVisualization from '@/components/multimodal/WorkflowVisualization';
 import ModelTester from '@/components/multimodal/ModelTester';
+import ImageProcessing from '@/components/multimodal/ImageProcessing';
 
 interface LogItem {
   id: string;
@@ -34,6 +35,7 @@ interface BuildResult {
 export default function MultimodalBuilder() {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const [activeTab, setActiveTab] = useState<'builder' | 'image-processing'>('builder');
   const [prompt, setPrompt] = useState('');
   const [files, setFiles] = useState<File[]>([]);
   const [logs, setLogs] = useState<LogItem[]>([]);
@@ -182,8 +184,31 @@ export default function MultimodalBuilder() {
           </Button>
           <h1 className="text-lg font-semibold">Multimodal Agent Builder</h1>
         </div>
+        <div className="flex items-center gap-2">
+          <Button
+            variant={activeTab === 'builder' ? 'default' : 'ghost'}
+            size="sm"
+            onClick={() => setActiveTab('builder')}
+          >
+            <Sparkles className="h-4 w-4 mr-2" />
+            Builder
+          </Button>
+          <Button
+            variant={activeTab === 'image-processing' ? 'default' : 'ghost'}
+            size="sm"
+            onClick={() => setActiveTab('image-processing')}
+          >
+            <Upload className="h-4 w-4 mr-2" />
+            Image Processing
+          </Button>
+        </div>
       </header>
 
+      {activeTab === 'image-processing' ? (
+        <div className="h-[calc(100vh-3.5rem)] overflow-y-auto p-6">
+          <ImageProcessing />
+        </div>
+      ) : (
       <div className="flex h-[calc(100vh-3.5rem)]">
         {/* LEFT PANEL - Explanation */}
         <div className="w-80 border-r border-border bg-muted/30 p-6 overflow-y-auto">
@@ -421,6 +446,7 @@ Example: 'Create a Python script to analyze CSV data'"
           </Card>
         </div>
       </div>
+      )}
     </div>
   );
 }

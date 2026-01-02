@@ -95,10 +95,11 @@ Rules:
     }
 
     try {
-      // Use centralized HuggingFace client with router endpoint
-      return await this.hfClient.generateText(model, prompt, {
-        max_new_tokens: options.max_new_tokens || 300,
-        return_full_text: false,
+      // Use OpenAI-compatible router client
+      const messages = [{ role: 'user' as const, content: prompt }];
+      return await this.hfClient.generateText(model, messages, {
+        max_tokens: options.max_tokens || options.max_new_tokens || 300,
+        temperature: options.temperature || 0.7,
         ...options,
       });
     } catch (error) {
