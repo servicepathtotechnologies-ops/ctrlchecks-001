@@ -81,8 +81,22 @@ export default function DynamicUIRenderer({ template, pipeline, executionEngine 
       
       // Call a processing function
       addDebugLog('INFO', 'Calling execution function...');
-      const result = await processMultimodalInput(inputText, pipeline, executionEngine);
-      addDebugLog('SUCCESS', `Result received: "${result.substring(0, 50)}${result.length > 50 ? '...' : ''}"`);
+      let result: string;
+      try {
+        result = await processMultimodalInput(inputText, pipeline, executionEngine);
+        addDebugLog('SUCCESS', `Result received: "${result.substring(0, 50)}${result.length > 50 ? '...' : ''}"`);
+      } catch (error: any) {
+        clearInterval(progressInterval);
+        setIsProcessing(false);
+        const errorMessage = error.message || 'Processing failed';
+        addDebugLog('ERROR', `Processing failed: ${errorMessage}`);
+        toast({
+          title: 'Processing Failed',
+          description: errorMessage,
+          variant: 'destructive'
+        });
+        return; // Stop execution - don't show fake output
+      }
 
       clearInterval(progressInterval);
       setProgress(100);
@@ -162,14 +176,8 @@ export default function DynamicUIRenderer({ template, pipeline, executionEngine 
         console.log('✅ Processing successful!');
         console.log('📤 Output:', data.output);
         console.log('🔍 Diagnostic:', data.diagnostic);
-        console.log('⚠️ Is Fallback:', data.isFallback);
         
-        if (data.isFallback) {
-          addDebugLog('WARNING', '⚠️ Using fallback - AI model may not be working. Check Supabase function logs.');
-          console.warn('⚠️ WARNING: Using fallback processing. The AI model is not working properly.');
-        } else {
-          addDebugLog('SUCCESS', `✅ AI model processed in ${duration}ms!`);
-        }
+        addDebugLog('SUCCESS', `✅ AI model processed in ${duration}ms!`);
         
         return data.output || input;
       } else {
@@ -184,27 +192,19 @@ export default function DynamicUIRenderer({ template, pipeline, executionEngine 
         name: error.name,
         stack: error.stack
       });
-      addDebugLog('ERROR', `Error: ${error.message || 'Unknown error'}`);
       
-      // Fallback: Simple processing if API fails
-      console.log('🔄 Using fallback processing...');
-      const steps = pipeline?.steps || [];
-      const processingSteps = steps.filter((s: any) => s.type === 'transformation');
+      const errorMessage = error.message || 'Unknown error occurred';
+      addDebugLog('ERROR', `Error: ${errorMessage}`);
       
-      let result = input;
-      for (const step of processingSteps) {
-        const description = (step.description || '').toLowerCase();
-        if (description.includes('summarize')) {
-          result = `Summary: ${input.substring(0, Math.min(150, input.length))}...`;
-        } else if (description.includes('extract')) {
-          result = `Extracted: ${input}`;
-        } else {
-          result = `Processed: ${input}`;
-        }
-      }
+      // Show error to user instead of fake fallback
+      toast({
+        title: 'Processing Failed',
+        description: errorMessage,
+        variant: 'destructive'
+      });
       
-      console.log('📤 Fallback result:', result);
-      return result || `Error: ${error.message || 'Processing failed'}`;
+      // Throw error to stop execution - no fake output
+      throw new Error(errorMessage);
     }
   };
 

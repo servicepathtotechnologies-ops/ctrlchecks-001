@@ -1910,6 +1910,7 @@ export default function AIWorkflowBuilder() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Accept': 'application/json',
           'Authorization': session ? `Bearer ${session.access_token}` : '',
           'apikey': import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || '',
         },
@@ -2262,6 +2263,7 @@ export default function AIWorkflowBuilder() {
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json',
+                'Accept': 'application/json',
                 'Authorization': session ? `Bearer ${session.access_token}` : '',
                 'apikey': supabaseKey,
               },

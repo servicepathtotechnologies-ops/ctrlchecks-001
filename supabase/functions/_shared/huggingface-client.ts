@@ -1,44 +1,65 @@
 /**
- * Centralized HuggingFace API Client
+ * HuggingFace Router Client - OpenAI-Compatible API
  * 
- * This module provides a unified interface for all HuggingFace API calls.
- * Uses the new router endpoint: https://router.huggingface.co
+ * CRITICAL: router.huggingface.co is OpenAI-compatible, NOT legacy inference compatible.
+ * ALL requests must follow OpenAI API schemas.
  * 
- * Migration Notes:
- * - Old endpoint: https://api-inference.huggingface.co (deprecated, returns 410)
- * - New endpoint: https://router.huggingface.co (current standard)
- * - The router endpoint provides optimized routing and better reliability
+ * Endpoints:
+ * - Text/Code: POST /v1/chat/completions
+ * - Image: POST /v1/images/generations
+ * - Audio: POST /v1/audio/speech
+ * - Embeddings: POST /v1/embeddings
  */
 
-export interface HuggingFaceRequestOptions {
-  max_new_tokens?: number;
+export type Modality = 'text' | 'code' | 'image' | 'audio' | 'embedding';
+
+export interface ChatMessage {
+  role: 'system' | 'user' | 'assistant';
+  content: string;
+}
+
+export interface ChatCompletionOptions {
   temperature?: number;
+  max_tokens?: number;
   top_p?: number;
-  return_full_text?: boolean;
   [key: string]: unknown;
 }
 
-export interface HuggingFaceResponse {
-  generated_text?: string;
-  summary_text?: string;
-  text?: string;
-  error?: string;
-  estimated_time?: number;
+export interface ImageGenerationOptions {
+  size?: '256x256' | '512x512' | '1024x1024';
+  n?: number;
   [key: string]: unknown;
 }
 
-export class HuggingFaceClient {
+export interface OpenAICompatibleResponse {
+  choices?: Array<{
+    message?: {
+      content?: string;
+    };
+    text?: string;
+  }>;
+  data?: Array<{
+    url?: string;
+    b64_json?: string;
+  }>;
+  error?: {
+    message?: string;
+    type?: string;
+  };
+}
+
+export class HuggingFaceRouterClient {
   private apiKey: string;
   private baseUrl: string;
   private defaultTimeout: number;
   private maxRetries: number;
 
   /**
-   * Initialize the HuggingFace client
-   * @param apiKey - HuggingFace API key (from environment variable)
-   * @param baseUrl - Base URL for HuggingFace API (defaults to router endpoint)
-   * @param defaultTimeout - Default timeout in milliseconds (default: 60000)
-   * @param maxRetries - Maximum number of retries (default: 3)
+   * Initialize the HuggingFace Router client
+   * @param apiKey - HuggingFace API key (required)
+   * @param baseUrl - Base URL (defaults to router endpoint)
+   * @param defaultTimeout - Request timeout in ms (default: 60000)
+   * @param maxRetries - Maximum retries (default: 3)
    */
   constructor(
     apiKey: string | undefined,
@@ -49,42 +70,110 @@ export class HuggingFaceClient {
     if (!apiKey) {
       throw new Error("HuggingFace API key is required");
     }
+    if (!apiKey.startsWith("hf_")) {
+      throw new Error("Invalid HuggingFace API key format. Must start with 'hf_'");
+    }
+    
     this.apiKey = apiKey;
-    this.baseUrl = baseUrl;
+    this.baseUrl = baseUrl.replace(/\/$/, ''); // Remove trailing slash
     this.defaultTimeout = defaultTimeout;
     this.maxRetries = maxRetries;
   }
 
   /**
-   * Generate text using a HuggingFace model
-   * @param modelName - Model identifier (e.g., "mistralai/Mistral-7B-Instruct-v0.2")
-   * @param prompt - Input prompt text
-   * @param options - Additional generation parameters
-   * @returns Generated text string
+   * Determine modality from model name
+   */
+  private detectModality(modelName: string): Modality {
+    const lower = modelName.toLowerCase();
+    
+    // Image models
+    if (lower.includes('stable-diffusion') || 
+        lower.includes('sd-') || 
+        lower.includes('image') ||
+        lower.includes('pixart') ||
+        lower.includes('flux')) {
+      return 'image';
+    }
+    
+    // Audio models
+    if (lower.includes('whisper') || 
+        lower.includes('bark') ||
+        lower.includes('tts') ||
+        lower.includes('audio')) {
+      return 'audio';
+    }
+    
+    // Embedding models
+    if (lower.includes('embedding') || 
+        lower.includes('sentence-transformers')) {
+      return 'embedding';
+    }
+    
+    // Code models
+    if (lower.includes('code') || 
+        lower.includes('codellama') ||
+        lower.includes('deepseek-coder') ||
+        lower.includes('starcoder')) {
+      return 'code';
+    }
+    
+    // Default to text
+    return 'text';
+  }
+
+  /**
+   * Validate model name and modality
+   */
+  private validateRequest(modelName: string, modality: Modality): void {
+    if (!modelName || typeof modelName !== 'string' || modelName.trim().length === 0) {
+      throw new Error("Model name is required and must be a non-empty string");
+    }
+    
+    const detectedModality = this.detectModality(modelName);
+    if (detectedModality !== modality) {
+      console.warn(`⚠️ Modality mismatch: detected '${detectedModality}' but requested '${modality}'. Using detected modality.`);
+    }
+  }
+
+  /**
+   * Generate text or code using chat completions endpoint
+   * @param modelName - Model identifier (e.g., "codellama/CodeLlama-7b-hf")
+   * @param prompt - Input prompt or messages array
+   * @param options - Generation options
+   * @returns Generated text
    */
   async generateText(
     modelName: string,
-    prompt: string,
-    options: HuggingFaceRequestOptions = {}
+    prompt: string | ChatMessage[],
+    options: ChatCompletionOptions = {}
   ): Promise<string> {
-    console.log(`✅ Switching to optimized Hugging Face router`);
-    console.log(`🤖 Model: ${modelName}`);
-    console.log(`📝 Prompt length: ${prompt.length} chars`);
+    const modality: Modality = this.detectModality(modelName);
+    this.validateRequest(modelName, modality);
+    
+    console.log(`✔ Using Hugging Face Router`);
+    console.log(`✔ Endpoint: /v1/chat/completions`);
+    console.log(`✔ Model: ${modelName}`);
+    console.log(`✔ Modality: ${modality}`);
 
-    const url = `${this.baseUrl}/models/${modelName}`;
+    // Convert prompt to messages format
+    let messages: ChatMessage[];
+    if (typeof prompt === 'string') {
+      messages = [{ role: 'user', content: prompt }];
+    } else {
+      messages = prompt;
+    }
+
+    const url = `${this.baseUrl}/v1/chat/completions`;
     const payload = {
-      inputs: prompt,
-      parameters: {
-        max_new_tokens: options.max_new_tokens || 300,
-        temperature: options.temperature || 0.7,
-        top_p: options.top_p || 0.9,
-        return_full_text: options.return_full_text || false,
-        ...options,
-      },
+      model: modelName,
+      messages: messages,
+      temperature: options.temperature ?? 0.7,
+      max_tokens: options.max_tokens ?? 300,
+      top_p: options.top_p ?? 0.9,
+      ...options,
     };
 
     let lastError: Error | null = null;
-    let lastResponse: Response | null = null;
 
     for (let attempt = 0; attempt <= this.maxRetries; attempt++) {
       try {
@@ -109,82 +198,69 @@ export class HuggingFaceClient {
           });
 
           clearTimeout(timeoutId);
-          lastResponse = response;
 
-          console.log(`📥 Response status: ${response.status} ${response.statusText}`);
-
-          // Handle specific error codes
-          if (response.status === 410) {
-            // This should not happen with router endpoint, but handle gracefully
-            throw new Error(
-              "HuggingFace endpoint migration detected. Please ensure you're using the router endpoint."
-            );
-          }
-
-          if (response.status === 503) {
-            // Model is loading
-            const errorData = await response.json().catch(() => ({}));
-            const estimatedTime = (errorData as any).estimated_time || 10;
-            
-            if (attempt < this.maxRetries) {
-              const waitTime = Math.min(estimatedTime * 1000, 15000);
-              console.log(`⏳ Model loading, estimated time: ${estimatedTime}s, waiting...`);
-              await new Promise(resolve => setTimeout(resolve, waitTime));
-              continue;
-            }
-            throw new Error(`Model is loading. Please try again in ${estimatedTime} seconds.`);
-          }
-
-          if (response.status === 429) {
-            // Rate limit
-            if (attempt < this.maxRetries) {
-              const waitTime = Math.min(5000 * (attempt + 1), 30000);
-              console.log(`⏸ Rate limit hit, waiting ${waitTime}ms before retry`);
-              await new Promise(resolve => setTimeout(resolve, waitTime));
-              continue;
-            }
-            throw new Error("Rate limit exceeded. Please try again later.");
-          }
+          console.log(`✔ Response received (${response.status})`);
 
           if (!response.ok) {
             const errorText = await response.text().catch(() => response.statusText);
-            console.error(`❌ API Error (${response.status}):`, errorText.substring(0, 200));
-            throw new Error(`HuggingFace API error (${response.status}): ${errorText.substring(0, 200)}`);
-          }
-
-          const data = await response.json() as HuggingFaceResponse | HuggingFaceResponse[];
-
-          // Handle model loading response in body
-          if (Array.isArray(data) && data[0] && 'error' in data[0]) {
-            const errorData = data[0] as HuggingFaceResponse;
-            if (errorData.estimated_time) {
+            let errorData: any = {};
+            try {
+              errorData = JSON.parse(errorText);
+            } catch {
+              // Not JSON, use text as is
+            }
+            
+            // Handle specific status codes
+            if (response.status === 404 || response.status === 400) {
+              const errorMsg = errorData?.error?.message || errorText;
+              if (errorMsg.includes('not supported') || errorMsg.includes('model_not_suppo')) {
+                throw new Error(`Model '${modelName}' not supported on router API. Will fallback to inference API.`);
+              }
+              throw new Error(`Model '${modelName}' not found or endpoint incorrect. Verify model name and ensure you're using /v1/chat/completions endpoint.`);
+            }
+            if (response.status === 401) {
+              throw new Error("Invalid HuggingFace API key. Please check your HUGGINGFACE_API_KEY.");
+            }
+            if (response.status === 429) {
               if (attempt < this.maxRetries) {
-                const waitTime = Math.min(errorData.estimated_time * 1000, 15000);
-                console.log(`⏳ Model loading (in response), estimated time: ${errorData.estimated_time}s`);
+                const waitTime = Math.min(5000 * (attempt + 1), 30000);
+                console.log(`⏸ Rate limit hit, waiting ${waitTime}ms before retry`);
                 await new Promise(resolve => setTimeout(resolve, waitTime));
                 continue;
               }
-              throw new Error(`Model is loading. Estimated time: ${errorData.estimated_time}s`);
+              throw new Error("Rate limit exceeded. Please try again later.");
             }
-          } else if (!Array.isArray(data) && data.error) {
-            if (data.estimated_time && attempt < this.maxRetries) {
-              const waitTime = Math.min(data.estimated_time * 1000, 15000);
-              console.log(`⏳ Model loading (in response), estimated time: ${data.estimated_time}s`);
-              await new Promise(resolve => setTimeout(resolve, waitTime));
-              continue;
+            if (response.status === 503) {
+              const estimatedTime = errorData?.estimated_time || 10;
+              if (attempt < this.maxRetries) {
+                const waitTime = Math.min(estimatedTime * 1000, 15000);
+                console.log(`⏳ Model loading, estimated time: ${estimatedTime}s, waiting...`);
+                await new Promise(resolve => setTimeout(resolve, waitTime));
+                continue;
+              }
+              throw new Error(`Model is loading. Please try again in ${estimatedTime} seconds.`);
             }
-            throw new Error(data.error || "Unknown error from HuggingFace API");
+            
+            throw new Error(`HuggingFace API error (${response.status}): ${errorText.substring(0, 200)}`);
           }
 
-          // Extract generated text
-          const result = this.extractGeneratedText(data);
-          if (result) {
-            console.log(`✅ Model request routed successfully`);
-            console.log(`📤 Generated text length: ${result.length} chars`);
-            return result;
+          const data = await response.json() as OpenAICompatibleResponse;
+
+          // Parse OpenAI-compatible response
+          if (data.error) {
+            throw new Error(data.error.message || "Unknown error from HuggingFace API");
           }
 
-          throw new Error("Could not extract generated text from response");
+          if (data.choices && data.choices.length > 0) {
+            const content = data.choices[0].message?.content || data.choices[0].text;
+            if (content) {
+              console.log(`✔ Model executed successfully`);
+              console.log(`✔ Generated text length: ${content.length} chars`);
+              return content.trim();
+            }
+          }
+
+          throw new Error("Invalid response format: missing choices[0].message.content");
 
         } catch (fetchError) {
           clearTimeout(timeoutId);
@@ -197,9 +273,12 @@ export class HuggingFaceClient {
 
       } catch (error) {
         lastError = error instanceof Error ? error : new Error(String(error));
+        
+        // Only retry on specific errors
         const shouldRetry = attempt < this.maxRetries && 
-          lastResponse && 
-          (lastResponse.status === 503 || lastResponse.status === 429);
+          (lastError.message.includes('503') || 
+           lastError.message.includes('429') ||
+           lastError.message.includes('timeout'));
         
         if (!shouldRetry) {
           throw lastError;
@@ -211,27 +290,31 @@ export class HuggingFaceClient {
   }
 
   /**
-   * Generate image using a HuggingFace image generation model
+   * Generate image using images/generations endpoint
    * @param modelName - Model identifier (e.g., "runwayml/stable-diffusion-v1-5")
    * @param prompt - Text prompt for image generation
-   * @param options - Additional generation parameters
-   * @returns Base64 encoded image string
+   * @param options - Generation options
+   * @returns Image URL or base64 string
    */
   async generateImage(
     modelName: string,
     prompt: string,
-    options: HuggingFaceRequestOptions = {}
+    options: ImageGenerationOptions = {}
   ): Promise<string> {
-    console.log(`✅ Switching to optimized Hugging Face router for image generation`);
-    console.log(`🎨 Model: ${modelName}`);
-    console.log(`📝 Prompt: ${prompt.substring(0, 100)}...`);
+    const modality: Modality = 'image';
+    this.validateRequest(modelName, modality);
+    
+    console.log(`✔ Using Hugging Face Router`);
+    console.log(`✔ Endpoint: /v1/images/generations`);
+    console.log(`✔ Model: ${modelName}`);
 
-    const url = `${this.baseUrl}/models/${modelName}`;
+    const url = `${this.baseUrl}/v1/images/generations`;
     const payload = {
-      inputs: prompt,
-      parameters: {
-        ...options,
-      },
+      model: modelName,
+      prompt: prompt,
+      size: options.size || '512x512',
+      n: options.n || 1,
+      ...options,
     };
 
     let lastError: Error | null = null;
@@ -259,54 +342,45 @@ export class HuggingFaceClient {
           });
 
           clearTimeout(timeoutId);
-          console.log(`📥 Image generation response status: ${response.status}`);
-
-          if (response.status === 503) {
-            const errorData = await response.json().catch(() => ({}));
-            const estimatedTime = (errorData as any).estimated_time || 15;
-            
-            if (attempt < this.maxRetries) {
-              const waitTime = Math.min(estimatedTime * 1000, 20000);
-              console.log(`⏳ Image model loading, estimated time: ${estimatedTime}s`);
-              await new Promise(resolve => setTimeout(resolve, waitTime));
-              continue;
-            }
-            throw new Error(`Image model is loading. Please try again in ${estimatedTime} seconds.`);
-          }
+          console.log(`✔ Response received (${response.status})`);
 
           if (!response.ok) {
             const errorText = await response.text().catch(() => response.statusText);
+            
+            if (response.status === 404) {
+              throw new Error(`Model '${modelName}' not found or endpoint incorrect. Verify model name and ensure you're using /v1/images/generations endpoint.`);
+            }
+            if (response.status === 503) {
+              const errorData = await response.json().catch(() => ({}));
+              const estimatedTime = (errorData as any).estimated_time || 15;
+              if (attempt < this.maxRetries) {
+                const waitTime = Math.min(estimatedTime * 1000, 20000);
+                console.log(`⏳ Image model loading, estimated time: ${estimatedTime}s`);
+                await new Promise(resolve => setTimeout(resolve, waitTime));
+                continue;
+              }
+              throw new Error(`Image model is loading. Please try again in ${estimatedTime} seconds.`);
+            }
+            
             throw new Error(`HuggingFace image API error (${response.status}): ${errorText.substring(0, 200)}`);
           }
 
-          // For images, response is typically base64 string or blob
-          const contentType = response.headers.get("content-type");
-          
-          if (contentType?.includes("image")) {
-            const blob = await response.blob();
-            const arrayBuffer = await blob.arrayBuffer();
-            const bytes = new Uint8Array(arrayBuffer);
-            // Convert to base64 using btoa (available in Deno)
-            let binary = '';
-            for (let i = 0; i < bytes.length; i++) {
-              binary += String.fromCharCode(bytes[i]);
-            }
-            const base64 = btoa(binary);
-            console.log(`✅ Image generated successfully`);
-            return base64;
-          } else {
-            // Some models return JSON with base64 image
-            const data = await response.json() as any;
-            if (data.generated_image || data.image) {
-              console.log(`✅ Image generated successfully (from JSON)`);
-              return data.generated_image || data.image;
-            }
-            // Try to extract from array format
-            if (Array.isArray(data) && data[0]) {
-              return data[0].generated_image || data[0].image || data[0];
-            }
-            throw new Error("Unexpected response format for image generation");
+          const data = await response.json() as OpenAICompatibleResponse;
+
+          if (data.error) {
+            throw new Error(data.error.message || "Unknown error from HuggingFace API");
           }
+
+          // Parse OpenAI-compatible response
+          if (data.data && data.data.length > 0) {
+            const imageUrl = data.data[0].url || data.data[0].b64_json;
+            if (imageUrl) {
+              console.log(`✔ Image generated successfully`);
+              return imageUrl;
+            }
+          }
+
+          throw new Error("Invalid response format: missing data[0].url");
 
         } catch (fetchError) {
           clearTimeout(timeoutId);
@@ -329,71 +403,166 @@ export class HuggingFaceClient {
   }
 
   /**
-   * Extract generated text from HuggingFace API response
-   * Handles various response formats
+   * Generate audio using audio/speech endpoint
+   * @param modelName - Model identifier (e.g., "suno/bark-small")
+   * @param prompt - Text prompt for audio generation
+   * @param options - Generation options
+   * @returns Audio data (base64 or URL)
    */
-  private extractGeneratedText(data: HuggingFaceResponse | HuggingFaceResponse[]): string | null {
-    // Handle array responses
-    if (Array.isArray(data)) {
-      if (data[0]?.generated_text) {
-        return data[0].generated_text.trim();
-      }
-      if (data[0]?.summary_text) {
-        return data[0].summary_text.trim();
-      }
-      if (typeof data[0] === "string") {
-        return data[0].trim();
-      }
-      // Check nested structure
-      if (data[0] && typeof data[0] === "object") {
-        const firstItem = data[0] as HuggingFaceResponse;
-        if (firstItem.generated_text) {
-          return firstItem.generated_text.trim();
-        }
-      }
-    }
+  async generateAudio(
+    modelName: string,
+    prompt: string,
+    options: Record<string, unknown> = {}
+  ): Promise<string> {
+    const modality: Modality = 'audio';
+    this.validateRequest(modelName, modality);
+    
+    console.log(`✔ Using Hugging Face Router`);
+    console.log(`✔ Endpoint: /v1/audio/speech`);
+    console.log(`✔ Model: ${modelName}`);
 
-    // Handle object responses
-    if (data && typeof data === "object" && !Array.isArray(data)) {
-      const response = data as HuggingFaceResponse;
-      if (response.generated_text) {
-        return response.generated_text.trim();
+    const url = `${this.baseUrl}/v1/audio/speech`;
+    const payload = {
+      model: modelName,
+      input: prompt,
+      ...options,
+    };
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 120000);
+
+    try {
+      const response = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${this.apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeoutId);
+      console.log(`✔ Response received (${response.status})`);
+
+      if (!response.ok) {
+        const errorText = await response.text().catch(() => response.statusText);
+        throw new Error(`HuggingFace audio API error (${response.status}): ${errorText.substring(0, 200)}`);
       }
-      if (response.summary_text) {
-        return response.summary_text.trim();
+
+      // Audio is typically returned as binary
+      const contentType = response.headers.get("content-type");
+      if (contentType?.includes("audio")) {
+        const blob = await response.blob();
+        const arrayBuffer = await blob.arrayBuffer();
+        const bytes = new Uint8Array(arrayBuffer);
+        let binary = '';
+        for (let i = 0; i < bytes.length; i++) {
+          binary += String.fromCharCode(bytes[i]);
+        }
+        const base64 = btoa(binary);
+        console.log(`✔ Audio generated successfully`);
+        return base64;
       }
-      if (response.text) {
-        return response.text.trim();
+
+      // Some models return JSON with audio data
+      const data = await response.json() as any;
+      if (data.audio || data.data) {
+        console.log(`✔ Audio generated successfully`);
+        return data.audio || data.data;
       }
+
+      throw new Error("Invalid response format for audio generation");
+
+    } catch (fetchError) {
+      clearTimeout(timeoutId);
       
-      // Check common text fields
-      const textFields = ['output', 'result', 'content', 'response'];
-      for (const field of textFields) {
-        const value = (response as any)[field];
-        if (typeof value === 'string') {
-          return value.trim();
-        }
+      if (fetchError instanceof Error && fetchError.name === 'AbortError') {
+        throw new Error("Audio generation timeout. The model may be slow.");
       }
+      throw fetchError;
     }
+  }
 
-    // Handle string responses
-    if (typeof data === "string") {
-      return data.trim();
+  /**
+   * Create embeddings using embeddings endpoint
+   * @param modelName - Model identifier
+   * @param input - Text or array of texts
+   * @param options - Generation options
+   * @returns Embedding vector(s)
+   */
+  async createEmbedding(
+    modelName: string,
+    input: string | string[],
+    options: Record<string, unknown> = {}
+  ): Promise<number[][]> {
+    const modality: Modality = 'embedding';
+    this.validateRequest(modelName, modality);
+    
+    console.log(`✔ Using Hugging Face Router`);
+    console.log(`✔ Endpoint: /v1/embeddings`);
+    console.log(`✔ Model: ${modelName}`);
+
+    const url = `${this.baseUrl}/v1/embeddings`;
+    const payload = {
+      model: modelName,
+      input: input,
+      ...options,
+    };
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), this.defaultTimeout);
+
+    try {
+      const response = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${this.apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeoutId);
+      console.log(`✔ Response received (${response.status})`);
+
+      if (!response.ok) {
+        const errorText = await response.text().catch(() => response.statusText);
+        throw new Error(`HuggingFace embeddings API error (${response.status}): ${errorText.substring(0, 200)}`);
+      }
+
+      const data = await response.json() as any;
+      
+      if (data.data && Array.isArray(data.data)) {
+        const embeddings = data.data.map((item: any) => item.embedding || item);
+        console.log(`✔ Embeddings generated successfully`);
+        return embeddings;
+      }
+
+      throw new Error("Invalid response format for embeddings");
+
+    } catch (fetchError) {
+      clearTimeout(timeoutId);
+      
+      if (fetchError instanceof Error && fetchError.name === 'AbortError') {
+        throw new Error("Embeddings generation timeout.");
+      }
+      throw fetchError;
     }
-
-    return null;
   }
 
   /**
    * Create a client instance from environment variable
-   * @param baseUrl - Optional base URL override
    */
-  static fromEnvironment(baseUrl?: string): HuggingFaceClient {
+  static fromEnvironment(baseUrl?: string): HuggingFaceRouterClient {
     const apiKey = Deno.env.get("HUGGINGFACE_API_KEY");
     if (!apiKey) {
       throw new Error("HUGGINGFACE_API_KEY environment variable is not set");
     }
-    return new HuggingFaceClient(apiKey, baseUrl);
+    return new HuggingFaceRouterClient(apiKey, baseUrl);
   }
 }
 
+// Backward compatibility alias
+export const HuggingFaceClient = HuggingFaceRouterClient;

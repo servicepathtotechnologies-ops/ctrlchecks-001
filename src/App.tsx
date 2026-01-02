@@ -26,6 +26,8 @@ import NotFound from "./pages/NotFound";
 import GoogleAuthCallback from "./pages/auth/google/Callback";
 import FormTrigger from "./pages/FormTrigger";
 import MultimodalBuilder from "./pages/MultimodalBuilder";
+import ModelTestingDashboard from "./pages/ModelTestingDashboard";
+import ModelTestPage from "./pages/ModelTestPage";
 
 // Component to conditionally render Chatbot only on landing page
 const ConditionalChatbot = () => {
@@ -71,6 +73,9 @@ const App = () => (
             <Route path="/auth/google/callback" element={<GoogleAuthCallback />} />
             <Route path="/form/:workflowId/:nodeId" element={<FormTrigger />} />
             <Route path="/multimodal" element={<MultimodalBuilder />} />
+            <Route path="/multimodal-builder" element={<MultimodalBuilder />} />
+            <Route path="/model-testing" element={<ModelTestingDashboard />} />
+            <Route path="/model-testing/:category/:model" element={<ModelTestPage />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
           <ConditionalChatbot />
