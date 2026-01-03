@@ -101,7 +101,7 @@ export class AutonomousWorkflowAgent {
       model: config.model || 'gemini-2.5-flash',
       temperature: config.temperature ?? 0.3,
       maxIterations: config.maxIterations ?? 10,
-      enableLearning: config.enableLearning ?? true,
+      enableLearning: config.enableLearning ?? false, // Default to false for speed
       onProgress: config.onProgress,
     };
     this.nodeKnowledge = nodeKnowledge;
@@ -365,6 +365,12 @@ export class AutonomousWorkflowAgent {
 
     // Main execution loop - continues until goal is 100% achieved
     while (this.state.iteration < this.state.maxIterations) {
+      // GUARD: Check for timeout (50s limit for edge function safety)
+      if ((Date.now() - this.startTime) > 50000) {
+        console.error('[AGENT] Execution time limit exceeded (50s). Breaking loop.');
+        break; // Will fall through to fallback generation
+      }
+
       this.state.iteration++;
       console.log(`[AGENT] Iteration ${this.state.iteration}/${this.state.maxIterations}, Phase: ${this.state.phase}`);
 

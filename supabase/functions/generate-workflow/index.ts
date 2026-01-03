@@ -260,7 +260,7 @@ IMPORTANT NODE RULES:
     const agent = new AutonomousWorkflowAgent({
       apiKey: Deno.env.get('GEMINI_API_KEY') || requestBody.config?.apiKey || '',
       model: 'gemini-2.5-flash',
-      maxIterations: 8,
+      maxIterations: 5,
       enableLearning: true
     }, nodeKnowledge);
 
