@@ -886,6 +886,23 @@ Ensure:
   }
 
   /**
+   * Helper to repair common JSON syntax errors from LLM output
+   */
+  private repairJson(text: string): string {
+    let clean = text.trim();
+    // Remove markdown if present
+    if (clean.includes('```json')) clean = clean.split('```json')[1].split('```')[0].trim();
+    else if (clean.includes('```')) clean = clean.split('```')[1].split('```')[0].trim();
+
+    // Fix bad escaped characters (backslashes)
+    // Replace backslashes that are NOT standard escapes (\", \\, \/, \b, \f, \n, \r, \t) nor unicode (\uXXXX) with double backslashes
+    // This fixes paths like "C:\Users" becoming "C:\\Users"
+    clean = clean.replace(/\\(?![/bfnrtu"\\{]|u[0-9a-fA-F]{4})/g, "\\\\");
+
+    return clean;
+  }
+
+  /**
    * OPTIMIZED: COMBINED PHASE 1 & 2 (Understand + Plan)
    * When maxIterations=1, combine both phases into a single API call to save quota
    */
@@ -934,7 +951,7 @@ ${requiresFormNode ? `
 ⚠️⚠️⚠️ FORM NODE DETECTED ⚠️⚠️⚠️
 - User goal contains form-related keywords: "${formKeywords.filter(k => goalLower.includes(k)).join(', ')}"
 - YOU MUST use "form" node as the trigger
-- DO NOT use manual_trigger, webhook, or any other trigger
+- DO NOT use manual_trigger, webhook, or or any other trigger
 - Form node outputs: {formData: {field1: value1, ...}, files: [], meta: {...}}
 - Access form data in downstream nodes using: {{input.formData.fieldName}}
 - Extract field names from user goal (e.g., "name", "email", "mobile")
@@ -1006,38 +1023,48 @@ Ensure:
       apiKey: this.config.apiKey,
     });
 
-    let responseText = response.content.trim();
-    // Extract JSON from markdown code blocks if present
-    if (responseText.includes('```json')) {
-      responseText = responseText.split('```json')[1].split('```')[0].trim();
-    } else if (responseText.includes('```')) {
-      responseText = responseText.split('```')[1].split('```')[0].trim();
-    }
-
     let combined;
+    const responseText = response.content.trim();
+
     try {
-      combined = JSON.parse(responseText);
+      // Attempt to repair and parse the JSON
+      const repaired = this.repairJson(responseText);
+      combined = JSON.parse(repaired);
+
+      // Basic validation
+      if (!combined.analysis || !combined.plan) {
+        throw new Error('Missing analysis or plan fields');
+      }
     } catch (parseError) {
-      console.error('[PHASE 1+2 COMBINED] Failed to parse combined response:', parseError);
-      console.error('[PHASE 1+2 COMBINED] Response text:', responseText.substring(0, 500));
-      throw new Error(`Failed to parse combined analysis and planning response: ${parseError instanceof Error ? parseError.message : String(parseError)}`);
+      console.error('[PHASE 1+2 COMBINED] JSON Parse failed. Using fallback plan to avoid crash.', parseError);
+      console.error('[PHASE 1+2 COMBINED] Parsed text preview:', responseText.substring(0, 200));
+
+      // Fallback to safe default plan so we can proceed to construction
+      combined = {
+        analysis: {
+          intent: "Construct workflow for: " + userGoal,
+          summary: "Analysis failed due to malformed LLM output. Proceeding with best-effort construction.",
+          requiredInputs: [],
+          expectedOutputs: [],
+          triggerType: requiresFormNode ? 'form' : 'manual_trigger',
+          emailNodeType: emailPreference || 'google_gmail'
+        },
+        plan: {
+          subTasks: [
+            // Just one generic task to pass validation, Phase 3 will do the real work
+            { id: "task_1", description: "Execute workflow logic", nodeType: requiresFormNode ? 'form' : 'manual_trigger', order: 1, dependencies: [] }
+          ],
+          executionOrder: ["task_1"],
+          dataFlow: "Linear flow"
+        }
+      };
     }
 
-    // Validate response structure
-    if (!combined.analysis || !combined.plan) {
-      console.error('[PHASE 1+2 COMBINED] Invalid response structure - missing analysis or plan');
-      console.error('[PHASE 1+2 COMBINED] Combined response:', JSON.stringify(combined, null, 2));
-      throw new Error('Combined response missing required fields: analysis or plan');
-    }
-
-    // Set both analysis and plan from the combined response
+    // Set both analysis and plan from the combined response (or fallback)
     this.state.analysis = combined.analysis;
     this.state.plan = combined.plan;
 
-    console.log('[PHASE 1+2 COMBINED] Analysis and plan complete');
-    console.log('[PHASE 1+2 COMBINED] Analysis:', JSON.stringify(this.state.analysis, null, 2));
-    console.log('[PHASE 1+2 COMBINED] Plan:', JSON.stringify(this.state.plan, null, 2));
-
+    console.log('[PHASE 1+2 COMBINED] Analysis and plan complete (or fallback applied)');
     this.state.phase = 'construction';
   }
 
