@@ -215,8 +215,9 @@ export class LLMAdapter {
         ))) {
           if (retries < MAX_RETRIES) {
             const retryStatus = error.status || 429;
-            // Calculate delay: 2s, 4s, 8s... + jitter
-            const baseDelay = 2000 * Math.pow(2, retries);
+            // Calculate delay: 3s, 6s, 12s... + jitter
+            const backoffDelays = [3000, 6000, 12000]; // 3s, 6s, 12s backoff
+            const baseDelay = backoffDelays[retries];
             const jitter = Math.random() * 1000;
             const delay = baseDelay + jitter;
 

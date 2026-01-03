@@ -50,14 +50,14 @@ export const TRAINING_EXAMPLES: TrainingExample[] = [
     prompt: "Create a workflow that takes user data from form submission and sends a confirmation email and user data to the user.",
     title: "Form to Email Automation",
     description: "Sends automated email after form submit.",
-    nodesUsed: ["Form Trigger", "Email / SMTP"],
+    nodesUsed: ["Form", "Google Gmail"],
     patterns: [
       "Form trigger collects user input",
-      "Email node sends confirmation",
+      "Google Gmail node sends confirmation",
       "Form data accessed via input.data",
       "Template variables for email content"
     ],
-    dataFlow: "Form receives data → Email node sends confirmation with form data"
+    dataFlow: "Form receives data → Google Gmail node sends confirmation with form data"
   },
   {
     prompt: "Create a chat workflow using Google Gemini that remembers previous user messages and responds intelligently.",
@@ -100,14 +100,14 @@ export const TRAINING_EXAMPLES: TrainingExample[] = [
     prompt: "Fetch data from an API, summarize it using an AI model, and email the summary.",
     title: "AI Data Summarizer",
     description: "AI-powered content summarization.",
-    nodesUsed: ["HTTP Request", "OpenAI / Google Gemini", "Email"],
+    nodesUsed: ["HTTP Request", "OpenAI / Google Gemini", "Google Gmail"],
     patterns: [
       "HTTP Request fetches data",
       "AI node summarizes content",
-      "Email sends formatted summary",
+      "Google Gmail sends formatted summary",
       "Data transformation between nodes"
     ],
-    dataFlow: "HTTP Request → AI Summarization → Email send"
+    dataFlow: "HTTP Request → AI Summarization → Google Gmail send"
   },
   {
     prompt: "Create a workflow that routes form data differently based on a condition if gender male send data to slack else females send to email. input fields - Name, Age, Gender, email, Mobile",
@@ -175,19 +175,19 @@ export const TRAINING_EXAMPLES: TrainingExample[] = [
     prompt: "Create a workflow that confirms Stripe payments and sends an email receipt.",
     title: "Payment Confirmation",
     description: "Payment processing automation.",
-    nodesUsed: ["Stripe", "Email"],
+    nodesUsed: ["Stripe", "Google Gmail"],
     patterns: [
       "Stripe webhook for payment events",
-      "Email for receipt delivery",
+      "Google Gmail for receipt delivery",
       "Payment data formatting"
     ],
-    dataFlow: "Stripe webhook → Format receipt → Email send"
+    dataFlow: "Stripe webhook → Format receipt → Google Gmail send"
   },
   {
     prompt: "Create a workflow that captures leads from a form and stores them in HubSpot CRM.",
     title: "Lead Management System",
     description: "Automates lead intake.",
-    nodesUsed: ["Form Trigger", "HubSpot"],
+    nodesUsed: ["Form", "HubSpot"],
     patterns: [
       "Form trigger for lead capture",
       "CRM integration for lead storage",
@@ -432,16 +432,16 @@ When generating workflows, follow these patterns from the examples:
  */
 export function getRelevantExamples(userPrompt: string, maxExamples: number = 5): TrainingExample[] {
   const promptLower = userPrompt.toLowerCase();
-  
+
   // Extract key concepts from user prompt
   const keyConcepts = extractKeyConcepts(userPrompt);
-  
+
   // Score examples based on multiple factors
   const scored = TRAINING_EXAMPLES.map(example => {
     let score = 0;
     const exampleText = `${example.prompt} ${example.title} ${example.description} ${example.nodesUsed.join(' ')} ${example.patterns.join(' ')}`.toLowerCase();
     const exampleLower = example.prompt.toLowerCase();
-    
+
     // 1. Exact phrase matches (highest priority)
     const exactPhrases = [
       'webhook', 'form', 'schedule', 'chat', 'error', 'github', 'slack',
@@ -451,13 +451,13 @@ export function getRelevantExamples(userPrompt: string, maxExamples: number = 5)
       'image', 'dropbox', 'clickup', 'youtube', 'telegram', 'datadog',
       'shopify', 'interval', 'approval', 'ai agent', 'rag', 'vector'
     ];
-    
+
     exactPhrases.forEach(phrase => {
       if (promptLower.includes(phrase) && exampleLower.includes(phrase)) {
         score += 5; // High score for exact matches
       }
     });
-    
+
     // 2. Node type matches (very important)
     example.nodesUsed.forEach(node => {
       const nodeLower = node.toLowerCase();
@@ -476,7 +476,7 @@ export function getRelevantExamples(userPrompt: string, maxExamples: number = 5)
         score += 3;
       }
     });
-    
+
     // 3. Pattern matching (workflow structure similarity)
     example.patterns.forEach(pattern => {
       const patternLower = pattern.toLowerCase();
@@ -497,14 +497,14 @@ export function getRelevantExamples(userPrompt: string, maxExamples: number = 5)
         score += 2;
       }
     });
-    
+
     // 4. Key concept matches
     keyConcepts.forEach(concept => {
       if (exampleText.includes(concept)) {
         score += 2;
       }
     });
-    
+
     // 5. Action verb matches
     const actionVerbs = ['receive', 'send', 'store', 'fetch', 'create', 'update', 'delete', 'process', 'transform', 'route'];
     actionVerbs.forEach(verb => {
@@ -512,7 +512,7 @@ export function getRelevantExamples(userPrompt: string, maxExamples: number = 5)
         score += 1;
       }
     });
-    
+
     // 6. Data flow similarity
     if (example.dataFlow) {
       const flowLower = example.dataFlow.toLowerCase();
@@ -527,24 +527,24 @@ export function getRelevantExamples(userPrompt: string, maxExamples: number = 5)
         score += 1;
       }
     }
-    
+
     return { example, score };
   });
-  
+
   // Sort by score and return top matches
   const sorted = scored.sort((a, b) => b.score - a.score);
-  
+
   // Filter out examples with score 0 (no relevance)
   const relevant = sorted
     .filter(item => item.score > 0)
     .slice(0, maxExamples)
     .map(item => item.example);
-  
+
   // If no relevant examples found, return top examples by default
   if (relevant.length === 0) {
     return sorted.slice(0, maxExamples).map(item => item.example);
   }
-  
+
   return relevant;
 }
 
@@ -554,7 +554,7 @@ export function getRelevantExamples(userPrompt: string, maxExamples: number = 5)
 function extractKeyConcepts(prompt: string): string[] {
   const promptLower = prompt.toLowerCase();
   const concepts: string[] = [];
-  
+
   // Common workflow concepts
   const conceptPatterns = [
     { pattern: /webhook/i, concept: 'webhook' },
@@ -573,13 +573,13 @@ function extractKeyConcepts(prompt: string): string[] {
     { pattern: /process|transform|format/i, concept: 'processing' },
     { pattern: /monitor|watch|observe/i, concept: 'monitoring' },
   ];
-  
+
   conceptPatterns.forEach(({ pattern, concept }) => {
     if (pattern.test(prompt)) {
       concepts.push(concept);
     }
   });
-  
+
   return concepts;
 }
 
@@ -588,11 +588,11 @@ function extractKeyConcepts(prompt: string): string[] {
  */
 export function getTrainingExampleContext(userPrompt: string, maxExamples: number = 3): string {
   const relevantExamples = getRelevantExamples(userPrompt, maxExamples);
-  
+
   if (relevantExamples.length === 0) {
     return '';
   }
-  
+
   return `
 ════════════════════════════════════
 MOST RELEVANT TRAINING EXAMPLES
