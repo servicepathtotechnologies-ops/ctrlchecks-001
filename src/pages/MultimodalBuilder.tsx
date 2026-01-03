@@ -15,6 +15,7 @@ import ModelTester from '@/components/multimodal/ModelTester';
 import ImageProcessing from '@/components/multimodal/ImageProcessing';
 
 import TextProcessing from '@/components/multimodal/TextProcessing';
+import AudioProcessing from '@/components/multimodal/AudioProcessing';
 
 interface LogItem {
   id: string;
@@ -37,7 +38,7 @@ interface BuildResult {
 export default function MultimodalBuilder() {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const [activeTab, setActiveTab] = useState<'builder' | 'image-processing' | 'text-processing'>('builder');
+  const [activeTab, setActiveTab] = useState<'builder' | 'image-processing' | 'text-processing' | 'audio-processing'>('builder');
   const [prompt, setPrompt] = useState('');
   const [files, setFiles] = useState<File[]>([]);
   const [logs, setLogs] = useState<LogItem[]>([]);
@@ -216,6 +217,15 @@ export default function MultimodalBuilder() {
             <span className="mr-2">🖼️</span>
             Image Processing
           </Button>
+
+          <Button
+            variant={activeTab === 'audio-processing' ? 'default' : 'ghost'}
+            size="sm"
+            onClick={() => setActiveTab('audio-processing')}
+          >
+            <span className="mr-2">🔊</span>
+            Audio Processing
+          </Button>
         </div>
       </header>
 
@@ -226,6 +236,10 @@ export default function MultimodalBuilder() {
       ) : activeTab === 'text-processing' ? (
         <div className="h-[calc(100vh-3.5rem)] overflow-y-auto p-6">
           <TextProcessing />
+        </div>
+      ) : activeTab === 'audio-processing' ? (
+        <div className="h-[calc(100vh-3.5rem)] overflow-y-auto p-6">
+          <AudioProcessing />
         </div>
       ) : (
         <div className="flex h-[calc(100vh-3.5rem)]">
@@ -428,9 +442,9 @@ Example: 'Create a Python script to analyze CSV data'"
                       <div
                         key={log.id}
                         className={`flex items-start gap-2 p-2 rounded text-sm ${log.type === 'error' ? 'bg-red-50 dark:bg-red-950/20' :
-                            log.type === 'success' ? 'bg-green-50 dark:bg-green-950/20' :
-                              log.type === 'warning' ? 'bg-yellow-50 dark:bg-yellow-950/20' :
-                                'bg-blue-50 dark:bg-blue-950/20'
+                          log.type === 'success' ? 'bg-green-50 dark:bg-green-950/20' :
+                            log.type === 'warning' ? 'bg-yellow-50 dark:bg-yellow-950/20' :
+                              'bg-blue-50 dark:bg-blue-950/20'
                           }`}
                       >
                         {getLogIcon(log.type)}
@@ -468,4 +482,3 @@ Example: 'Create a Python script to analyze CSV data'"
     </div>
   );
 }
-

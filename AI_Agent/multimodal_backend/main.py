@@ -47,9 +47,13 @@ app.add_middleware(
 )
 
 # Initialize processors (lazy loading - models load on first use)
+from services.audio_processor import AudioProcessor
+
+# Initialize processors (lazy loading - models load on first use)
 _image_processor = None
 _text_processor = None
 _text_to_image_processor = None
+_audio_processor = None
 
 def get_image_processor():
     """Lazy load image processor"""
@@ -75,12 +79,21 @@ def get_text_to_image_processor():
         _text_to_image_processor = TextToImageProcessor()
     return _text_to_image_processor
 
+def get_audio_processor():
+    """Lazy load audio processor"""
+    global _audio_processor
+    if _audio_processor is None:
+        logger.info("Initializing AudioProcessor (Whisper + MMS)...")
+        _audio_processor = AudioProcessor()
+    return _audio_processor
+
 
 # Request/Response Schemas
 class ProcessRequest(BaseModel):
     """Request schema for /process endpoint"""
-    task: str = Field(..., description="Task type: image_caption, story, image_prompt, text_to_image, summarize, translate, extract, sentiment, generate, qa, chat")
+    task: str = Field(..., description="Task type: image_caption, story, image_prompt, text_to_image, summarize, translate, extract, sentiment, generate, qa, chat, transcribe, text_to_speech")
     image: Optional[str] = Field(None, description="Base64 encoded image for image tasks")
+    audio: Optional[str] = Field(None, description="Base64 encoded audio for transcription")
     input: Optional[str] = Field(None, description="Input text for text tasks")
     sentence_count: Optional[int] = Field(5, description="Number of sentences for story mode (2-10)")
     target_language: Optional[str] = Field(None, description="Target language for translation")
@@ -88,6 +101,9 @@ class ProcessRequest(BaseModel):
     context: Optional[str] = Field(None, description="Context for QA task")
     steps: Optional[int] = Field(2, description="Number of inference steps for text_to_image (1-4)")
     guidance_scale: Optional[float] = Field(1.0, description="Guidance scale for text_to_image (0.0-1.5)")
+    speed: Optional[float] = Field(1.0, description="Audio speed (0.8-1.3)")
+    pitch: Optional[float] = Field(0.0, description="Audio pitch semitones (-3 to 3)")
+    volume: Optional[float] = Field(1.0, description="Audio volume (0.8-1.5)")
     options: Optional[Dict[str, Any]] = Field(default_factory=dict, description="Additional options")
 
 
@@ -107,7 +123,7 @@ async def root():
         "status": "healthy",
         "service": "CtrlChecks Multimodal AI Backend",
         "version": "1.0.0",
-        "models": "BLIP (local), FLAN-T5 (local), Stable Diffusion Turbo (local)"
+        "models": "BLIP, FLAN-T5, SD-Turbo, Whisper, MMS-TTS"
     }
 
 
@@ -119,19 +135,14 @@ async def health_check():
         "models_loaded": {
             "blip": _image_processor is not None,
             "flan_t5": _text_processor is not None,
-            "stable_diffusion": _text_to_image_processor is not None
+            "stable_diffusion": _text_to_image_processor is not None,
+            "audio": _audio_processor is not None
         },
         "available_tasks": [
-            "image_caption",
-            "story",
-            "image_prompt",
-            "text_to_image",
-            "summarize",
-            "translate",
-            "extract",
-            "sentiment",
-            "generate",
-            "qa"
+            "image_caption", "story", "image_prompt",
+            "text_to_image", "summarize", "translate",
+            "extract", "sentiment", "generate", "qa",
+            "transcribe", "text_to_speech"
         ]
     }
 
@@ -140,9 +151,6 @@ async def health_check():
 async def process_task(request: ProcessRequest):
     """
     Main processing endpoint
-    
-    Routes requests to appropriate processor based on task type.
-    All AI/ML processing happens here using LOCAL models (BLIP, FLAN-T5).
     """
     import time
     start_time = time.time()
@@ -150,23 +158,17 @@ async def process_task(request: ProcessRequest):
     try:
         logger.info(f"Processing task: {request.task}")
         
-        # Validate request based on task type
-        if request.task in ["image_caption", "story", "image_prompt"]:
-            if not request.image:
-                raise HTTPException(status_code=400, detail="Image is required for image tasks")
+        # Validation
+        if request.task == "transcribe" and not request.audio:
+            raise HTTPException(status_code=400, detail="Audio data required for transcription")
         
-        if request.task == "text_to_image":
-            if not request.input:
-                raise HTTPException(status_code=400, detail="Input text (prompt) is required for text_to_image task")
-        
-        if request.task in ["summarize", "translate", "extract", "sentiment", "generate", "qa"]:
-            if not request.input:
-                raise HTTPException(status_code=400, detail="Input text is required for text tasks")
-        
-        # Route to appropriate handler
+        if request.task == "text_to_speech" and not request.input:
+            raise HTTPException(status_code=400, detail="Input text required for TTS")
+
         result = None
         model_used = None
         
+        # --- Image Tasks ---
         if request.task == "image_caption":
             processor = get_image_processor()
             result, model_used = await processor.caption_image(request.image, mode="short-note")
@@ -179,14 +181,14 @@ async def process_task(request: ProcessRequest):
             processor = get_image_processor()
             result, model_used = await processor.generate_prompt(request.image)
         
+        # --- Image Gen ---
         elif request.task == "text_to_image":
             processor = get_text_to_image_processor()
             result, model_used = await processor.generate_image(
-                request.input,
-                request.steps or 2,
-                request.guidance_scale or 1.0
+                request.input, request.steps or 2, request.guidance_scale or 1.0
             )
-        
+            
+        # --- Text Tasks ---
         elif request.task == "summarize":
             processor = get_text_processor()
             result, model_used = await processor.summarize(request.input)
@@ -208,22 +210,33 @@ async def process_task(request: ProcessRequest):
             result, model_used = await processor.generate(request.input)
         
         elif request.task == "qa":
-            if not request.question:
-                raise HTTPException(status_code=400, detail="Question is required for QA task")
+            if not request.question: raise HTTPException(status_code=400, detail="Question required")
             processor = get_text_processor()
             result, model_used = await processor.answer_question(request.question, request.context or request.input)
             
         elif request.task == "chat":
-            if not request.input:
-                raise HTTPException(status_code=400, detail="Input text is required for chat task")
+            if not request.input: raise HTTPException(status_code=400, detail="Input required")
             processor = get_text_processor()
             result, model_used = await processor.chat(request.input)
+
+        # --- Audio Tasks ---
+        elif request.task == "transcribe":
+            processor = get_audio_processor()
+            result = await processor.transcribe(request.audio)
+            model_used = "openai/whisper-tiny"
+            
+        elif request.task == "text_to_speech":
+            processor = get_audio_processor()
+            result = await processor.generate_speech(
+                request.input, 
+                request.speed or 1.0,
+                request.pitch or 0.0,
+                request.volume or 1.0
+            )
+            model_used = "facebook/mms-tts-eng"
         
         else:
-            raise HTTPException(
-                status_code=400, 
-                detail=f"Unknown task: {request.task}"
-            )
+            raise HTTPException(status_code=400, detail=f"Unknown task: {request.task}")
         
         processing_time = time.time() - start_time
         
@@ -239,7 +252,6 @@ async def process_task(request: ProcessRequest):
     except Exception as e:
         logger.error(f"Error processing task {request.task}: {str(e)}", exc_info=True)
         processing_time = time.time() - start_time
-        
         return ProcessResponse(
             success=False,
             error=str(e),
