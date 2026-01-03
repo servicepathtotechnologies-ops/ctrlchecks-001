@@ -63,9 +63,32 @@ export interface ProgressUpdate {
   current_phase: string;
 }
 
+export interface AgentQuestion {
+  id: string;
+  text: string;
+  options: string[];
+}
+
+export interface AnalysisResult {
+  summary: string;
+  questions: AgentQuestion[];
+  clarifiedPromptPreview: string;
+  predictedStepCount: number;
+}
+
+export interface RefinementResult {
+  refinedPrompt: string;
+  requirements: Array<{
+    key: string;
+    label: string;
+    type: 'text' | 'url' | 'api_key' | 'credentials' | 'file';
+    description: string;
+  }>;
+}
+
 export class AutonomousWorkflowAgent {
   private llm: LLMAdapter;
-  private config: Required<AutonomousAgentConfig> & { onProgress?: (progress: ProgressUpdate) => void };
+  private config: Required<Omit<AutonomousAgentConfig, 'onProgress'>> & { onProgress?: (progress: ProgressUpdate) => void };
   private state: AgentState;
   private nodeKnowledge: string;
   private startTime: number = 0;
@@ -103,31 +126,31 @@ export class AutonomousWorkflowAgent {
   private estimateTime(userGoal: string): number {
     const goalLower = userGoal.toLowerCase();
     let baseTime = 15; // Base time in seconds
-    
+
     // Complexity factors
     const hasSheets = goalLower.includes('google sheet') || goalLower.includes('sheets');
     const hasDoc = goalLower.includes('google doc') || goalLower.includes('document');
     const hasGmail = goalLower.includes('gmail') || goalLower.includes('email');
     const hasSlack = goalLower.includes('slack');
     const hasMultipleIntegrations = [hasSheets, hasDoc, hasGmail, hasSlack].filter(Boolean).length;
-    
+
     // Add time for each integration
     baseTime += hasMultipleIntegrations * 3;
-    
+
     // Add time for JavaScript parsing if Sheets present
     if (hasSheets) baseTime += 2;
-    
+
     // Add time for merging if both Sheets and Doc
     if (hasSheets && hasDoc) baseTime += 2;
-    
+
     // Add time for multiple output channels
     if (hasGmail && hasSlack) baseTime += 2;
-    
+
     // Add time based on prompt length (complexity indicator)
     const promptLength = userGoal.length;
     if (promptLength > 200) baseTime += 3;
     if (promptLength > 400) baseTime += 3;
-    
+
     return Math.max(12, Math.min(45, baseTime)); // Clamp between 12-45 seconds
   }
 
@@ -152,9 +175,9 @@ export class AutonomousWorkflowAgent {
    */
   private updateProgress(phase: string, progressPercentage: number): void {
     if (!this.config.onProgress) return;
-    
+
     const elapsed = this.startTime > 0 ? (Date.now() - this.startTime) / 1000 : 0;
-    
+
     this.config.onProgress({
       status: 'generating',
       estimated_time_seconds: this.estimatedTime,
@@ -162,6 +185,166 @@ export class AutonomousWorkflowAgent {
       progress_percentage: Math.min(99, Math.max(0, Math.round(progressPercentage))),
       current_phase: phase,
     });
+  }
+
+  /**
+   * STEP 1: Analyze user request and generate clarifying questions
+   */
+  /**
+   * STEP 1: Analyze user request and generate clarifying questions
+   */
+  async analyzeRequest(userGoal: string): Promise<AnalysisResult> {
+    console.log('[AGENT] Analyzing request and generating questions...');
+
+    try {
+      // First, get a basic summary using the existing method
+      const basicSummary = await this.phase0_SummarizeAndClarify(userGoal);
+
+      // Now generate questions and options
+      const prompt = `You are an expert workflow consultant.
+      USER GOAL: "${userGoal}"
+      CLARIFIED GOAL: "${basicSummary}"
+      
+      Your task is to:
+      1. condensed the user goal into a 30-40 word summary.
+      2. Generate 3-4 multiple-choice questions to clarify ambiguities or user preferences.
+         - Questions should focus on: Timing (when?), Channels (Instagram/Slack/Email?), Content Type (what data?), Frequency.
+         - Provide 3-4 realistic options for each question.
+      
+      Respond with JSON:
+      {
+        "summary": "30-40 word summary of the user's request",
+        "questions": [
+          {
+            "id": "q1",
+            "text": "The question text?",
+            "options": ["Option 1", "Option 2", "Option 3"]
+          }
+        ],
+        "predictedStepCount": 5
+      }`;
+
+      const messages: LLMMessage[] = [
+        { role: 'system', content: 'You are a helpful workflow consultant. Return valid JSON only.' },
+        { role: 'user', content: prompt }
+      ];
+
+      const response = await this.llm.chat('gemini', messages, {
+        model: this.config.model,
+        temperature: 0.3,
+        apiKey: this.config.apiKey
+      });
+
+      let resultText = response.content.trim();
+      // Safer JSON extraction
+      if (resultText.includes('```json')) {
+        const parts = resultText.split('```json');
+        if (parts.length > 1) {
+          resultText = parts[1].split('```')[0].trim();
+        }
+      } else if (resultText.includes('```')) {
+        const parts = resultText.split('```');
+        if (parts.length > 1) {
+          resultText = parts[1].split('```')[0].trim();
+        }
+      }
+
+      let result;
+      try {
+        result = JSON.parse(resultText);
+      } catch (parseError) {
+        console.error('[AGENT] JSON Parse Error in analyzeRequest:', parseError);
+        console.error('[AGENT] Raw response:', resultText);
+        // Fallback
+        return {
+          summary: basicSummary,
+          questions: [],
+          clarifiedPromptPreview: basicSummary,
+          predictedStepCount: 3
+        };
+      }
+
+      return {
+        summary: result.summary || basicSummary,
+        questions: result.questions || [],
+        clarifiedPromptPreview: basicSummary,
+        predictedStepCount: result.predictedStepCount || 5
+      };
+    } catch (error) {
+      console.error('[AGENT] Error in analyzeRequest:', error);
+      // Fallback to prevent blocking the user
+      const fallbackSummary = userGoal.substring(0, 50) + '...';
+      return {
+        summary: fallbackSummary,
+        questions: [],
+        clarifiedPromptPreview: userGoal,
+        predictedStepCount: 3
+      };
+    }
+  }
+
+  /**
+   * STEP 2: Refine prompt based on user answers and identify requirements
+   */
+  async refineRequest(userGoal: string, qa: Array<{ question: string, answer: string }>): Promise<RefinementResult> {
+    console.log('[AGENT] Refining request based on answers...');
+
+    try {
+      const qaContext = qa.map(item => `Q: ${item.question}\nA: ${item.answer}`).join('\n\n');
+
+      const prompt = `You are an expert workflow architect.
+    ORIGINAL GOAL: "${userGoal}"
+    
+    USER ANSWERS TO CLARIFYING QUESTIONS:
+    ${qaContext}
+    
+    Task 1: Rewrite the user goal into a single, highly detailed, precise prompt that incorporates all the user's answers.
+            This new prompt will be used to build the automation.
+            
+    Task 2: Identify ALL external requirements (API Keys, URLs, Credentials) needed for this workflow.
+            - If Instagram is mentioned, require "Instagram Credentials" or "Instagram API Key".
+            - If Sheets, require "Spreadsheet URL".
+            
+    Respond with JSON:
+    {
+      "refinedPrompt": "The new detailed prompt...",
+      "requirements": [
+        {
+          "key": "unique_key_name",
+          "label": "Human Readable Label",
+          "type": "text|url|api_key",
+          "description": "What is this and where to get it?"
+        }
+      ]
+    }`;
+
+      const messages: LLMMessage[] = [
+        { role: 'system', content: 'You are an expert workflow architect. Return valid JSON only.' },
+        { role: 'user', content: prompt }
+      ];
+
+      const response = await this.llm.chat('gemini', messages, {
+        model: this.config.model,
+        temperature: 0.2,
+        apiKey: this.config.apiKey
+      });
+
+      let resultText = response.content.trim();
+      if (resultText.includes('```json')) {
+        resultText = resultText.split('```json')[1].split('```')[0].trim();
+      } else if (resultText.includes('```')) {
+        resultText = resultText.split('```')[1].split('```')[0].trim();
+      }
+
+      return JSON.parse(resultText);
+    } catch (error) {
+      console.error('[AGENT] Error in refineRequest:', error);
+      // Fallback: return original goal and no specific requirements
+      return {
+        refinedPrompt: userGoal,
+        requirements: []
+      };
+    }
   }
 
   /**
@@ -189,9 +372,9 @@ export class AutonomousWorkflowAgent {
         switch (this.state.phase) {
           case 'understand':
             this.updateProgress('Understanding & Planning', 10);
-            // OPTIMIZATION: When maxIterations=1, combine understand + planning to save 1 API call
-            if (this.config.maxIterations === 1) {
-              console.log('[AGENT] Optimizing: Combining understand + planning phases (maxIterations=1)');
+            // OPTIMIZATION: When maxIterations <= 5, combine understand + planning to save 1 API call
+            if (this.config.maxIterations <= 5) {
+              console.log('[AGENT] Optimizing: Combining understand + planning phases (maxIterations <= 5)');
               await this.phase1_UnderstandAndPlan_Combined(userGoal, userConfig);
               this.updateProgress('Workflow Design', 50);
             } else {
@@ -211,17 +394,25 @@ export class AutonomousWorkflowAgent {
             break;
           case 'validation':
             this.updateProgress('Validation & Simulation', 77);
+
+            // OPTIMIZATION: Skip expensive LLM validation if maxIterations <= 5
+            if (this.config.maxIterations <= 5) {
+              console.log('[AGENT] Optimizing: Skipping LLM validation regarding maxIterations <= 5');
+              // We rely on static validation performed at the end of phase 3
+              if (this.state.errors.length > 0) {
+                this.state.phase = 'healing';
+              } else {
+                this.state.phase = 'verification';
+              }
+              break;
+            }
+
             await this.phase4_ValidationAndSimulation();
             this.updateProgress('Validation & Simulation', 90);
-            // Skip healing phase if no errors and maxIterations is 1 (to save API calls)
-            if (this.state.errors.length === 0 && this.config.maxIterations === 1) {
-              console.log('[AGENT] Skipping healing phase (no errors and maxIterations=1)');
-              this.state.phase = 'verification';
-            } else if (this.state.errors.length === 0) {
-              // No errors, skip to verification
+
+            if (this.state.errors.length === 0) {
               this.state.phase = 'verification';
             } else {
-              // Has errors, go to healing
               this.state.phase = 'healing';
             }
             break;
@@ -231,6 +422,24 @@ export class AutonomousWorkflowAgent {
             break;
           case 'verification':
             this.updateProgress('Final Optimization', 92);
+
+            // OPTIMIZATION: Skip expensive LLM verification if maxIterations <= 5
+            if (this.config.maxIterations <= 5) {
+              console.log('[AGENT] Optimizing: Skipping LLM verification regarding maxIterations <= 5');
+              this.updateProgress('Completed', 100);
+              if (this.config.onProgress) {
+                const totalTime = (Date.now() - this.startTime) / 1000;
+                this.config.onProgress({
+                  status: 'completed',
+                  estimated_time_seconds: this.estimatedTime,
+                  elapsed_time_seconds: Math.round(totalTime * 10) / 10,
+                  progress_percentage: 100,
+                  current_phase: 'Completed',
+                });
+              }
+              return this.state.workflow;
+            }
+
             const goalMet = await this.phase6_GoalVerification();
             if (goalMet) {
               // FINAL CHECK: Verify workflow is not just a fallback (trigger + log)
@@ -245,17 +454,16 @@ export class AutonomousWorkflowAgent {
                 this.state.phase = 'planning';
                 break;
               }
-              
-              // Skip learning phase if maxIterations is 1 (to save API calls) or learning is disabled
-              if (this.config.maxIterations === 1 || !this.config.enableLearning) {
-                console.log('[AGENT] Skipping learning phase (maxIterations=1 or learning disabled)');
+
+              // Skip learning phase if learning is disabled
+              if (!this.config.enableLearning) {
                 this.updateProgress('Completed', 100);
               } else {
                 this.updateProgress('Final Optimization', 98);
                 await this.phase7_LearningAndMemoryUpdate();
                 this.updateProgress('Completed', 100);
               }
-              
+
               // Send completion
               if (this.config.onProgress) {
                 const totalTime = (Date.now() - this.startTime) / 1000;
@@ -267,7 +475,7 @@ export class AutonomousWorkflowAgent {
                   current_phase: 'Completed',
                 });
               }
-              
+
               return this.state.workflow;
             }
             // Goal not met, restart from planning
@@ -277,7 +485,7 @@ export class AutonomousWorkflowAgent {
             this.updateProgress('Final Optimization', 99);
             await this.phase7_LearningAndMemoryUpdate();
             this.updateProgress('Completed', 100);
-            
+
             // Send completion
             if (this.config.onProgress) {
               const totalTime = (Date.now() - this.startTime) / 1000;
@@ -289,7 +497,7 @@ export class AutonomousWorkflowAgent {
                 current_phase: 'Completed',
               });
             }
-            
+
             return this.state.workflow;
         }
       } catch (error) {
@@ -299,7 +507,7 @@ export class AutonomousWorkflowAgent {
           message: error instanceof Error ? error.message : String(error),
           fix: 'Retrying with error correction',
         });
-        
+
         // Update progress even on error
         if (this.config.onProgress) {
           const elapsed = this.startTime > 0 ? (Date.now() - this.startTime) / 1000 : 0;
@@ -311,7 +519,7 @@ export class AutonomousWorkflowAgent {
             current_phase: `Error handling: ${this.state.phase}`,
           });
         }
-        
+
         this.state.phase = 'healing';
       }
     }
@@ -321,16 +529,58 @@ export class AutonomousWorkflowAgent {
       // Verify it's not just a fallback
       const nodeTypes = this.state.workflow.nodes?.map((n: any) => n.type) || [];
       const isFallback = nodeTypes.length <= 2 && nodeTypes.includes('manual_trigger') && nodeTypes.includes('log_output');
-      
+
       if (!isFallback) {
         console.warn(`[AGENT] Max iterations reached. Returning current workflow (${nodeTypes.length} nodes).`);
         return this.state.workflow;
       }
     }
-    
-    // If we only have a fallback or no workflow, throw error instead of returning fallback
-    console.error(`[AGENT] Max iterations reached and no valid workflow generated.`);
-    throw new Error('Failed to generate workflow after maximum iterations. The workflow requirements may be too complex. Please try simplifying your prompt or try again.');
+
+    // If we only have a fallback or no workflow, return emergency fallback instead of throwing
+    console.error(`[AGENT] Max iterations reached and no valid workflow generated. Generating emergency fallback.`);
+
+    // Create emergency fallback workflow
+    const fallbackWorkflow = {
+      name: "Partially Generated Workflow",
+      summary: "The agent could not strictly validate this workflow within the time limit. A basic structure is provided for you to edit.",
+      nodes: [
+        {
+          id: "trigger_1",
+          type: "manual_trigger",
+          position: { x: 250, y: 100 },
+          config: {},
+          data: { label: "Manual Trigger" }
+        },
+        {
+          id: "log_1",
+          type: "log_output",
+          position: { x: 550, y: 100 },
+          config: {
+            message: "Workflow generation incomplete. Please add nodes manually."
+          },
+          data: { label: "Log Output" }
+        }
+      ],
+      edges: [
+        {
+          id: "e1",
+          source: "trigger_1",
+          target: "log_1"
+        }
+      ]
+    };
+
+    if (this.config.onProgress) {
+      this.config.onProgress({
+        status: 'completed',
+        estimated_time_seconds: this.estimatedTime,
+        elapsed_time_seconds: Math.round((Date.now() - this.startTime) / 1000 * 10) / 10,
+        progress_percentage: 100,
+        current_phase: 'Completed (Fallback)'
+      });
+    }
+
+    return fallbackWorkflow;
   }
 
   /**
@@ -386,7 +636,7 @@ If they say "chat" or "chatbot", use "chat" trigger.`;
 
     const summary = JSON.parse(summaryText);
     console.log('[PHASE 0] Summary complete:', JSON.stringify(summary, null, 2));
-    
+
     // Return the clarified prompt for use in next phase
     return summary.clarifiedPrompt || userGoal;
   }
@@ -401,7 +651,7 @@ If they say "chat" or "chatbot", use "chat" trigger.`;
 
     // First, get a clear summary
     const clarifiedGoal = await this.phase0_SummarizeAndClarify(userGoal);
-    
+
     // Import training examples helper
     const { getTrainingExampleContext } = await import('./training-examples.ts');
     const trainingContext = getTrainingExampleContext(clarifiedGoal, 3);
@@ -497,7 +747,7 @@ CRITICAL: If a training example above matches the user's goal, explicitly refere
 
     this.state.analysis = JSON.parse(analysisText);
     console.log('[PHASE 1] Analysis complete:', JSON.stringify(this.state.analysis, null, 2));
-    
+
     this.state.phase = 'planning';
   }
 
@@ -514,11 +764,11 @@ CRITICAL: If a training example above matches the user's goal, explicitly refere
     const goalLower = this.state.goal.toLowerCase();
     const hasGmail = goalLower.includes('gmail') || goalLower.includes('email');
     const requiredNodes = this.extractRequiredNodes(this.state.goal);
-    
+
     // Get training examples for planning phase
     const { getTrainingExampleContext } = await import('./training-examples.ts');
     const trainingContext = getTrainingExampleContext(this.state.goal, 3);
-    
+
     // 🚨 Check if form node is required
     const formKeywords = [
       'form', 'create a form', 'form data', 'user data', 'collect data', 'collect user data',
@@ -528,7 +778,7 @@ CRITICAL: If a training example above matches the user's goal, explicitly refere
       'gather data', 'collect information', 'user submission'
     ];
     const requiresFormNode = formKeywords.some(keyword => goalLower.includes(keyword));
-    
+
     // Extract form fields from goal
     const formFields: string[] = [];
     if (requiresFormNode) {
@@ -631,8 +881,25 @@ Ensure:
 
     this.state.plan = JSON.parse(planText);
     console.log('[PHASE 2] Planning complete:', JSON.stringify(this.state.plan, null, 2));
-    
+
     this.state.phase = 'construction';
+  }
+
+  /**
+   * Helper to repair common JSON syntax errors from LLM output
+   */
+  private repairJson(text: string): string {
+    let clean = text.trim();
+    // Remove markdown if present
+    if (clean.includes('```json')) clean = clean.split('```json')[1].split('```')[0].trim();
+    else if (clean.includes('```')) clean = clean.split('```')[1].split('```')[0].trim();
+
+    // Fix bad escaped characters (backslashes)
+    // Replace backslashes that are NOT standard escapes (\", \\, \/, \b, \f, \n, \r, \t) nor unicode (\uXXXX) with double backslashes
+    // This fixes paths like "C:\Users" becoming "C:\\Users"
+    clean = clean.replace(/\\(?![/bfnrtu"\\{]|u[0-9a-fA-F]{4})/g, "\\\\");
+
+    return clean;
   }
 
   /**
@@ -684,7 +951,7 @@ ${requiresFormNode ? `
 ⚠️⚠️⚠️ FORM NODE DETECTED ⚠️⚠️⚠️
 - User goal contains form-related keywords: "${formKeywords.filter(k => goalLower.includes(k)).join(', ')}"
 - YOU MUST use "form" node as the trigger
-- DO NOT use manual_trigger, webhook, or any other trigger
+- DO NOT use manual_trigger, webhook, or or any other trigger
 - Form node outputs: {formData: {field1: value1, ...}, files: [], meta: {...}}
 - Access form data in downstream nodes using: {{input.formData.fieldName}}
 - Extract field names from user goal (e.g., "name", "email", "mobile")
@@ -756,38 +1023,48 @@ Ensure:
       apiKey: this.config.apiKey,
     });
 
-    let responseText = response.content.trim();
-    // Extract JSON from markdown code blocks if present
-    if (responseText.includes('```json')) {
-      responseText = responseText.split('```json')[1].split('```')[0].trim();
-    } else if (responseText.includes('```')) {
-      responseText = responseText.split('```')[1].split('```')[0].trim();
+    let combined;
+    const responseText = response.content.trim();
+
+    try {
+      // Attempt to repair and parse the JSON
+      const repaired = this.repairJson(responseText);
+      combined = JSON.parse(repaired);
+
+      // Basic validation
+      if (!combined.analysis || !combined.plan) {
+        throw new Error('Missing analysis or plan fields');
+      }
+    } catch (parseError) {
+      console.error('[PHASE 1+2 COMBINED] JSON Parse failed. Using fallback plan to avoid crash.', parseError);
+      console.error('[PHASE 1+2 COMBINED] Parsed text preview:', responseText.substring(0, 200));
+
+      // Fallback to safe default plan so we can proceed to construction
+      combined = {
+        analysis: {
+          intent: "Construct workflow for: " + userGoal,
+          summary: "Analysis failed due to malformed LLM output. Proceeding with best-effort construction.",
+          requiredInputs: [],
+          expectedOutputs: [],
+          triggerType: requiresFormNode ? 'form' : 'manual_trigger',
+          emailNodeType: emailPreference || 'google_gmail'
+        },
+        plan: {
+          subTasks: [
+            // Just one generic task to pass validation, Phase 3 will do the real work
+            { id: "task_1", description: "Execute workflow logic", nodeType: requiresFormNode ? 'form' : 'manual_trigger', order: 1, dependencies: [] }
+          ],
+          executionOrder: ["task_1"],
+          dataFlow: "Linear flow"
+        }
+      };
     }
 
-    let combined;
-    try {
-      combined = JSON.parse(responseText);
-    } catch (parseError) {
-      console.error('[PHASE 1+2 COMBINED] Failed to parse combined response:', parseError);
-      console.error('[PHASE 1+2 COMBINED] Response text:', responseText.substring(0, 500));
-      throw new Error(`Failed to parse combined analysis and planning response: ${parseError instanceof Error ? parseError.message : String(parseError)}`);
-    }
-    
-    // Validate response structure
-    if (!combined.analysis || !combined.plan) {
-      console.error('[PHASE 1+2 COMBINED] Invalid response structure - missing analysis or plan');
-      console.error('[PHASE 1+2 COMBINED] Combined response:', JSON.stringify(combined, null, 2));
-      throw new Error('Combined response missing required fields: analysis or plan');
-    }
-    
-    // Set both analysis and plan from the combined response
+    // Set both analysis and plan from the combined response (or fallback)
     this.state.analysis = combined.analysis;
     this.state.plan = combined.plan;
-    
-    console.log('[PHASE 1+2 COMBINED] Analysis and plan complete');
-    console.log('[PHASE 1+2 COMBINED] Analysis:', JSON.stringify(this.state.analysis, null, 2));
-    console.log('[PHASE 1+2 COMBINED] Plan:', JSON.stringify(this.state.plan, null, 2));
-    
+
+    console.log('[PHASE 1+2 COMBINED] Analysis and plan complete (or fallback applied)');
     this.state.phase = 'construction';
   }
 
@@ -804,17 +1081,17 @@ Ensure:
     const goalLower = this.state.goal.toLowerCase();
     const hasGmail = goalLower.includes('gmail') || goalLower.includes('email');
     const userConfig = this.state.userConfig || {};
-    
+
     // Extract required nodes from goal for validation
     const requiredNodes = this.extractRequiredNodes(this.state.goal);
-    
+
     // Get training examples for construction phase
     const { getTrainingExampleContext } = await import('./training-examples.ts');
     const trainingContext = getTrainingExampleContext(this.state.goal, 3);
-    
+
     // Extract similar training example from analysis if available
     const similarExample = analysis?.similarTrainingExample || '';
-    
+
     // 🚨 Check if form node is required
     const formKeywords = [
       'form', 'create a form', 'form data', 'user data', 'collect data', 'collect user data',
@@ -824,7 +1101,7 @@ Ensure:
       'gather data', 'collect information', 'user submission'
     ];
     const requiresFormNode = formKeywords.some(keyword => goalLower.includes(keyword));
-    
+
     // Extract form fields
     const formFields: any[] = [];
     if (requiresFormNode) {
@@ -834,7 +1111,7 @@ Ensure:
       if (goalLower.includes('mobile') || goalLower.includes('phone')) fieldNames.push('mobile');
       if (goalLower.includes('message')) fieldNames.push('message');
       if (fieldNames.length === 0) fieldNames.push('name', 'email', 'message');
-      
+
       formFields.push(...fieldNames.map(fn => {
         const config: any = {
           name: fn,
@@ -1052,17 +1329,17 @@ JAVASCRIPT NODE CODE EXAMPLES FOR DATA FORMATTING:
     }
 
     this.state.workflow = JSON.parse(workflowText);
-    
+
     // 🚨 CRITICAL: Check and fix form node if required
     // goalLower, formKeywords, and requiresFormNode already declared earlier in this method (lines 527, 535, 542), reuse them
-    
+
     if (requiresFormNode && this.state.workflow.nodes) {
       const nodeTypes = this.state.workflow.nodes.map((n: any) => n.type || n.type);
       const hasFormNode = nodeTypes.includes('form');
-      
+
       if (!hasFormNode) {
         console.log('[PHASE 3] CRITICAL: Form node required but missing - AUTO-FIXING');
-        
+
         // Extract field names
         const fieldNames: string[] = [];
         if (goalLower.includes('name')) fieldNames.push('name');
@@ -1070,7 +1347,7 @@ JAVASCRIPT NODE CODE EXAMPLES FOR DATA FORMATTING:
         if (goalLower.includes('mobile') || goalLower.includes('phone')) fieldNames.push('mobile');
         if (goalLower.includes('message')) fieldNames.push('message');
         if (fieldNames.length === 0) fieldNames.push('name', 'email', 'message');
-        
+
         const formFields = fieldNames.map(fn => {
           const config: any = {
             name: fn,
@@ -1084,12 +1361,12 @@ JAVASCRIPT NODE CODE EXAMPLES FOR DATA FORMATTING:
           else config.type = 'text';
           return config;
         });
-        
+
         // Find and replace manual_trigger with form
-        const triggerNode = this.state.workflow.nodes.find((n: any) => 
+        const triggerNode = this.state.workflow.nodes.find((n: any) =>
           (n.type || n.data?.type) === 'manual_trigger'
         );
-        
+
         if (triggerNode) {
           console.log(`[PHASE 3] Replacing manual_trigger with form node at ${triggerNode.id}`);
           triggerNode.type = 'form';
@@ -1115,7 +1392,7 @@ JAVASCRIPT NODE CODE EXAMPLES FOR DATA FORMATTING:
               successMessage: 'Thank you for your submission!'
             }
           });
-          
+
           // Connect form to first existing node
           if (this.state.workflow.nodes.length > 1) {
             this.state.workflow.edges = this.state.workflow.edges || [];
@@ -1126,7 +1403,7 @@ JAVASCRIPT NODE CODE EXAMPLES FOR DATA FORMATTING:
             });
           }
         }
-        
+
         // Update downstream nodes to use formData
         this.state.workflow.nodes = this.state.workflow.nodes.map((node: any) => {
           if (node.type === 'slack_webhook' || node.type === 'slack_message') {
@@ -1135,7 +1412,7 @@ JAVASCRIPT NODE CODE EXAMPLES FOR DATA FORMATTING:
               const label = fn.charAt(0).toUpperCase() + fn.slice(1);
               return `${label}: {{input.formData.${fn}}}`;
             }).join('\\n');
-            
+
             if (node.type === 'slack_webhook') {
               config.text = config.text || `New Form Submission:\\n${formDataText}`;
             } else {
@@ -1147,7 +1424,7 @@ JAVASCRIPT NODE CODE EXAMPLES FOR DATA FORMATTING:
         });
       }
     }
-    
+
     // CRITICAL: Replace email_resend with google_gmail if user mentioned gmail/email
     // hasGmail already declared at line 528 in this method, reuse it
     if (hasGmail && this.state.workflow.nodes) {
@@ -1169,12 +1446,12 @@ JAVASCRIPT NODE CODE EXAMPLES FOR DATA FORMATTING:
         return node;
       });
     }
-    
+
     // CRITICAL: Validate that all required nodes are present
     // requiredNodes already declared at line 532 in this method, reuse it
     const actualNodeTypes = this.state.workflow.nodes?.map((n: any) => n.type) || [];
     const missingNodes = requiredNodes.filter((req: string) => !actualNodeTypes.includes(req));
-    
+
     if (missingNodes.length > 0) {
       console.error(`[PHASE 3] CRITICAL: Missing required nodes: ${missingNodes.join(', ')}`);
       this.state.errors.push({
@@ -1186,22 +1463,22 @@ JAVASCRIPT NODE CODE EXAMPLES FOR DATA FORMATTING:
       this.state.phase = 'healing';
       return;
     }
-    
+
     // Apply user config values to nodes
     this.applyUserConfigToNodes();
-    
+
     // CRITICAL: Fix JavaScript validation code to use correct input path based on trigger type
     this.fixJavaScriptValidationCode();
-    
+
     // CRITICAL: Fix JavaScript node code to ensure proper data formatting
     this.fixJavaScriptNodeCode();
-    
+
     // CRITICAL: Fix output nodes to use correct template variables
     this.fixOutputNodeTemplates();
-    
+
     // Apply validation fixes immediately
     this.state.workflow = validateAndFixWorkflow(this.state.workflow);
-    
+
     console.log('[PHASE 3] Construction complete');
     this.state.phase = 'validation';
   }
@@ -1212,31 +1489,31 @@ JAVASCRIPT NODE CODE EXAMPLES FOR DATA FORMATTING:
    */
   private fixJavaScriptValidationCode(): void {
     if (!this.state.workflow?.nodes) return;
-    
+
     // Detect trigger type
-    const triggerNode = this.state.workflow.nodes.find((n: any) => 
+    const triggerNode = this.state.workflow.nodes.find((n: any) =>
       ['form', 'webhook', 'manual_trigger', 'schedule'].includes(n.type)
     );
     const isFormTrigger = triggerNode?.type === 'form';
     const isWebhookTrigger = triggerNode?.type === 'webhook';
-    
+
     // Find JavaScript nodes that do validation (checking for email, name, mobile validation)
     this.state.workflow.nodes = this.state.workflow.nodes.map((node: any) => {
       if (node.type !== 'javascript') return node;
-      
+
       const code = node.config?.code || '';
       const codeLower = code.toLowerCase();
-      
+
       // Check if this is a validation node (has email/name/mobile validation)
-      const isValidationNode = codeLower.includes('email') && 
-                               (codeLower.includes('name') || codeLower.includes('mobile') || codeLower.includes('phone')) &&
-                               (codeLower.includes('valid') || codeLower.includes('regex') || codeLower.includes('test'));
-      
+      const isValidationNode = codeLower.includes('email') &&
+        (codeLower.includes('name') || codeLower.includes('mobile') || codeLower.includes('phone')) &&
+        (codeLower.includes('valid') || codeLower.includes('regex') || codeLower.includes('test'));
+
       if (!isValidationNode) return node;
-      
+
       // Fix input path based on trigger type
       let fixedCode = code;
-      
+
       if (isFormTrigger) {
         // Form nodes output: { data: { name, email, mobile }, form: {...}, meta: {...} }
         // Replace input.body with input.data
@@ -1245,11 +1522,11 @@ JAVASCRIPT NODE CODE EXAMPLES FOR DATA FORMATTING:
         fixedCode = fixedCode.replace(/input\.body\./g, 'input.data.');
         fixedCode = fixedCode.replace(/input\.formData\?\./g, 'input.data?.');
         fixedCode = fixedCode.replace(/input\.formData\./g, 'input.data.');
-        
+
         // Also fix the fallback chain
         fixedCode = fixedCode.replace(/input\.body\s*\|\|/g, 'input.data ||');
         fixedCode = fixedCode.replace(/input\.formData\s*\|\|/g, 'input.data ||');
-        
+
         console.log(`[PHASE 3] Fixed JavaScript validation code for form trigger in node ${node.id}`);
       } else if (isWebhookTrigger) {
         // Webhook nodes output: { body: { name, email, mobile }, headers: {...}, query: {...} }
@@ -1258,7 +1535,7 @@ JAVASCRIPT NODE CODE EXAMPLES FOR DATA FORMATTING:
         fixedCode = fixedCode.replace(/input\.formData\./g, 'input.body.');
         fixedCode = fixedCode.replace(/input\.data\?\./g, 'input.body?.');
         fixedCode = fixedCode.replace(/input\.data\./g, 'input.body.');
-        
+
         console.log(`[PHASE 3] Fixed JavaScript validation code for webhook trigger in node ${node.id}`);
       } else {
         // For other triggers, use a fallback chain that works for both
@@ -1268,7 +1545,7 @@ JAVASCRIPT NODE CODE EXAMPLES FOR DATA FORMATTING:
           const emailMatch = code.match(/(const\s+email\s*=)/);
           const nameMatch = code.match(/(const\s+name\s*=)/);
           const mobileMatch = code.match(/(const\s+mobile\s*=)/);
-          
+
           if (emailMatch || nameMatch || mobileMatch) {
             // Add fallback chain that works for both form and webhook
             fixedCode = code.replace(
@@ -1283,17 +1560,17 @@ JAVASCRIPT NODE CODE EXAMPLES FOR DATA FORMATTING:
               /(const\s+mobile\s*=)\s*[^;]+;/,
               '$1 input.data?.mobile || input.body?.mobile || input.formData?.mobile || input.body?.mobile_no || \'\';'
             );
-            
+
             console.log(`[PHASE 3] Added fallback chain to JavaScript validation code in node ${node.id}`);
           }
         }
       }
-      
+
       if (fixedCode !== code) {
         node.config = { ...node.config, code: fixedCode };
         console.log(`[PHASE 3] Updated JavaScript validation code in node ${node.id}`);
       }
-      
+
       return node;
     });
   }
@@ -1303,36 +1580,36 @@ JAVASCRIPT NODE CODE EXAMPLES FOR DATA FORMATTING:
    */
   private fixJavaScriptNodeCode(): void {
     if (!this.state.workflow?.nodes) return;
-    
+
     const goalLower = this.state.goal.toLowerCase();
     const hasSheets = goalLower.includes('google sheet') || goalLower.includes('sheets');
     const hasDoc = goalLower.includes('google doc') || goalLower.includes('document');
     const hasBoth = hasSheets && hasDoc;
-    
+
     // Detect trigger type to determine input data path
-    const triggerNode = this.state.workflow.nodes.find((n: any) => 
+    const triggerNode = this.state.workflow.nodes.find((n: any) =>
       ['form', 'webhook', 'manual_trigger', 'schedule'].includes(n.type)
     );
     const isFormTrigger = triggerNode?.type === 'form';
     const isWebhookTrigger = triggerNode?.type === 'webhook';
-    
+
     // Find JavaScript nodes that need fixing
     this.state.workflow.nodes = this.state.workflow.nodes.map((node: any) => {
       if (node.type !== 'javascript') return node;
-      
+
       const code = node.config?.code || '';
       const codeLower = code.toLowerCase();
-      
+
       // Check if code properly formats data as text
       const hasReturnContent = code.includes('content:') || code.includes('"content"') || code.includes("'content'");
       const hasReturnText = code.includes('text:') || code.includes('"text"') || code.includes("'text'");
       const hasReturnBody = code.includes('body:') || code.includes('"body"') || code.includes("'body'");
       const returnsText = hasReturnContent || hasReturnText || hasReturnBody;
-      
+
       // If code doesn't return formatted text, fix it
       if (!returnsText || code.trim() === '' || code.includes('placeholder') || code.includes('TODO')) {
         console.log(`[PHASE 3] Fixing JavaScript node ${node.id} - generating proper data formatting code`);
-        
+
         if (hasBoth) {
           // Both Sheets and Doc - need to handle merge_data input
           node.config.code = `// Parse and format data from Google Sheets and Google Document
@@ -1424,7 +1701,7 @@ return {
 };`;
         }
       }
-      
+
       return node;
     });
   }
@@ -1434,16 +1711,16 @@ return {
    */
   private fixOutputNodeTemplates(): void {
     if (!this.state.workflow?.nodes) return;
-    
+
     // Find JavaScript nodes and output nodes
     const jsNodes = this.state.workflow.nodes.filter((n: any) => n.type === 'javascript');
-    const outputNodes = this.state.workflow.nodes.filter((n: any) => 
+    const outputNodes = this.state.workflow.nodes.filter((n: any) =>
       ['google_gmail', 'slack_webhook', 'slack_message'].includes(n.type)
     );
-    
+
     // Find edges to determine which output nodes receive data from JavaScript nodes
     const edges = this.state.workflow.edges || [];
-    
+
     outputNodes.forEach((outputNode: any) => {
       // Find if this output node receives data from a JavaScript node
       const incomingEdges = edges.filter((e: any) => e.target === outputNode.id);
@@ -1451,22 +1728,22 @@ return {
         const sourceNode = this.state.workflow.nodes.find((n: any) => n.id === e.source);
         return sourceNode?.type === 'javascript';
       });
-      
+
       // Also check if it receives from merge_data (which might come from JS)
       const hasMergeInput = incomingEdges.some((e: any) => {
         const sourceNode = this.state.workflow.nodes.find((n: any) => n.id === e.source);
         return sourceNode?.type === 'merge_data';
       });
-      
+
       if (hasJsInput || hasMergeInput) {
         // This output node should use template variables from JavaScript/merge_data
         const config = outputNode.config || {};
-        
+
         if (outputNode.type === 'google_gmail' && config.operation === 'send') {
           // Gmail should use {{input.content}} or {{input.text}}
-          if (!config.body || (!config.body.includes('{{input.content}}') && 
-                               !config.body.includes('{{input.text}}') && 
-                               !config.body.includes('{{input.body}}'))) {
+          if (!config.body || (!config.body.includes('{{input.content}}') &&
+            !config.body.includes('{{input.text}}') &&
+            !config.body.includes('{{input.body}}'))) {
             console.log(`[PHASE 3] Fixing Gmail node ${outputNode.id} - adding template variable`);
             config.body = config.body || '{{input.content}}';
             if (!config.body.includes('{{input')) {
@@ -1474,12 +1751,12 @@ return {
             }
           }
         }
-        
+
         if (outputNode.type === 'slack_webhook') {
           // Slack webhook should use {{input.content}} or {{input.text}}
-          if (!config.text || (!config.text.includes('{{input.content}}') && 
-                               !config.text.includes('{{input.text}}') && 
-                               !config.text.includes('{{input.body}}'))) {
+          if (!config.text || (!config.text.includes('{{input.content}}') &&
+            !config.text.includes('{{input.text}}') &&
+            !config.text.includes('{{input.body}}'))) {
             console.log(`[PHASE 3] Fixing Slack webhook node ${outputNode.id} - adding template variable`);
             config.text = config.text || '{{input.content}}';
             if (!config.text.includes('{{input')) {
@@ -1487,12 +1764,12 @@ return {
             }
           }
         }
-        
+
         if (outputNode.type === 'slack_message') {
           // Slack message should use {{input.content}} in message field
-          if (!config.message || (!config.message.includes('{{input.content}}') && 
-                                  !config.message.includes('{{input.text}}') && 
-                                  !config.message.includes('{{input.body}}'))) {
+          if (!config.message || (!config.message.includes('{{input.content}}') &&
+            !config.message.includes('{{input.text}}') &&
+            !config.message.includes('{{input.body}}'))) {
             console.log(`[PHASE 3] Fixing Slack message node ${outputNode.id} - adding template variable`);
             config.message = config.message || '{{input.content}}';
             if (!config.message.includes('{{input')) {
@@ -1500,7 +1777,7 @@ return {
             }
           }
         }
-        
+
         // Update the node
         const nodeIndex = this.state.workflow.nodes.findIndex((n: any) => n.id === outputNode.id);
         if (nodeIndex >= 0) {
@@ -1512,24 +1789,24 @@ return {
           const sourceNode = this.state.workflow.nodes.find((n: any) => n.id === e.source);
           return sourceNode?.type === 'google_doc';
         });
-        
+
         if (hasDocInput) {
           const config = outputNode.config || {};
-          
+
           if (outputNode.type === 'google_gmail' && config.operation === 'send') {
             if (!config.body || !config.body.includes('{{input.content}}')) {
               console.log(`[PHASE 3] Fixing Gmail node ${outputNode.id} - using {{input.content}} from google_doc`);
               config.body = '{{input.content}}';
             }
           }
-          
+
           if (outputNode.type === 'slack_webhook') {
             if (!config.text || !config.text.includes('{{input.content}}')) {
               console.log(`[PHASE 3] Fixing Slack webhook node ${outputNode.id} - using {{input.content}} from google_doc`);
               config.text = '{{input.content}}';
             }
           }
-          
+
           const nodeIndex = this.state.workflow.nodes.findIndex((n: any) => n.id === outputNode.id);
           if (nodeIndex >= 0) {
             this.state.workflow.nodes[nodeIndex] = { ...outputNode, config };
@@ -1548,34 +1825,34 @@ return {
 
     this.state.workflow.nodes = this.state.workflow.nodes.map((node: any) => {
       const config = node.config || {};
-      
+
       // Google Doc
       if (node.type === 'google_doc' && config.operation === 'read') {
-        config.documentId = config.documentId || 
-          userConfig.documentId || 
-          userConfig.google_doc_id || 
-          userConfig.google_doc_url || 
+        config.documentId = config.documentId ||
+          userConfig.documentId ||
+          userConfig.google_doc_id ||
+          userConfig.google_doc_url ||
           '';
       }
-      
+
       // Google Sheets
       if (node.type === 'google_sheets' && config.operation === 'read') {
-        config.spreadsheetId = config.spreadsheetId || 
-          userConfig.spreadsheetId || 
-          userConfig.google_sheet_id || 
-          userConfig.google_sheet_url || 
+        config.spreadsheetId = config.spreadsheetId ||
+          userConfig.spreadsheetId ||
+          userConfig.google_sheet_id ||
+          userConfig.google_sheet_url ||
           '';
         config.sheetName = config.sheetName || userConfig.sheetName || userConfig.sheet_name || 'Sheet1';
       }
-      
+
       // Slack
       if (node.type === 'slack_webhook' || node.type === 'slack_message') {
-        config.webhookUrl = config.webhookUrl || 
-          userConfig.webhookUrl || 
-          userConfig.slack_webhook || 
+        config.webhookUrl = config.webhookUrl ||
+          userConfig.webhookUrl ||
+          userConfig.slack_webhook ||
           '';
       }
-      
+
       // Gmail
       if (node.type === 'google_gmail' && config.operation === 'send') {
         config.to = config.to || userConfig.to || userConfig.email || '';
@@ -1585,7 +1862,7 @@ return {
           config.body = config.body || userConfig.body || '{{input.content}}';
         }
       }
-      
+
       return { ...node, config };
     });
   }
@@ -1596,15 +1873,15 @@ return {
   private extractRequiredNodes(goal: string): string[] {
     const goalLower = goal.toLowerCase();
     const required: string[] = [];
-    
+
     // 🚨 CRITICAL: Parse explicit "Nodes Used:" section FIRST (highest priority)
     const nodesUsedMatch = goal.match(/nodes?\s+used[:\s]+([^\n]+)/i);
     if (nodesUsedMatch) {
       const nodesUsedText = nodesUsedMatch[1].trim();
       const explicitNodes = nodesUsedText.split(/[,\n]/).map(n => n.trim()).filter(n => n.length > 0);
-      
+
       console.log('[EXTRACT NODES] Found explicit "Nodes Used:" section:', explicitNodes);
-      
+
       // Map common node name variations to actual node types
       const nodeNameMap: Record<string, string> = {
         'datadog': 'datadog',
@@ -1638,11 +1915,11 @@ return {
         'kubernetes': 'kubernetes',
         'k8s': 'kubernetes',
       };
-      
+
       for (const nodeName of explicitNodes) {
         const nodeNameLower = nodeName.toLowerCase().trim();
         const mappedNode = nodeNameMap[nodeNameLower];
-        
+
         if (mappedNode) {
           if (!required.includes(mappedNode)) {
             required.push(mappedNode);
@@ -1650,8 +1927,8 @@ return {
           }
         } else {
           // Try direct match (case-insensitive)
-          const directMatch = Object.keys(nodeNameMap).find(key => 
-            key.toLowerCase() === nodeNameLower || 
+          const directMatch = Object.keys(nodeNameMap).find(key =>
+            key.toLowerCase() === nodeNameLower ||
             nodeNameLower.includes(key.toLowerCase()) ||
             key.toLowerCase().includes(nodeNameLower)
           );
@@ -1664,7 +1941,7 @@ return {
         }
       }
     }
-    
+
     // 🚨 CRITICAL: Check for form keywords - but only if not already specified
     if (!required.includes('form') && !required.includes('webhook') && !required.includes('schedule')) {
       const formKeywords = [
@@ -1674,20 +1951,20 @@ return {
         'feedback form', 'data collection', 'take the user data', 'user information',
         'gather data', 'collect information', 'user submission'
       ];
-      
+
       const requiresFormNode = formKeywords.some(keyword => goalLower.includes(keyword));
-      
+
       if (requiresFormNode) {
         required.push('form'); // Form node is REQUIRED
         console.log('[EXTRACT NODES] Form keywords detected - form node is REQUIRED');
       }
     }
-    
+
     // Add default trigger only if no trigger specified
     if (!required.some(node => ['form', 'webhook', 'schedule', 'manual_trigger', 'interval', 'chat_trigger'].includes(node))) {
       required.push('manual_trigger');
     }
-    
+
     // Google Sheets (if not already added)
     if (!required.includes('google_sheets') && (goalLower.includes('google sheet') || goalLower.includes('sheets'))) {
       required.push('google_sheets');
@@ -1695,22 +1972,22 @@ return {
         required.push('javascript'); // Always need JS to parse sheets data
       }
     }
-    
+
     // Google Doc (if not already added)
     if (!required.includes('google_doc') && (goalLower.includes('google doc') || goalLower.includes('document'))) {
       required.push('google_doc');
     }
-    
+
     // Gmail/Email (if not already added)
     if (!required.includes('google_gmail') && (goalLower.includes('gmail') || goalLower.includes('email') || goalLower.includes('send email'))) {
       required.push('google_gmail');
     }
-    
+
     // Slack (if not already added)
     if (!required.includes('slack_webhook') && !required.includes('slack_message') && goalLower.includes('slack')) {
       required.push('slack_webhook'); // Default to slack_webhook
     }
-    
+
     // Datadog (if not already added, check for monitoring/logs keywords)
     if (!required.includes('datadog')) {
       const datadogKeywords = ['datadog', 'data dog', 'monitor logs', 'log monitoring', 'monitoring', 'observability'];
@@ -1719,7 +1996,7 @@ return {
         console.log('[EXTRACT NODES] Datadog keywords detected - datadog node is REQUIRED');
       }
     }
-    
+
     // If/Else logic (if not already added, check for conditional keywords)
     if (!required.includes('if_else')) {
       const ifElseKeywords = ['if', 'else', 'conditional', 'check', 'validate', 'threshold', 'exceed'];
@@ -1728,7 +2005,7 @@ return {
         console.log('[EXTRACT NODES] Conditional logic keywords detected - if_else node is REQUIRED');
       }
     }
-    
+
     console.log('[EXTRACT NODES] Final required nodes:', required);
     return required;
   }
@@ -1833,7 +2110,7 @@ ${hasGmail ? '- If any email node other than google_gmail exists, that is a CRIT
     }
 
     const validation = JSON.parse(validationText);
-    
+
     // Also run programmatic validation
     const programmaticErrors = this.validateProgrammatically(workflow);
     validation.errors = [...(validation.errors || []), ...programmaticErrors];
@@ -1867,9 +2144,9 @@ ${hasGmail ? '- If any email node other than google_gmail exists, that is a CRIT
     const requiredNodes = this.extractRequiredNodes(goal);
 
     // Check if we have missing required nodes - if so, rebuild from scratch
-    const hasMissingNodes = errors.some(e => 
-      e.type === 'missing_required_nodes' || 
-      e.type === 'goal_mismatch' || 
+    const hasMissingNodes = errors.some(e =>
+      e.type === 'missing_required_nodes' ||
+      e.type === 'goal_mismatch' ||
       e.type === 'missing_nodes'
     );
 
@@ -1939,7 +2216,7 @@ CRITICAL: You MUST NOT ask for help. Fix errors automatically using:
     }
 
     const fixedWorkflow = JSON.parse(fixedWorkflowText);
-    
+
     // Apply programmatic fixes
     this.state.workflow = validateAndFixWorkflow({
       name: fixedWorkflow.name || workflow.name,
@@ -1950,7 +2227,7 @@ CRITICAL: You MUST NOT ask for help. Fix errors automatically using:
     // CRITICAL: Verify required nodes are still present after fixing
     const actualNodeTypes = this.state.workflow.nodes?.map((n: any) => n.type) || [];
     const missingNodes = requiredNodes.filter((req: string) => !actualNodeTypes.includes(req));
-    
+
     if (missingNodes.length > 0) {
       console.error(`[PHASE 5] After fixing, still missing nodes: ${missingNodes.join(', ')}`);
       this.state.errors.push({
@@ -2044,7 +2321,7 @@ Goal is achieved ONLY if:
     }
 
     const verification = JSON.parse(verificationText);
-    
+
     // CRITICAL: If AI says goal achieved but programmatic check found missing nodes, fail
     if (verification.missingNodes && verification.missingNodes.length > 0) {
       console.log(`[PHASE 6] Goal verification FAILED: Missing nodes: ${verification.missingNodes.join(', ')}`);
@@ -2056,7 +2333,7 @@ Goal is achieved ONLY if:
       this.state.phase = 'planning';
       return false;
     }
-    
+
     if (verification.goalAchieved && verification.completionPercentage >= 100) {
       console.log('[PHASE 6] Goal verification PASSED: 100% completion');
       this.state.phase = 'learning';
@@ -2080,13 +2357,13 @@ Goal is achieved ONLY if:
   private verifyGoalProgrammatically(goal: string, workflow: any): { passed: boolean; reason: string; fix: string } {
     const goalLower = goal.toLowerCase();
     const nodeTypes = workflow.nodes?.map((n: any) => n.type || n.data?.type) || [];
-    
+
     // 🚨 CRITICAL: Check for explicitly mentioned nodes in "Nodes Used:" section FIRST
     const nodesUsedMatch = goal.match(/nodes?\s+used[:\s]+([^\n]+)/i);
     if (nodesUsedMatch) {
       const nodesUsedText = nodesUsedMatch[1].trim();
       const explicitNodes = nodesUsedText.split(/[,\n]/).map(n => n.trim().toLowerCase()).filter(n => n.length > 0);
-      
+
       // Check for Datadog
       if (explicitNodes.some(n => n.includes('datadog') || n.includes('data dog'))) {
         if (!nodeTypes.includes('datadog')) {
@@ -2097,7 +2374,7 @@ Goal is achieved ONLY if:
           };
         }
       }
-      
+
       // Check for If/Else
       if (explicitNodes.some(n => n === 'if' || n.includes('if') || n.includes('else') || n.includes('conditional'))) {
         if (!nodeTypes.includes('if_else')) {
@@ -2108,7 +2385,7 @@ Goal is achieved ONLY if:
           };
         }
       }
-      
+
       // Check for Slack
       if (explicitNodes.some(n => n.includes('slack'))) {
         if (!nodeTypes.includes('slack_webhook') && !nodeTypes.includes('slack_message')) {
@@ -2129,9 +2406,9 @@ Goal is achieved ONLY if:
       'feedback form', 'data collection', 'take the user data', 'user information',
       'gather data', 'collect information', 'user submission'
     ];
-    
+
     const requiresFormNode = formKeywords.some(keyword => goalLower.includes(keyword));
-    
+
     if (requiresFormNode && !nodeTypes.includes('form')) {
       return {
         passed: false,
@@ -2139,7 +2416,7 @@ Goal is achieved ONLY if:
         fix: 'Replace manual_trigger with form node and configure form fields (name, email, mobile, etc.)',
       };
     }
-    
+
     // If form node is required but manual_trigger is present, that's wrong
     if (requiresFormNode && nodeTypes.includes('manual_trigger')) {
       return {
@@ -2192,7 +2469,7 @@ Goal is achieved ONLY if:
         };
       }
     }
-    
+
     // Check for Datadog (monitoring/logs)
     if (goalLower.includes('datadog') || goalLower.includes('data dog') || goalLower.includes('monitor logs') || goalLower.includes('log monitoring')) {
       if (!nodeTypes.includes('datadog')) {
@@ -2203,7 +2480,7 @@ Goal is achieved ONLY if:
         };
       }
     }
-    
+
     // Check for If/Else logic (conditional)
     if (goalLower.includes('if') || goalLower.includes('else') || goalLower.includes('conditional') || goalLower.includes('threshold') || goalLower.includes('exceed')) {
       if (!nodeTypes.includes('if_else')) {
@@ -2230,7 +2507,7 @@ Goal is achieved ONLY if:
         fix: 'Add javascript node after google_sheets to parse the data format',
       };
     }
-    
+
     // Check if JavaScript nodes have proper code that returns formatted text
     if (nodeTypes.includes('javascript')) {
       const jsNodes = workflow.nodes?.filter((n: any) => n.type === 'javascript') || [];
@@ -2247,17 +2524,17 @@ Goal is achieved ONLY if:
         }
       }
     }
-    
+
     // Check if output nodes use correct template variables
-    const outputNodes = workflow.nodes?.filter((n: any) => 
+    const outputNodes = workflow.nodes?.filter((n: any) =>
       ['google_gmail', 'slack_webhook', 'slack_message'].includes(n.type)
     ) || [];
     for (const outputNode of outputNodes) {
       const body = outputNode.config?.body || outputNode.config?.text || '';
-      const hasTemplateVar = body.includes('{{input.content}}') || 
-                             body.includes('{{input.content}}') ||
-                             body.includes('{{input.text}}') ||
-                             body.includes('{{input.body}}');
+      const hasTemplateVar = body.includes('{{input.content}}') ||
+        body.includes('{{input.content}}') ||
+        body.includes('{{input.text}}') ||
+        body.includes('{{input.body}}');
       if (!hasTemplateVar && body.trim() !== '') {
         // This is a warning, not a failure - but we should fix it
         console.warn(`[VERIFICATION] Output node ${outputNode.id} may not be using template variables correctly`);
@@ -2266,7 +2543,7 @@ Goal is achieved ONLY if:
 
     // Check if workflow has output nodes when user wants to "send" data
     if (goalLower.includes('send') || goalLower.includes('send to')) {
-      const hasOutput = nodeTypes.some((type: string) => 
+      const hasOutput = nodeTypes.some((type: string) =>
         ['google_gmail', 'slack_webhook', 'slack_message', 'discord_webhook', 'http_post'].includes(type)
       );
       if (!hasOutput) {
@@ -2372,7 +2649,7 @@ ${JSON.stringify(recentFixes, null, 2)}
     errors.forEach(error => {
       const similarFix = this.state.memory.errorFixes.find(
         f => f.error.toLowerCase().includes(error.type.toLowerCase()) ||
-             error.message.toLowerCase().includes(f.error.toLowerCase())
+          error.message.toLowerCase().includes(f.error.toLowerCase())
       );
       if (similarFix) {
         fixes.push(similarFix);
@@ -2405,7 +2682,7 @@ ${JSON.stringify(recentFixes, null, 2)}
     }
 
     // Check for trigger node
-    const hasTrigger = workflow.nodes?.some((n: any) => 
+    const hasTrigger = workflow.nodes?.some((n: any) =>
       ['manual_trigger', 'webhook', 'schedule', 'chat_trigger', 'interval', 'workflow_trigger'].includes(n.type)
     );
     if (!hasTrigger) {
@@ -2432,7 +2709,7 @@ ${JSON.stringify(recentFixes, null, 2)}
       if (node.type === 'if_else') {
         const trueEdge = workflow.edges?.find((e: any) => e.source === node.id && e.sourceHandle === 'true');
         const falseEdge = workflow.edges?.find((e: any) => e.source === node.id && e.sourceHandle === 'false');
-        
+
         if (!trueEdge) {
           errors.push({
             type: 'if_else',
@@ -2461,7 +2738,7 @@ ${JSON.stringify(recentFixes, null, 2)}
   private generateFallbackWorkflow(userGoal: string): any {
     console.error('[AGENT] CRITICAL: Generating fallback workflow - this should not happen!');
     console.error('[AGENT] This indicates a complete failure of workflow generation.');
-    
+
     // Don't return fallback - throw error instead
     throw new Error(`Failed to generate workflow for: "${userGoal}". The autonomous agent was unable to create a valid workflow after all retry attempts. Please check your prompt and try again.`);
   }

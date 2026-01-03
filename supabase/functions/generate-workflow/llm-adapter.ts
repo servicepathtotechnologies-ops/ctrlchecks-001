@@ -58,41 +58,82 @@ export class LLMAdapter {
 
     let apiVersion = 'v1beta';
     let attemptModel = model;
+    let retries = 0;
+    const MAX_RETRIES = 3;
 
-    try {
-      let url = `https://generativelanguage.googleapis.com/${apiVersion}/models/${attemptModel}:generateContent?key=${apiKey}`;
+    while (retries <= MAX_RETRIES) {
+      try {
+        let url = `https://generativelanguage.googleapis.com/${apiVersion}/models/${attemptModel}:generateContent?key=${apiKey}`;
 
-      let response = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          contents: conversationParts,
-          systemInstruction: systemInstruction ? {
-            parts: [{ text: systemInstruction }],
-          } : undefined,
-          generationConfig: {
-            temperature: options.temperature ?? 0.7,
-            maxOutputTokens: options.maxTokens,
+        let response = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
           },
-        }),
-      });
+          body: JSON.stringify({
+            contents: conversationParts,
+            systemInstruction: systemInstruction ? {
+              parts: [{ text: systemInstruction }],
+            } : undefined,
+            generationConfig: {
+              temperature: options.temperature ?? 0.7,
+              maxOutputTokens: options.maxTokens,
+            },
+          }),
+        });
 
-      if (response.status === 404) {
-        const fallbackModels = [
-          'gemini-2.5-flash',
-          'gemini-2.0-flash-exp',
-          'gemini-1.5-flash',
-          'gemini-1.5-pro',
-        ];
+        // Handle 429 / 503 errors specifically for retry
+        if (response.status === 429 || response.status === 503) {
+          throw { isRateLimit: true, status: response.status, headers: response.headers };
+        }
 
-        for (const fallbackModel of fallbackModels) {
-          if (attemptModel === fallbackModel) continue;
+        if (response.status === 404) {
+          const fallbackModels = [
+            'gemini-2.5-flash',
+            'gemini-2.0-flash-exp',
+            'gemini-1.5-flash',
+            'gemini-1.5-pro',
+          ];
 
-          console.warn(`Model ${attemptModel} not found, trying fallback: ${fallbackModel}`);
-          attemptModel = fallbackModel;
-          url = `https://generativelanguage.googleapis.com/${apiVersion}/models/${fallbackModel}:generateContent?key=${apiKey}`;
+          for (const fallbackModel of fallbackModels) {
+            if (attemptModel === fallbackModel) continue;
+
+            console.warn(`Model ${attemptModel} not found, trying fallback: ${fallbackModel}`);
+            attemptModel = fallbackModel;
+            url = `https://generativelanguage.googleapis.com/${apiVersion}/models/${fallbackModel}:generateContent?key=${apiKey}`;
+
+            response = await fetch(url, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                contents: conversationParts,
+                systemInstruction: systemInstruction ? {
+                  parts: [{ text: systemInstruction }],
+                } : undefined,
+                generationConfig: {
+                  temperature: options.temperature ?? 0.7,
+                  maxOutputTokens: options.maxTokens,
+                },
+              }),
+            });
+
+            if (response.status === 429 || response.status === 503) {
+              throw { isRateLimit: true, status: response.status, headers: response.headers };
+            }
+
+            if (response.ok) {
+              console.log(`Successfully using fallback model: ${fallbackModel}`);
+              break;
+            }
+          }
+        }
+
+        if (response.status === 404 && apiVersion === 'v1beta') {
+          console.warn('v1beta API failed, trying v1 API');
+          apiVersion = 'v1';
+          url = `https://generativelanguage.googleapis.com/v1/models/${attemptModel}:generateContent?key=${apiKey}`;
 
           response = await fetch(url, {
             method: 'POST',
@@ -111,114 +152,101 @@ export class LLMAdapter {
             }),
           });
 
-          if (response.ok) {
-            console.log(`Successfully using fallback model: ${fallbackModel}`);
-            break;
+          if (response.status === 429 || response.status === 503) {
+            throw { isRateLimit: true, status: response.status, headers: response.headers };
           }
         }
-      }
 
-      if (response.status === 404 && apiVersion === 'v1beta') {
-        console.warn('v1beta API failed, trying v1 API');
-        apiVersion = 'v1';
-        url = `https://generativelanguage.googleapis.com/v1/models/${attemptModel}:generateContent?key=${apiKey}`;
+        if (!response.ok) {
+          const errorText = await response.text();
+          let errorMessage = `Gemini API error: ${response.status}`;
 
-        response = await fetch(url, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            contents: conversationParts,
-            systemInstruction: systemInstruction ? {
-              parts: [{ text: systemInstruction }],
-            } : undefined,
-            generationConfig: {
-              temperature: options.temperature ?? 0.7,
-              maxOutputTokens: options.maxTokens,
-            },
-          }),
-        });
-      }
+          try {
+            const errorJson = JSON.parse(errorText);
+            const apiError = errorJson.error || errorJson;
+            const apiErrorMessage = apiError.message || apiError.error?.message || errorText;
+            errorMessage = apiErrorMessage;
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        let errorMessage = `Gemini API error: ${response.status}`;
-
-        try {
-          const errorJson = JSON.parse(errorText);
-          const apiError = errorJson.error || errorJson;
-          const apiErrorMessage = apiError.message || apiError.error?.message || errorText;
-          errorMessage = apiErrorMessage;
-
-          // 🚨 CRITICAL: Check for quota/rate limit errors (429)
-          if (response.status === 429 || 
-              apiErrorMessage.toLowerCase().includes('quota') || 
+            // 🚨 CRITICAL: Check for quota/rate limit errors (429) in body even if status wasn't 429
+            if (apiErrorMessage.toLowerCase().includes('quota') ||
               apiErrorMessage.toLowerCase().includes('rate limit') ||
               apiErrorMessage.toLowerCase().includes('resource exhausted') ||
               apiErrorMessage.toLowerCase().includes('quota exceeded')) {
-            // Extract retry-after if available
-            const retryAfter = response.headers.get('Retry-After');
-            let quotaError = 'QUOTA_EXCEEDED: Gemini API quota exceeded. ';
-            if (retryAfter) {
-              const retrySeconds = parseInt(retryAfter, 10);
-              quotaError += `Please wait ${retrySeconds} seconds before trying again. `;
-            } else {
-              // Try to extract retry time from error message
-              const retryMatch = apiErrorMessage.match(/retry in ([\d.]+)s/i) || 
-                               apiErrorMessage.match(/wait ([\d]+) seconds/i);
-              if (retryMatch) {
-                const retrySeconds = Math.ceil(parseFloat(retryMatch[1]));
-                quotaError += `Please wait ${retrySeconds} seconds before trying again. `;
-              } else {
-                quotaError += 'Please wait a few minutes before trying again. ';
-              }
+              throw { isRateLimit: true, status: 429, headers: response.headers, message: apiErrorMessage };
             }
-            quotaError += 'To increase limits, upgrade your Gemini API plan at https://ai.google.dev/pricing';
+
+            if (response.status === 404) {
+              errorMessage = `Model "${attemptModel}" not found in ${apiVersion} API. ${errorMessage}. Please verify your API key has access to Gemini models and check available models.`;
+            }
+          } catch (parseError) {
+            if ((parseError as any).isRateLimit) throw parseError;
+            errorMessage += ` - ${errorText}`;
+          }
+
+          throw new Error(errorMessage);
+        }
+
+        const data = await response.json();
+
+        const content = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+        const usageInfo = data.usageMetadata;
+
+        if (attemptModel !== model) {
+          console.log(`Successfully used fallback model: ${attemptModel} (requested: ${model})`);
+        }
+
+        return {
+          content,
+          usage: usageInfo ? {
+            promptTokens: usageInfo.promptTokenCount || 0,
+            completionTokens: usageInfo.candidatesTokenCount || 0,
+            totalTokens: usageInfo.totalTokenCount || 0,
+          } : undefined,
+          model: data.model || attemptModel,
+          finishReason: data.candidates?.[0]?.finishReason,
+        };
+
+      } catch (error: any) {
+        // Handle Rate Limit / Quota Errors with Backoff
+        if (error.isRateLimit || (error.message && (
+          error.message.includes('429') ||
+          error.message.toLowerCase().includes('quota') ||
+          error.message.toLowerCase().includes('rate limit')
+        ))) {
+          if (retries < MAX_RETRIES) {
+            const retryStatus = error.status || 429;
+            // Calculate delay: 3s, 6s, 12s... + jitter
+            const backoffDelays = [3000, 6000, 12000]; // 3s, 6s, 12s backoff
+            const baseDelay = backoffDelays[retries];
+            const jitter = Math.random() * 1000;
+            const delay = baseDelay + jitter;
+
+            console.warn(`[GEMINI] Rate limit hit (${retryStatus}). Retrying in ${Math.round(delay)}ms... (Attempt ${retries + 1}/${MAX_RETRIES})`);
+            await new Promise(resolve => setTimeout(resolve, delay));
+            retries++;
+            continue; // Retry loop
+          } else {
+            // Retries exhausted
+            console.error('[GEMINI] Max retries exhausted for rate limit.');
+            // Convert to friendly error
+            const quotaError = `QUOTA_EXCEEDED: Gemini API quota exceeded after ${MAX_RETRIES} retries. Please wait a minute before trying again.`;
             const quotaErr = new Error(quotaError);
             (quotaErr as any).isQuotaError = true;
             (quotaErr as any).statusCode = 429;
             throw quotaErr;
           }
-
-          if (response.status === 404) {
-            errorMessage = `Model "${attemptModel}" not found in ${apiVersion} API. ${errorMessage}. Please verify your API key has access to Gemini models and check available models.`;
-          }
-        } catch (parseError) {
-          if ((parseError as any).isQuotaError) {
-            throw parseError; // Re-throw quota errors
-          }
-          errorMessage += ` - ${errorText}`;
         }
 
-        throw new Error(errorMessage);
+        // Non-retriable error
+        if (error instanceof Error) {
+          throw error;
+        }
+        throw new Error(`Gemini API request failed: ${String(error)}`);
       }
-
-      const data = await response.json();
-
-      const content = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-      const usageInfo = data.usageMetadata;
-
-      if (attemptModel !== model) {
-        console.log(`Successfully used fallback model: ${attemptModel} (requested: ${model})`);
-      }
-
-      return {
-        content,
-        usage: usageInfo ? {
-          promptTokens: usageInfo.promptTokenCount || 0,
-          completionTokens: usageInfo.candidatesTokenCount || 0,
-          totalTokens: usageInfo.totalTokenCount || 0,
-        } : undefined,
-        model: data.model || attemptModel,
-        finishReason: data.candidates?.[0]?.finishReason,
-      };
-    } catch (error) {
-      if (error instanceof Error) {
-        throw error;
-      }
-      throw new Error(`Gemini API request failed: ${String(error)}`);
     }
+
+    throw new Error('Unexpected end of retry loop'); // Should be unreachable
+
   }
 
   async chat(
