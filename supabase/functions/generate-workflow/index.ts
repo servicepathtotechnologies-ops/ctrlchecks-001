@@ -167,14 +167,14 @@ serve(async (req) => {
     } catch (error) {
       console.error('[generate-workflow] JSON parse error:', error);
       return new Response(
-        JSON.stringify({ 
+        JSON.stringify({
           error: 'Invalid JSON in request body',
           details: error instanceof Error ? error.message : String(error)
         }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
-    
+
     // Log request for debugging (without sensitive data)
     console.log('[generate-workflow] Request received:', {
       hasPrompt: !!requestBody.prompt,
@@ -206,7 +206,7 @@ serve(async (req) => {
     if (!prompt || typeof prompt !== 'string' || prompt.trim().length === 0) {
       console.error('[generate-workflow] Missing or invalid prompt:', { prompt, type: typeof prompt });
       return new Response(
-        JSON.stringify({ 
+        JSON.stringify({
           error: 'Prompt is required and must be a non-empty string',
           received: { prompt, type: typeof prompt, length: prompt?.length || 0 }
         }),
@@ -216,20 +216,20 @@ serve(async (req) => {
 
     // 🚨 CRITICAL: Pre-validate prompt for trigger type (webhook has priority over form keywords)
     const promptLower = prompt.toLowerCase();
-    
+
     // Check for explicit trigger mentions (priority order)
     const hasExplicitWebhook = promptLower.includes('webhook') || promptLower.includes('when a webhook') || promptLower.includes('webhook receives');
     const hasExplicitForm = promptLower.includes('create a form') || promptLower.includes('when form is submitted');
-    
+
     // Only force form node if webhook is NOT explicitly mentioned
     const formKeywords = [
       'form', 'create a form', 'form data', 'collect data', 'collect user data',
       'contact form', 'registration form', 'feedback form', 'data collection',
       'take the user data', 'gather data', 'collect information', 'user submission'
     ];
-    
+
     const requiresFormNode = !hasExplicitWebhook && (hasExplicitForm || formKeywords.some(keyword => promptLower.includes(keyword)));
-    
+
     if (requiresFormNode && !hasExplicitWebhook) {
       console.log('[VALIDATION] Form keywords detected (no webhook mention) - suggesting form node');
       // Store this flag to use in validation later
@@ -239,6 +239,63 @@ serve(async (req) => {
       (requestBody as any)._requiresWebhook = true;
     }
 
+    // Initialize Agent (with valid knowledge base)
+    // We'll use a placeholder for now, or fetch from DB if needed
+    const nodeKnowledge = "Knowledge base loaded.";
+    const agent = new AutonomousWorkflowAgent({
+      apiKey: Deno.env.get('GEMINI_API_KEY') || requestBody.config?.apiKey || '',
+      model: 'gemini-2.5-flash',
+      maxIterations: 5,
+      enableLearning: true
+    }, nodeKnowledge);
+
+    // HANDLE NEW MODES
+    if (mode === 'analyze') {
+      console.log(`[generate-workflow] Mode: ANALYZE for prompt: "${prompt}"`);
+      try {
+        const analysis = await agent.analyzeRequest(prompt);
+        return new Response(
+          JSON.stringify(analysis),
+          { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      } catch (err) {
+        const errorMessage = err instanceof Error ? err.message : String(err);
+        console.error('[generate-workflow] Analyze error details:', { message: errorMessage, error: err });
+        return new Response(
+          JSON.stringify({
+            error: errorMessage || 'Analysis failed',
+            details: errorMessage
+          }),
+          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+    }
+
+    if (mode === 'refine') {
+      console.log(`[generate-workflow] Mode: REFINE for prompt: "${prompt}"`);
+      const answers = requestBody.answers;
+      if (!answers || !Array.isArray(answers)) {
+        return new Response(
+          JSON.stringify({ error: 'Answers must be an array' }),
+          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
+      try {
+        const refinement = await agent.refineRequest(prompt, answers);
+        return new Response(
+          JSON.stringify(refinement),
+          { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      } catch (err: any) {
+        console.error('[generate-workflow] Refine error:', err);
+        return new Response(
+          JSON.stringify({ error: err.message || 'Refinement failed' }),
+          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+    }
+
     if (mode === 'edit') {
       if (!currentWorkflow) {
         return new Response(
@@ -246,7 +303,7 @@ serve(async (req) => {
           { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
-      
+
       // Validate currentWorkflow structure
       if (typeof currentWorkflow !== 'object' || currentWorkflow === null) {
         return new Response(
@@ -254,7 +311,7 @@ serve(async (req) => {
           { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
-      
+
       const workflow = currentWorkflow as Record<string, unknown>;
       if (!Array.isArray(workflow.nodes)) {
         return new Response(
@@ -262,23 +319,23 @@ serve(async (req) => {
           { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
-      
+
       if (!Array.isArray(workflow.edges)) {
         return new Response(
           JSON.stringify({ error: 'currentWorkflow.edges must be an array' }),
           { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
-      
+
       // Log for debugging (without sensitive data)
       console.log(`[EDIT MODE] Received workflow with ${workflow.nodes.length} nodes and ${workflow.edges.length} edges`);
-      
+
       // Validate executionHistory if provided
       if (executionHistory && !Array.isArray(executionHistory)) {
         console.warn('[EDIT MODE] executionHistory is not an array, ignoring it');
         executionHistory = [];
       }
-      
+
       // Log execution history info
       if (executionHistory && executionHistory.length > 0) {
         console.log(`[EDIT MODE] Execution history provided: ${executionHistory.length} failed execution(s)`);
@@ -1608,14 +1665,14 @@ ${getTrainingExamplesSection()}
     if (mode === 'create') {
       try {
         console.log('[AUTONOMOUS AGENT] Starting autonomous workflow generation...');
-        
+
         // 🚨 CRITICAL: Check for common workflow patterns that can use template-based generation
         // This reduces API calls and prevents quota exhaustion
         const promptLower = prompt.toLowerCase();
-        const isChatWorkflow = promptLower.includes('chat') && 
-                              promptLower.includes('gemini') && 
-                              (promptLower.includes('remember') || promptLower.includes('memory'));
-        
+        const isChatWorkflow = promptLower.includes('chat') &&
+          promptLower.includes('gemini') &&
+          (promptLower.includes('remember') || promptLower.includes('memory'));
+
         // For chat workflows, use a template-based approach (ZERO API CALLS)
         if (isChatWorkflow) {
           console.log('[WORKFLOW GENERATOR] ✅ Detected chat workflow pattern - using template-based generation (0 API calls)');
@@ -1625,7 +1682,7 @@ ${getTrainingExamplesSection()}
             hasRemember: promptLower.includes('remember'),
             hasMemory: promptLower.includes('memory')
           });
-          
+
           try {
             // Use template-based generation - no API calls, 100% reliable
             const simpleWorkflow = generateSimpleChatWorkflow(prompt, config);
@@ -1636,7 +1693,7 @@ ${getTrainingExamplesSection()}
               nodeTypes: simpleWorkflow.nodes?.map((n: any) => n.type),
               nodeDetails: simpleWorkflow.nodes?.map((n: any) => ({ id: n.id, type: n.type, hasConfig: !!n.config }))
             });
-            
+
             // Validate the workflow structure BEFORE passing to validateAndFixWorkflow
             if (!simpleWorkflow.nodes || !Array.isArray(simpleWorkflow.nodes) || simpleWorkflow.nodes.length === 0) {
               throw new Error('Template workflow has no nodes');
@@ -1644,7 +1701,7 @@ ${getTrainingExamplesSection()}
             if (!simpleWorkflow.edges || !Array.isArray(simpleWorkflow.edges) || simpleWorkflow.edges.length === 0) {
               throw new Error('Template workflow has no edges');
             }
-            
+
             // Validate the workflow
             const validatedWorkflow = validateAndFixWorkflow(simpleWorkflow);
             console.log('[WORKFLOW GENERATOR] ✅ Workflow validated by validateAndFixWorkflow');
@@ -1653,10 +1710,10 @@ ${getTrainingExamplesSection()}
               edgeCount: validatedWorkflow.edges?.length,
               nodeTypes: validatedWorkflow.nodes?.map((n: any) => n.type || n.data?.type)
             });
-            
+
             // Double-check validation passed
-            if (validatedWorkflow && validatedWorkflow.nodes && validatedWorkflow.edges && 
-                validatedWorkflow.nodes.length > 0 && validatedWorkflow.edges.length > 0) {
+            if (validatedWorkflow && validatedWorkflow.nodes && validatedWorkflow.edges &&
+              validatedWorkflow.nodes.length > 0 && validatedWorkflow.edges.length > 0) {
               console.log('[WORKFLOW GENERATOR] ✅ Returning validated template workflow - BYPASSING MAIN VALIDATION');
               // Return immediately - skip all main validation steps
               return new Response(
@@ -1672,26 +1729,26 @@ ${getTrainingExamplesSection()}
             // Fall through to autonomous agent
           }
         }
-        
+
         // Check if client wants streaming progress updates
-        const streamProgress = req.headers.get('accept')?.includes('text/event-stream') || 
-                              req.headers.get('x-stream-progress') === 'true';
-        
+        const streamProgress = req.headers.get('accept')?.includes('text/event-stream') ||
+          req.headers.get('x-stream-progress') === 'true';
+
         if (streamProgress) {
           // Create a streaming response with progress updates
           const stream = new ReadableStream({
             async start(controller) {
               let finalWorkflow: any = null;
               let hasError = false;
-              
+
               try {
                 // Initialize autonomous agent with progress callback
                 // CRITICAL: Set maxIterations to 1 to prevent quota exhaustion
                 // Each iteration makes 6-7 API calls, so 1 iteration = ~7 calls max
-                
+
                 // Get relevant training examples with detailed context
                 const examplesContext = getTrainingExampleContext(prompt, 3);
-                
+
                 const agent = new AutonomousWorkflowAgent(
                   {
                     apiKey,
@@ -1710,12 +1767,12 @@ ${getTrainingExamplesSection()}
 
                 // Execute autonomous agent with timeout (this will call onProgress callbacks)
                 finalWorkflow = await executeWithTimeout(agent.execute(prompt, config), 30000);
-                
+
                 // 🚨 CRITICAL: Validate trigger type matches user intent (don't override webhook with form)
                 const promptLower = prompt.toLowerCase();
                 const hasExplicitWebhook = promptLower.includes('webhook') || promptLower.includes('when a webhook') || promptLower.includes('webhook receives');
                 const streamingNodeTypes = finalWorkflow.nodes?.map((n: any) => n.type || n.data?.type) || [];
-                
+
                 // Skip auto-fix if webhook was explicitly mentioned - trust agent's decision
                 if (hasExplicitWebhook) {
                   console.log('[STREAMING] Webhook explicitly mentioned - skipping form auto-fix');
@@ -1727,10 +1784,10 @@ ${getTrainingExamplesSection()}
                     'take the user data', 'gather data', 'collect information', 'user submission'
                   ];
                   const requiresFormNode = formKeywords.some(keyword => promptLower.includes(keyword));
-                  
+
                   if (requiresFormNode && !streamingNodeTypes.includes('form')) {
                     console.log('[STREAMING] Form keywords detected but form node missing - auto-fixing');
-                    
+
                     // Extract field names
                     const fieldNames: string[] = [];
                     if (promptLower.includes('name')) fieldNames.push('name');
@@ -1738,7 +1795,7 @@ ${getTrainingExamplesSection()}
                     if (promptLower.includes('mobile') || promptLower.includes('phone')) fieldNames.push('mobile');
                     if (promptLower.includes('message')) fieldNames.push('message');
                     if (fieldNames.length === 0) fieldNames.push('name', 'email', 'message');
-                    
+
                     const formFields = fieldNames.map(fn => {
                       const config: any = { name: fn, label: fn.charAt(0).toUpperCase() + fn.slice(1), required: true, placeholder: `Enter your ${fn}` };
                       if (fn === 'email') config.type = 'email';
@@ -1747,7 +1804,7 @@ ${getTrainingExamplesSection()}
                       else config.type = 'text';
                       return config;
                     });
-                    
+
                     const triggerNode = finalWorkflow.nodes.find((n: any) => (n.type || n.data?.type) === 'manual_trigger');
                     if (triggerNode) {
                       triggerNode.type = 'form';
@@ -1782,7 +1839,7 @@ ${getTrainingExamplesSection()}
                     }
                   }
                 }
-                
+
                 // Send final workflow
                 const finalResponse = {
                   status: 'completed',
@@ -1812,12 +1869,12 @@ ${getTrainingExamplesSection()}
             },
           });
         }
-        
+
         // Non-streaming mode: collect progress (but can't send it in real-time)
         // We'll include initial progress estimate in response
         let lastProgress: any = null;
         const startTime = Date.now();
-        
+
         // Estimate time before starting
         const goalLower = prompt.toLowerCase();
         let estimatedTime = 15;
@@ -1831,13 +1888,13 @@ ${getTrainingExamplesSection()}
         if (hasSheets && hasDoc) estimatedTime += 2;
         if (hasGmail && hasSlack) estimatedTime += 2;
         estimatedTime = Math.max(12, Math.min(45, estimatedTime));
-        
+
         // Initialize autonomous agent with full node knowledge
         // CRITICAL: Set maxIterations to 1 to prevent quota exhaustion
-        
+
         // Get relevant training examples with detailed context
         const examplesContext = getTrainingExampleContext(prompt, 3);
-        
+
         const agent = new AutonomousWorkflowAgent(
           {
             apiKey,
@@ -1854,7 +1911,7 @@ ${getTrainingExamplesSection()}
 
         // Execute autonomous agent with timeout
         const workflow = await executeWithTimeout(agent.execute(prompt, config), 30000);
-        
+
         // CRITICAL: Check if workflow is a fallback (just trigger + log) - this is WRONG
         const initialNodeTypes = workflow.nodes?.map((n: any) => n.type) || [];
         if (initialNodeTypes.length <= 2 && initialNodeTypes.includes('manual_trigger') && initialNodeTypes.includes('log_output')) {
@@ -1865,12 +1922,12 @@ ${getTrainingExamplesSection()}
         // Validate and fix workflow structure
         // This includes automatic fix for HTTP Request → JavaScript code errors
         const validatedWorkflow = validateAndFixWorkflow(workflow);
-        
+
         // Additional validation: Check for HTTP Request → JavaScript pattern
-        const hasHttpRequest = validatedWorkflow.nodes?.some((n: any) => 
+        const hasHttpRequest = validatedWorkflow.nodes?.some((n: any) =>
           n.type === 'http_request' || n.data?.type === 'http_request'
         );
-        const hasJavaScript = validatedWorkflow.nodes?.some((n: any) => 
+        const hasJavaScript = validatedWorkflow.nodes?.some((n: any) =>
           n.type === 'javascript' || n.data?.type === 'javascript'
         );
         if (hasHttpRequest && hasJavaScript) {
@@ -1899,28 +1956,28 @@ ${getTrainingExamplesSection()}
         // Final validation - check if workflow matches user requirements
         // promptLower already declared at line 92 in this scope, reuse it
         const nodeTypes = validatedWorkflow.nodes?.map((n: any) => n.type) || [];
-        
+
         // Check if workflow is just trigger + log (fallback) - log warning but try to continue
         if (nodeTypes.length <= 2 && nodeTypes.includes('manual_trigger') && nodeTypes.includes('log_output')) {
           console.warn('[AUTONOMOUS AGENT] WARNING: Workflow appears to be fallback (trigger + log), but continuing');
           // Don't throw - let the workflow be returned and user can see it
         }
-        
+
         // Check for Google Sheets - log warning but continue
         if ((promptLower.includes('google sheet') || promptLower.includes('sheets')) && !nodeTypes.includes('google_sheets')) {
           console.warn('[AUTONOMOUS AGENT] WARNING: Missing google_sheets node, but continuing');
         }
-        
+
         // Check for Google Doc - log warning but continue
         if ((promptLower.includes('google doc') || promptLower.includes('document')) && !nodeTypes.includes('google_doc')) {
           console.warn('[AUTONOMOUS AGENT] WARNING: Missing google_doc node, but continuing');
         }
-        
+
         // Check for Gmail - log warning but continue
         if ((promptLower.includes('gmail') || promptLower.includes('email')) && !nodeTypes.includes('google_gmail')) {
           console.warn('[AUTONOMOUS AGENT] WARNING: Missing google_gmail node, but continuing');
         }
-        
+
         // Check for Slack - try to auto-fix if missing
         if (promptLower.includes('slack') && !nodeTypes.includes('slack_webhook') && !nodeTypes.includes('slack_message')) {
           console.warn('[AUTONOMOUS AGENT] WARNING: Missing slack node, attempting auto-fix');
@@ -1942,7 +1999,7 @@ ${getTrainingExamplesSection()}
               },
             };
             validatedWorkflow.nodes.push(slackNode);
-            
+
             // Add edge from last node to slack node
             if (validatedWorkflow.edges) {
               validatedWorkflow.edges.push({
@@ -1956,7 +2013,7 @@ ${getTrainingExamplesSection()}
             console.log('[AUTONOMOUS AGENT] Auto-fix: Added slack_message node');
           }
         }
-        
+
         // 🚨 CRITICAL: Check for Form node - AUTO-FIX if missing (backup fix)
         const formKeywords = [
           'form', 'create a form', 'form data', 'user data', 'collect data', 'collect user data',
@@ -1965,24 +2022,24 @@ ${getTrainingExamplesSection()}
           'feedback form', 'data collection', 'take the user data', 'user information',
           'gather data', 'collect information', 'user submission'
         ];
-        
+
         const requiresFormNode = formKeywords.some(keyword => promptLower.includes(keyword));
-        
+
         if (requiresFormNode && !nodeTypes.includes('form')) {
           console.error('[AUTONOMOUS AGENT] CRITICAL: Form keywords detected but form node missing - AUTO-FIXING');
-          
+
           // Extract field names from prompt
           const fieldNames: string[] = [];
           if (promptLower.includes('name')) fieldNames.push('name');
           if (promptLower.includes('email')) fieldNames.push('email');
           if (promptLower.includes('mobile') || promptLower.includes('phone')) fieldNames.push('mobile');
           if (promptLower.includes('message')) fieldNames.push('message');
-          
+
           // Default fields if none detected
           if (fieldNames.length === 0) {
             fieldNames.push('name', 'email', 'message');
           }
-          
+
           // Build form fields config
           const formFields = fieldNames.map(fieldName => {
             const fieldConfig: any = {
@@ -1991,7 +2048,7 @@ ${getTrainingExamplesSection()}
               required: true,
               placeholder: `Enter your ${fieldName}`
             };
-            
+
             if (fieldName === 'email') {
               fieldConfig.type = 'email';
             } else if (fieldName === 'mobile' || fieldName === 'phone') {
@@ -2001,10 +2058,10 @@ ${getTrainingExamplesSection()}
             } else {
               fieldConfig.type = 'text';
             }
-            
+
             return fieldConfig;
           });
-          
+
           // Find and replace manual_trigger with form node
           const triggerNode = validatedWorkflow.nodes.find((n: any) => n.type === 'manual_trigger');
           if (triggerNode) {
@@ -2018,7 +2075,7 @@ ${getTrainingExamplesSection()}
               submitButtonText: 'Submit',
               successMessage: 'Thank you for your submission!'
             };
-            
+
             // Update edges to use formData in downstream nodes
             validatedWorkflow.edges = validatedWorkflow.edges.map((edge: any) => {
               if (edge.source === triggerNode.id) {
@@ -2037,7 +2094,7 @@ ${getTrainingExamplesSection()}
                         .replace(/\{\{input\.message\}\}/g, '{{input.data.message}}');
                     }
                   });
-                  
+
                   // If it's a slack node, update text to include form data
                   if (targetNode.type === 'slack_webhook' || targetNode.type === 'slack_message') {
                     const formDataText = fieldNames.map(fn => {
@@ -2068,7 +2125,7 @@ ${getTrainingExamplesSection()}
               }
             };
             validatedWorkflow.nodes.unshift(formNode);
-            
+
             // Connect form to first existing node
             if (validatedWorkflow.nodes.length > 1) {
               validatedWorkflow.edges.unshift({
@@ -2078,23 +2135,23 @@ ${getTrainingExamplesSection()}
               });
             }
           }
-          
+
           console.log('[AUTONOMOUS AGENT] Form node auto-fix completed');
         }
-        
+
         // 🚨 FINAL VALIDATION: After auto-fix, verify form node is present (throw error if still missing)
         const finalNodeTypes = validatedWorkflow.nodes?.map((n: any) => n.type || n.data?.type) || [];
         if (requiresFormNode && !finalNodeTypes.includes('form')) {
           console.error('[AUTONOMOUS AGENT] CRITICAL ERROR: Form node still missing after auto-fix');
           throw new Error('Generated workflow is missing required form node. The user requested a form to collect data (name, email, mobile, etc.) but the workflow uses manual_trigger instead. Form node is REQUIRED for data collection workflows. Please try again.');
         }
-        
+
         // If form node is required but manual_trigger is still present, that's a critical error
         if (requiresFormNode && finalNodeTypes.includes('manual_trigger')) {
           console.error('[AUTONOMOUS AGENT] CRITICAL ERROR: Form required but manual_trigger still present');
           throw new Error('Generated workflow uses manual_trigger but should use form node. The user requested a form to collect data, so form node must be used as the trigger. Please try again.');
         }
-        
+
         // Check for JavaScript node when Google Sheets is present (needed for parsing)
         if (nodeTypes.includes('google_sheets') && !nodeTypes.includes('javascript')) {
           console.error('[AUTONOMOUS AGENT] FINAL CHECK FAILED: Missing javascript node for Google Sheets parsing');
@@ -2145,21 +2202,21 @@ ${getTrainingExamplesSection()}
           }
           return node;
         });
-        
+
         // CRITICAL: Final check - ensure JavaScript nodes return formatted text
         // promptLower already declared at line 92, reuse it
         // hasSheets and hasDoc already declared at line 560, reuse them (they use goalLower which equals prompt.toLowerCase())
-        
+
         validatedWorkflow.nodes = validatedWorkflow.nodes.map((node: any) => {
           if (node.type === 'javascript') {
             const code = node.config?.code || '';
             const hasReturnContent = code.includes('content:') || code.includes('"content"') || code.includes("'content'");
             const hasReturnText = code.includes('text:') || code.includes('"text"') || code.includes("'text'");
-            
+
             // If JavaScript node doesn't return formatted text, fix it
             if (!hasReturnContent && !hasReturnText && code.trim() !== '') {
               console.log(`[AUTONOMOUS AGENT] Fixing JavaScript node ${node.id} - ensuring it returns formatted text`);
-              
+
               if (hasSheets && hasDoc) {
                 // Both Sheets and Doc
                 node.config.code = `// Parse and format data from Google Sheets and Google Document
@@ -2238,30 +2295,30 @@ return {
               }
             }
           }
-          
+
           // Ensure output nodes use template variables
           if (node.type === 'google_gmail' && node.config.operation === 'send') {
-            if (!node.config.body || (!node.config.body.includes('{{input.content}}') && 
-                                     !node.config.body.includes('{{input.text}}') && 
-                                     !node.config.body.includes('{{input.body}}'))) {
+            if (!node.config.body || (!node.config.body.includes('{{input.content}}') &&
+              !node.config.body.includes('{{input.text}}') &&
+              !node.config.body.includes('{{input.body}}'))) {
               node.config.body = '{{input.content}}';
             }
           }
           if (node.type === 'slack_webhook') {
-            if (!node.config.text || (!node.config.text.includes('{{input.content}}') && 
-                                     !node.config.text.includes('{{input.text}}') && 
-                                     !node.config.text.includes('{{input.body}}'))) {
+            if (!node.config.text || (!node.config.text.includes('{{input.content}}') &&
+              !node.config.text.includes('{{input.text}}') &&
+              !node.config.text.includes('{{input.body}}'))) {
               node.config.text = '{{input.content}}';
             }
           }
           if (node.type === 'slack_message') {
-            if (!node.config.message || (!node.config.message.includes('{{input.content}}') && 
-                                        !node.config.message.includes('{{input.text}}') && 
-                                        !node.config.message.includes('{{input.body}}'))) {
+            if (!node.config.message || (!node.config.message.includes('{{input.content}}') &&
+              !node.config.message.includes('{{input.text}}') &&
+              !node.config.message.includes('{{input.body}}'))) {
               node.config.message = '{{input.content}}';
             }
           }
-          
+
           return node;
         });
 
@@ -2278,14 +2335,14 @@ return {
       } catch (agentError) {
         console.error('[AUTONOMOUS AGENT] Error:', agentError);
         const errorMessage = agentError instanceof Error ? agentError.message : String(agentError);
-        
+
         // Check for quota/rate limit errors
         const errorLower = errorMessage.toLowerCase();
-        const isQuotaError = errorMessage.includes('QUOTA_EXCEEDED') || 
-                            (agentError as any)?.isQuotaError ||
-                            errorLower.includes('quota') || errorLower.includes('rate limit') || 
-                            errorLower.includes('exceeded') || errorLower.includes('limit: 20');
-        
+        const isQuotaError = errorMessage.includes('QUOTA_EXCEEDED') ||
+          (agentError as any)?.isQuotaError ||
+          errorLower.includes('quota') || errorLower.includes('rate limit') ||
+          errorLower.includes('exceeded') || errorLower.includes('limit: 20');
+
         if (isQuotaError) {
           let userFriendlyError = errorMessage.replace(/^QUOTA_EXCEEDED: /, '');
           userFriendlyError = 'Gemini API quota exceeded. You have reached the free tier limit of 20 requests. ';
@@ -2297,7 +2354,7 @@ return {
             userFriendlyError += 'Please wait a few minutes before trying again. ';
           }
           userFriendlyError += 'To increase limits, upgrade your Gemini API plan at https://ai.google.dev/pricing';
-          
+
           return new Response(
             JSON.stringify({
               error: userFriendlyError,
@@ -2310,7 +2367,7 @@ return {
             }
           );
         }
-        
+
         // If timeout or resource exhaustion, return error immediately with CORS headers
         if (errorMessage.includes('timeout') || errorMessage.includes('WORKER_LIMIT') || errorMessage.includes('resources')) {
           return new Response(
@@ -2324,7 +2381,7 @@ return {
             }
           );
         }
-        
+
         // Fall through to legacy generation as fallback for other errors
         console.log('[AUTONOMOUS AGENT] Falling back to legacy generation...');
       }
@@ -2895,14 +2952,14 @@ Generate a workflow based on this description. Think step by step, validate your
       } catch (stringifyError) {
         console.error('[EDIT MODE] Error stringifying currentWorkflow:', stringifyError);
         return new Response(
-          JSON.stringify({ 
+          JSON.stringify({
             error: 'Failed to serialize current workflow. Please try again.',
             details: stringifyError instanceof Error ? stringifyError.message : String(stringifyError)
           }),
           { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
-      
+
       // Format execution history for debugging context
       let executionHistoryContext = '';
       if (executionHistory && Array.isArray(executionHistory) && executionHistory.length > 0) {
@@ -2916,7 +2973,7 @@ Generate a workflow based on this description. Think step by step, validate your
               return String(obj).substring(0, maxLength);
             }
           };
-          
+
           const historyText = executionHistory.map((exec, idx) => {
             try {
               const errorText = exec?.error ? safeStringify(exec.error, 500) : 'No error message';
@@ -2924,7 +2981,7 @@ Generate a workflow based on this description. Think step by step, validate your
               const outputText = exec?.output ? safeStringify(exec.output, 500) : 'No output';
               const startedAt = exec?.started_at ? new Date(exec.started_at).toISOString() : 'Unknown time';
               const status = exec?.status || 'unknown';
-              
+
               return `
 Execution ${idx + 1} (${startedAt}):
 - Status: ${status}
@@ -2937,7 +2994,7 @@ Execution ${idx + 1} (${startedAt}):
               return `\nExecution ${idx + 1}: (Error formatting execution data)`;
             }
           }).join('\n');
-          
+
           executionHistoryContext = `\n\n🔍 EXECUTION HISTORY & DEBUGGING CONTEXT:
 The workflow has failed ${executionHistory.length} time(s) recently. Use this information to:
 1. Identify which nodes are causing errors
@@ -2969,7 +3026,7 @@ When user asks to "fix" or "debug", analyze the execution history above and:
           executionHistoryContext = '';
         }
       }
-      
+
       systemPrompt = `Role: You are an embedded AI workflow editor assistant that lives inside the workflow builder page.
 You fully understand the current workflow graph, including Nodes, Connections, Conditions, Execution order, and Node states.
 You can modify the existing workflow in real time based on user instructions.
@@ -3033,19 +3090,19 @@ ${executionHistoryContext}
 User Instruction: "${prompt}"
 
 Generate the updated workflow JSON. Return ONLY valid JSON, no markdown or explanations outside the JSON object.`;
-      
+
       // Validate system prompt was created successfully
       if (!systemPrompt || systemPrompt.length === 0) {
         console.error('[EDIT MODE] System prompt is empty');
         return new Response(
-          JSON.stringify({ 
+          JSON.stringify({
             error: 'Failed to generate system prompt for edit mode',
             details: 'System prompt generation failed'
           }),
           { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
-      
+
       console.log(`[EDIT MODE] System prompt generated, length: ${systemPrompt.length}`);
     }
 
@@ -3074,17 +3131,17 @@ Generate the updated workflow JSON. Return ONLY valid JSON, no markdown or expla
     } catch (llmError) {
       console.error('Gemini API call failed:', llmError);
       const llmErrorMessage = llmError instanceof Error ? llmError.message : String(llmError);
-      
+
       // Check for quota/rate limit errors and throw with proper type
       const errorLower = llmErrorMessage.toLowerCase();
-      if (errorLower.includes('quota') || errorLower.includes('rate limit') || 
-          errorLower.includes('exceeded') || errorLower.includes('limit: 20')) {
+      if (errorLower.includes('quota') || errorLower.includes('rate limit') ||
+        errorLower.includes('exceeded') || errorLower.includes('limit: 20')) {
         // Throw error with quota flag that will be caught by outer handler
         const quotaError = new Error(`QUOTA_EXCEEDED: ${llmErrorMessage}`);
         (quotaError as any).isQuotaError = true;
         throw quotaError;
       }
-      
+
       throw new Error(`Failed to generate workflow with AI: ${llmErrorMessage}`);
     }
 
@@ -3100,7 +3157,7 @@ Generate the updated workflow JSON. Return ONLY valid JSON, no markdown or expla
       }
 
       workflowData = JSON.parse(jsonText);
-      
+
       // CRITICAL SAFETY FIX: Replace email_resend with google_gmail (email_resend doesn't exist in node library)
       if (workflowData.nodes && Array.isArray(workflowData.nodes)) {
         workflowData.nodes = workflowData.nodes.map((node: any) => {
@@ -3121,7 +3178,7 @@ Generate the updated workflow JSON. Return ONLY valid JSON, no markdown or expla
           return node;
         });
       }
-      
+
       // Log agent reasoning if available
       if (workflowData.reasoning) {
         console.log('Agent reasoning:', workflowData.reasoning);
@@ -3129,17 +3186,17 @@ Generate the updated workflow JSON. Return ONLY valid JSON, no markdown or expla
       if (workflowData.summary) {
         console.log('Workflow summary:', workflowData.summary);
       }
-      
+
       // Quick validation check - log warnings but don't throw errors
       // The autonomous agent should handle missing nodes, not this early validation
       const validationPromptLower = prompt.toLowerCase();
-      const hasGoogleDocReq = (validationPromptLower.includes('google doc') || validationPromptLower.includes('doc')) && 
-                              (promptLower.includes('read') || promptLower.includes('get') || promptLower.includes('data'));
+      const hasGoogleDocReq = (validationPromptLower.includes('google doc') || validationPromptLower.includes('doc')) &&
+        (promptLower.includes('read') || promptLower.includes('get') || promptLower.includes('data'));
       const hasSlackReq = validationPromptLower.includes('slack');
       const generatedNodeTypes = workflowData.nodes?.map((n: any) => n.type) || [];
       const hasGoogleDocNode = generatedNodeTypes.includes('google_doc');
       const hasSlackNode = generatedNodeTypes.includes('slack_webhook') || generatedNodeTypes.includes('slack_message');
-      
+
       // Log warnings but don't throw - let the autonomous agent handle it
       if (hasGoogleDocReq && !hasGoogleDocNode) {
         console.warn('Early validation: Missing Google Doc node detected, but continuing - agent should handle it');
@@ -3150,17 +3207,17 @@ Generate the updated workflow JSON. Return ONLY valid JSON, no markdown or expla
     } catch (parseError) {
       console.error('Failed to parse AI response:', response.content);
       console.error('Parse error:', parseError);
-      
+
       // Smart fallback: Try to detect workflow intent from prompt
       // promptLower already declared at line 92, reuse it
       const fallbackPromptLower = prompt.toLowerCase();
-      
+
       // Smart pattern detection for common workflows
-      const hasGoogleDoc = fallbackPromptLower.includes('google doc') || fallbackPromptLower.includes('google doc') || 
-                               fallbackPromptLower.includes('doc') && (fallbackPromptLower.includes('read') || fallbackPromptLower.includes('get') || fallbackPromptLower.includes('data'));
+      const hasGoogleDoc = fallbackPromptLower.includes('google doc') || fallbackPromptLower.includes('google doc') ||
+        fallbackPromptLower.includes('doc') && (fallbackPromptLower.includes('read') || fallbackPromptLower.includes('get') || fallbackPromptLower.includes('data'));
       const hasSlack = fallbackPromptLower.includes('slack');
       const hasEmail = promptLower.includes('send') || promptLower.includes('email') || promptLower.includes('gmail');
-      
+
       if (hasGoogleDoc && hasSlack) {
         console.log('Detected Google Doc + Slack workflow pattern, creating smart fallback');
         workflowData = {
@@ -3294,26 +3351,26 @@ Generate the updated workflow JSON. Return ONLY valid JSON, no markdown or expla
     // AGENT VALIDATION: Verify workflow correctness
     console.log('Validating generated workflow...');
     const validationErrors: string[] = [];
-    
+
     // Check if workflow matches user requirements
     // promptLower already declared at line 92, reuse it
     const agentValidationPromptLower = prompt.toLowerCase();
     const hasGoogleDocReq = (agentValidationPromptLower.includes('google doc') || agentValidationPromptLower.includes('doc')) &&
-                            (agentValidationPromptLower.includes('read') || agentValidationPromptLower.includes('get') || agentValidationPromptLower.includes('data'));
+      (agentValidationPromptLower.includes('read') || agentValidationPromptLower.includes('get') || agentValidationPromptLower.includes('data'));
     const hasSlackReq = agentValidationPromptLower.includes('slack');
     const hasEmailReq = agentValidationPromptLower.includes('send') && (agentValidationPromptLower.includes('email') || agentValidationPromptLower.includes('gmail'));
-    
+
     const generatedNodeTypes = workflowData.nodes.map((n: any) => n.type);
     const hasGoogleDocNode = generatedNodeTypes.includes('google_doc');
     const hasSlackNode = generatedNodeTypes.includes('slack_webhook') || generatedNodeTypes.includes('slack_message');
     const hasEmailNode = generatedNodeTypes.includes('google_gmail');
-    
+
     // Log warnings but don't throw errors - the autonomous agent should have handled this
     // If nodes are missing, we'll let the validation phase catch it, not throw here
     if (hasGoogleDocReq && !hasGoogleDocNode) {
       console.warn('Workflow mismatch detected - missing Google Doc node, but continuing - validation will handle it');
     }
-    
+
     // If user asked for Slack but workflow doesn't have it, log warning but continue
     if (hasSlackReq && !hasSlackNode && !hasEmailNode) {
       console.warn('Workflow mismatch detected - missing Slack node, but continuing - validation will handle it');
@@ -3336,7 +3393,7 @@ Generate the updated workflow JSON. Return ONLY valid JSON, no markdown or expla
           },
         };
         workflowData.nodes.push(slackNode);
-        
+
         // Add edge from last node to slack node
         if (workflowData.edges) {
           workflowData.edges.push({
@@ -3350,21 +3407,21 @@ Generate the updated workflow JSON. Return ONLY valid JSON, no markdown or expla
         console.log('Auto-fix: Added slack_message node');
       }
     }
-    
+
     // Validate node types and config values
     // CRITICAL: Extract ALL valid node types from AVAILABLE_NODES
     const validNodeTypes = new Set(Object.values(AVAILABLE_NODES).flat());
-    
+
     // Add backward compatibility types
     validNodeTypes.add('webhook_trigger_response'); // Legacy webhook type
-    
+
     console.log(`[VALIDATION] Validating ${workflowData.nodes.length} nodes against ${validNodeTypes.size} valid node types`);
     console.log(`[VALIDATION] Valid node types include: chat_trigger=${validNodeTypes.has('chat_trigger')}, memory=${validNodeTypes.has('memory')}, javascript=${validNodeTypes.has('javascript')}, google_gemini=${validNodeTypes.has('google_gemini')}`);
-    
+
     workflowData.nodes.forEach((node: any) => {
       // Check both node.type and node.data?.type (for frontend compatibility)
       const nodeType = node.type || node.data?.type;
-      
+
       // CRITICAL VALIDATION: Reject any node type not in the allowed list
       if (!nodeType) {
         const errorMsg = `INVALID NODE: Node ${node.id} has no type specified. Node structure: ${JSON.stringify(node)}`;
@@ -3372,7 +3429,7 @@ Generate the updated workflow JSON. Return ONLY valid JSON, no markdown or expla
         validationErrors.push(errorMsg);
         return;
       }
-      
+
       if (!validNodeTypes.has(nodeType)) {
         const errorMsg = `INVALID NODE TYPE: "${nodeType}" in node ${node.id}. This node type does not exist in the system. Valid types are: ${Array.from(validNodeTypes).sort().join(', ')}`;
         console.error(`[VALIDATION ERROR] ${errorMsg}`);
@@ -3381,36 +3438,36 @@ Generate the updated workflow JSON. Return ONLY valid JSON, no markdown or expla
         // DO NOT continue processing invalid nodes - they will cause runtime errors
         return;
       }
-      
+
       console.log(`[VALIDATION] ✓ Node ${node.id} has valid type: ${nodeType}`);
-      
+
       // Ensure all config values are strings (not null, undefined, or objects)
       if (node.config && typeof node.config === 'object') {
         const fixedConfig: Record<string, unknown> = {};
         for (const [key, value] of Object.entries(node.config)) {
           // Convert non-string values to strings, but preserve null/undefined as empty string
           if (value === null || value === undefined) {
-              fixedConfig[key] = '';
-            } else if (typeof value !== 'string') {
-              // Convert to string, but warn if it's an object
-              if (typeof value === 'object') {
-                console.warn(`Node ${node.id} config.${key} is an object, converting to JSON string`);
-                fixedConfig[key] = JSON.stringify(value);
-              } else {
-                fixedConfig[key] = String(value);
-              }
+            fixedConfig[key] = '';
+          } else if (typeof value !== 'string') {
+            // Convert to string, but warn if it's an object
+            if (typeof value === 'object') {
+              console.warn(`Node ${node.id} config.${key} is an object, converting to JSON string`);
+              fixedConfig[key] = JSON.stringify(value);
             } else {
-              fixedConfig[key] = value;
+              fixedConfig[key] = String(value);
             }
+          } else {
+            fixedConfig[key] = value;
+          }
         }
         node.config = fixedConfig;
       }
-      
+
       // Validate required config fields based on node type
       if (!node.config) {
         node.config = {};
       }
-      
+
       // Google Doc validation
       if (node.type === 'google_doc') {
         if (!node.config.operation) {
@@ -3425,7 +3482,7 @@ Generate the updated workflow JSON. Return ONLY valid JSON, no markdown or expla
           }
         }
       }
-      
+
       // Gmail validation
       if (node.type === 'google_gmail' && node.config.operation === 'send') {
         if (!node.config.to) {
@@ -3443,7 +3500,7 @@ Generate the updated workflow JSON. Return ONLY valid JSON, no markdown or expla
           validationErrors.push(`google_gmail node ${node.id} (send) missing required field: body`);
         }
       }
-      
+
       // Slack validation
       if (node.type === 'slack_webhook' || node.type === 'slack_message') {
         if (!node.config.webhookUrl) {
@@ -3462,7 +3519,7 @@ Generate the updated workflow JSON. Return ONLY valid JSON, no markdown or expla
           node.config.message = node.config.message || '{{input.content}}';
         }
       }
-      
+
       // Google Sheets validation
       if (node.type === 'google_sheets') {
         if (!node.config.operation) {
@@ -3477,7 +3534,7 @@ Generate the updated workflow JSON. Return ONLY valid JSON, no markdown or expla
           }
         }
       }
-      
+
       // AI nodes validation
       if (['openai_gpt', 'anthropic_claude', 'google_gemini'].includes(node.type)) {
         if (!node.config) {
@@ -3498,7 +3555,7 @@ Generate the updated workflow JSON. Return ONLY valid JSON, no markdown or expla
           else if (node.type === 'google_gemini') node.config.model = 'gemini-2.5-flash';
         }
       }
-      
+
       // Memory nodes validation
       if (node.type === 'memory') {
         if (!node.config) {
@@ -3516,7 +3573,7 @@ Generate the updated workflow JSON. Return ONLY valid JSON, no markdown or expla
           node.config.maxMessages = 10;
         }
       }
-      
+
       // HTTP request validation
       if (node.type === 'http_request') {
         if (!node.config.url) {
@@ -3526,7 +3583,7 @@ Generate the updated workflow JSON. Return ONLY valid JSON, no markdown or expla
           node.config.method = 'GET';
         }
       }
-      
+
       // Form node validation
       if (node.type === 'form') {
         // Ensure form has proper configuration
@@ -3545,7 +3602,7 @@ Generate the updated workflow JSON. Return ONLY valid JSON, no markdown or expla
         if (!node.config.redirectUrl) {
           node.config.redirectUrl = '';
         }
-        
+
         // Parse and validate fields
         let formFields: any[] = [];
         if (node.config.fields) {
@@ -3561,7 +3618,7 @@ Generate the updated workflow JSON. Return ONLY valid JSON, no markdown or expla
             formFields = [];
           }
         }
-        
+
         // If no fields or empty fields, create default fields based on prompt
         if (!formFields || formFields.length === 0) {
           // Extract field names from prompt keywords
@@ -3570,7 +3627,7 @@ Generate the updated workflow JSON. Return ONLY valid JSON, no markdown or expla
           if (promptLower.includes('email')) fieldNames.push('email');
           if (promptLower.includes('mobile') || promptLower.includes('phone')) fieldNames.push('mobile');
           if (promptLower.includes('message')) fieldNames.push('message');
-          
+
           // Create default fields
           formFields = fieldNames.map((fieldName, idx) => ({
             id: `field_${Date.now()}_${idx}`,
@@ -3580,7 +3637,7 @@ Generate the updated workflow JSON. Return ONLY valid JSON, no markdown or expla
             required: true,
             placeholder: `Enter your ${fieldName}`,
           }));
-          
+
           // If still no fields, add at least name and email
           if (formFields.length === 0) {
             formFields = [
@@ -3589,7 +3646,7 @@ Generate the updated workflow JSON. Return ONLY valid JSON, no markdown or expla
             ];
           }
         }
-        
+
         // Ensure fields have all required properties
         formFields = formFields.map((field: any, idx: number) => ({
           id: field.id || `field_${Date.now()}_${idx}`,
@@ -3601,11 +3658,11 @@ Generate the updated workflow JSON. Return ONLY valid JSON, no markdown or expla
           options: field.options || undefined,
           defaultValue: field.defaultValue || undefined,
         }));
-        
+
         // Store fields as JSON string for consistency
         node.config.fields = JSON.stringify(formFields);
       }
-      
+
       // Schedule validation
       if (node.type === 'schedule') {
         if (!node.config.cron) {
@@ -3613,7 +3670,7 @@ Generate the updated workflow JSON. Return ONLY valid JSON, no markdown or expla
         }
       }
     });
-    
+
     // Validate edges
     const validNodeIdsSet = new Set(workflowData.nodes.map((n: any) => n.id));
     workflowData.edges.forEach((edge: any) => {
@@ -3624,7 +3681,7 @@ Generate the updated workflow JSON. Return ONLY valid JSON, no markdown or expla
         validationErrors.push(`Edge references non-existent target node: ${edge.target}`);
       }
     });
-    
+
     // Check for orphaned nodes (nodes without incoming edges, except triggers)
     const triggerTypes = AVAILABLE_NODES.triggers;
     const nodesWithIncoming = new Set(workflowData.edges.map((e: any) => e.target));
@@ -3637,17 +3694,17 @@ Generate the updated workflow JSON. Return ONLY valid JSON, no markdown or expla
         // validationErrors.push(`Node ${node.id} (${nodeType}) has no incoming edges`);
       }
     });
-    
+
     if (validationErrors.length > 0) {
       console.error('❌ Workflow validation FAILED with errors:', validationErrors);
-      
+
       // CRITICAL: Reject workflows with validation errors (especially invalid node types)
       const hasInvalidNodeType = validationErrors.some(err => err.includes('INVALID NODE TYPE'));
-      const hasCriticalError = validationErrors.some(err => 
-        err.includes('INVALID NODE TYPE') || 
+      const hasCriticalError = validationErrors.some(err =>
+        err.includes('INVALID NODE TYPE') ||
         err.includes('must have both TRUE and FALSE')
       );
-      
+
       if (hasCriticalError) {
         // For critical errors (invalid node types, missing if_else edges), reject immediately
         console.error('🚨 CRITICAL validation errors detected - rejecting workflow');
@@ -3662,7 +3719,7 @@ Generate the updated workflow JSON. Return ONLY valid JSON, no markdown or expla
           { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
-      
+
       // For non-critical errors, log warning but continue (auto-fix will attempt to resolve)
       console.warn('⚠️ Non-critical validation errors found - attempting auto-fix');
       console.warn('Non-critical errors:', JSON.stringify(validationErrors, null, 2));
@@ -3690,14 +3747,14 @@ Generate the updated workflow JSON. Return ONLY valid JSON, no markdown or expla
     workflowData.edges = workflowData.edges.filter((edge: any) =>
       validNodeIds.has(edge.source) && validNodeIds.has(edge.target)
     );
-    
+
     // CRITICAL: Validate if_else nodes have both true and false edges
     const ifElseNodes = workflowData.nodes.filter((n: any) => n.type === 'if_else');
     for (const ifNode of ifElseNodes) {
       const outgoingEdges = workflowData.edges.filter((e: any) => e.source === ifNode.id);
       const hasTrueEdge = outgoingEdges.some((e: any) => e.sourceHandle === 'true');
       const hasFalseEdge = outgoingEdges.some((e: any) => e.sourceHandle === 'false');
-      
+
       if (!hasTrueEdge || !hasFalseEdge) {
         const errorMsg = `if_else node ${ifNode.id} must have both TRUE and FALSE output edges. Currently has: ${hasTrueEdge ? 'TRUE' : 'NO TRUE'}, ${hasFalseEdge ? 'FALSE' : 'NO FALSE'}`;
         console.error(`[VALIDATION ERROR] ${errorMsg}`);
@@ -3734,12 +3791,12 @@ Generate the updated workflow JSON. Return ONLY valid JSON, no markdown or expla
 
     // Validate and fix workflow structure (Strict If/Else rules)
     const validatedWorkflow = validateAndFixWorkflow(workflowData);
-    
+
     // Add agent analysis and summary to response
     const responseData: any = {
       ...validatedWorkflow,
     };
-    
+
     // Include requirement analysis if available
     if (analysisResult) {
       responseData.agentAnalysis = {
@@ -3749,7 +3806,7 @@ Generate the updated workflow JSON. Return ONLY valid JSON, no markdown or expla
         outputAction: analysisResult.outputAction,
       };
     }
-    
+
     // Include workflow summary and reasoning if available
     if (workflowData.summary) {
       responseData.summary = workflowData.summary;
@@ -3780,7 +3837,7 @@ Generate the updated workflow JSON. Return ONLY valid JSON, no markdown or expla
       error: error,
       errorType: error instanceof Error ? error.constructor.name : typeof error,
     });
-    
+
     // If error is already a Response (from validation), return it
     if (error instanceof Response) {
       return error;
@@ -3788,14 +3845,14 @@ Generate the updated workflow JSON. Return ONLY valid JSON, no markdown or expla
 
     // Detect quota/rate limit errors and provide helpful message
     const errorLower = errorMessage.toLowerCase();
-    const isQuotaError = errorLower.includes('quota') || errorLower.includes('rate limit') || 
-                        errorLower.includes('exceeded') || errorLower.includes('limit: 20');
+    const isQuotaError = errorLower.includes('quota') || errorLower.includes('rate limit') ||
+      errorLower.includes('exceeded') || errorLower.includes('limit: 20');
     const isParseError = errorLower.includes('parse') || errorLower.includes('json') || errorLower.includes('invalid');
     const isMissingNodesError = errorLower.includes('missing required nodes') || errorLower.includes('missing') && errorLower.includes('node');
-    
+
     let userFriendlyError = errorMessage;
     let statusCode = 500;
-    
+
     // Provide better error messages for common issues
     if (isParseError) {
       userFriendlyError = 'Failed to parse AI response. The workflow generation may have produced invalid output. Please try again.';
@@ -3806,14 +3863,14 @@ Generate the updated workflow JSON. Return ONLY valid JSON, no markdown or expla
     } else if (isQuotaError) {
       statusCode = 429; // Too Many Requests
       userFriendlyError = 'Gemini API quota exceeded. You have reached the free tier limit of 20 requests. ';
-      
+
       // Extract retry time if available
       const retryMatch = errorMessage.match(/retry in ([\d.]+)s/i);
       if (retryMatch) {
         const retrySeconds = Math.ceil(parseFloat(retryMatch[1]));
         userFriendlyError += `Please wait ${retrySeconds} seconds before trying again. `;
       }
-      
+
       userFriendlyError += 'To increase limits, upgrade your Gemini API plan at https://ai.google.dev/pricing';
     }
 
