@@ -241,11 +241,26 @@ serve(async (req) => {
 
     // Initialize Agent (with valid knowledge base)
     // We'll use a placeholder for now, or fetch from DB if needed
-    const nodeKnowledge = "Knowledge base loaded.";
+    // Initialize Agent with comprehensive node knowledge
+    const nodeKnowledge = `
+SYSTEM CAPABILITIES & AVAILABLE NODES:
+
+${Object.entries(AVAILABLE_NODES).map(([category, nodes]) =>
+      `## ${category.toUpperCase()} NODES\n${nodes.map(n => `- ${n}`).join('\n')}`
+    ).join('\n\n')}
+
+IMPORTANT NODE RULES:
+1. Google Sheets: ALWAYS use 'javascript' node after 'google_sheets' to parse the output.
+2. Email: Use 'google_gmail' for sending emails.
+3. Form: Use 'form' trigger for user inputs.
+4. Logic: Use 'if_else' for conditions, 'loop' for iterating arrays.
+5. Slack: Use 'slack_message' or 'slack_webhook'.
+`;
+
     const agent = new AutonomousWorkflowAgent({
       apiKey: Deno.env.get('GEMINI_API_KEY') || requestBody.config?.apiKey || '',
       model: 'gemini-2.5-flash',
-      maxIterations: 5,
+      maxIterations: 8,
       enableLearning: true
     }, nodeKnowledge);
 

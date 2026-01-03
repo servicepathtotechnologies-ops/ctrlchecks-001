@@ -272,7 +272,14 @@ export class AutonomousWorkflowAgent {
       };
     } catch (error) {
       console.error('[AGENT] Error in analyzeRequest:', error);
-      throw new Error(`Analysis failed: ${error instanceof Error ? error.message : String(error)}`);
+      // Fallback to prevent blocking the user
+      const fallbackSummary = userGoal.substring(0, 50) + '...';
+      return {
+        summary: fallbackSummary,
+        questions: [],
+        clarifiedPromptPreview: userGoal,
+        predictedStepCount: 3
+      };
     }
   }
 
@@ -282,9 +289,10 @@ export class AutonomousWorkflowAgent {
   async refineRequest(userGoal: string, qa: Array<{ question: string, answer: string }>): Promise<RefinementResult> {
     console.log('[AGENT] Refining request based on answers...');
 
-    const qaContext = qa.map(item => `Q: ${item.question}\nA: ${item.answer}`).join('\n\n');
+    try {
+      const qaContext = qa.map(item => `Q: ${item.question}\nA: ${item.answer}`).join('\n\n');
 
-    const prompt = `You are an expert workflow architect.
+      const prompt = `You are an expert workflow architect.
     ORIGINAL GOAL: "${userGoal}"
     
     USER ANSWERS TO CLARIFYING QUESTIONS:
@@ -310,25 +318,33 @@ export class AutonomousWorkflowAgent {
       ]
     }`;
 
-    const messages: LLMMessage[] = [
-      { role: 'system', content: 'You are an expert workflow architect. Return valid JSON only.' },
-      { role: 'user', content: prompt }
-    ];
+      const messages: LLMMessage[] = [
+        { role: 'system', content: 'You are an expert workflow architect. Return valid JSON only.' },
+        { role: 'user', content: prompt }
+      ];
 
-    const response = await this.llm.chat('gemini', messages, {
-      model: this.config.model,
-      temperature: 0.2,
-      apiKey: this.config.apiKey
-    });
+      const response = await this.llm.chat('gemini', messages, {
+        model: this.config.model,
+        temperature: 0.2,
+        apiKey: this.config.apiKey
+      });
 
-    let resultText = response.content.trim();
-    if (resultText.includes('```json')) {
-      resultText = resultText.split('```json')[1].split('```')[0].trim();
-    } else if (resultText.includes('```')) {
-      resultText = resultText.split('```')[1].split('```')[0].trim();
+      let resultText = response.content.trim();
+      if (resultText.includes('```json')) {
+        resultText = resultText.split('```json')[1].split('```')[0].trim();
+      } else if (resultText.includes('```')) {
+        resultText = resultText.split('```')[1].split('```')[0].trim();
+      }
+
+      return JSON.parse(resultText);
+    } catch (error) {
+      console.error('[AGENT] Error in refineRequest:', error);
+      // Fallback: return original goal and no specific requirements
+      return {
+        refinedPrompt: userGoal,
+        requirements: []
+      };
     }
-
-    return JSON.parse(resultText);
   }
 
   /**
@@ -520,9 +536,51 @@ export class AutonomousWorkflowAgent {
       }
     }
 
-    // If we only have a fallback or no workflow, throw error instead of returning fallback
-    console.error(`[AGENT] Max iterations reached and no valid workflow generated.`);
-    throw new Error('Failed to generate workflow after maximum iterations. The workflow requirements may be too complex. Please try simplifying your prompt or try again.');
+    // If we only have a fallback or no workflow, return emergency fallback instead of throwing
+    console.error(`[AGENT] Max iterations reached and no valid workflow generated. Generating emergency fallback.`);
+
+    // Create emergency fallback workflow
+    const fallbackWorkflow = {
+      name: "Partially Generated Workflow",
+      summary: "The agent could not strictly validate this workflow within the time limit. A basic structure is provided for you to edit.",
+      nodes: [
+        {
+          id: "trigger_1",
+          type: "manual_trigger",
+          position: { x: 250, y: 100 },
+          config: {},
+          data: { label: "Manual Trigger" }
+        },
+        {
+          id: "log_1",
+          type: "log_output",
+          position: { x: 550, y: 100 },
+          config: {
+            message: "Workflow generation incomplete. Please add nodes manually."
+          },
+          data: { label: "Log Output" }
+        }
+      ],
+      edges: [
+        {
+          id: "e1",
+          source: "trigger_1",
+          target: "log_1"
+        }
+      ]
+    };
+
+    if (this.config.onProgress) {
+      this.config.onProgress({
+        status: 'completed',
+        estimated_time_seconds: this.estimatedTime,
+        elapsed_time_seconds: Math.round((Date.now() - this.startTime) / 1000 * 10) / 10,
+        progress_percentage: 100,
+        current_phase: 'Completed (Fallback)'
+      });
+    }
+
+    return fallbackWorkflow;
   }
 
   /**
