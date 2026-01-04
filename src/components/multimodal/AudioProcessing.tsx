@@ -33,8 +33,20 @@ interface AudioProcessingResult {
     duration?: number;
 }
 
-export default function AudioProcessing() {
-    const [activeTab, setActiveTab] = useState<'transcribe' | 'tts'>('transcribe');
+interface AudioProcessingProps {
+    selectedTools?: string[]; // Filter which tools to show (task names: transcribe, text_to_speech)
+}
+
+export default function AudioProcessing({ selectedTools }: AudioProcessingProps = {}) {
+    // Set initial tab based on selected tools
+    const getInitialTab = (): 'transcribe' | 'tts' => {
+        if (selectedTools && selectedTools.length > 0) {
+            if (selectedTools.includes('transcribe')) return 'transcribe';
+            if (selectedTools.includes('text_to_speech')) return 'tts';
+        }
+        return 'transcribe';
+    };
+    const [activeTab, setActiveTab] = useState<'transcribe' | 'tts'>(getInitialTab());
     const [inputText, setInputText] = useState('');
     const [audioFile, setAudioFile] = useState<File | null>(null);
     const [isProcessing, setIsProcessing] = useState(false);
@@ -74,7 +86,7 @@ export default function AudioProcessing() {
         const startTime = Date.now();
 
         try {
-            let payload: any = {
+            const payload: any = {
                 task: mode === 'text-to-speech' ? 'text_to_speech' : mode
             };
 
@@ -151,19 +163,26 @@ export default function AudioProcessing() {
                         <Volume2 className="h-5 w-5" />
                         Audio Processing Studio
                     </CardTitle>
-                    <div className="flex gap-2 text-sm">
-                        <Button variant={activeTab === 'transcribe' ? 'default' : 'ghost'} onClick={() => setActiveTab('transcribe')}>
-                            <Mic className="h-4 w-4 mr-2" /> Audio to Text
-                        </Button>
-                        <Button variant={activeTab === 'tts' ? 'default' : 'ghost'} onClick={() => setActiveTab('tts')}>
-                            <PlayCircle className="h-4 w-4 mr-2" /> Text to Audio
-                        </Button>
-                    </div>
+                    {/* Only show tabs if multiple tools are available */}
+                    {(!selectedTools || selectedTools.length > 1) && (
+                        <div className="flex gap-2 text-sm">
+                            {(!selectedTools || selectedTools.includes('transcribe')) && (
+                                <Button variant={activeTab === 'transcribe' ? 'default' : 'ghost'} onClick={() => setActiveTab('transcribe')}>
+                                    <Mic className="h-4 w-4 mr-2" /> Audio to Text
+                                </Button>
+                            )}
+                            {(!selectedTools || selectedTools.includes('text_to_speech')) && (
+                                <Button variant={activeTab === 'tts' ? 'default' : 'ghost'} onClick={() => setActiveTab('tts')}>
+                                    <PlayCircle className="h-4 w-4 mr-2" /> Text to Audio
+                                </Button>
+                            )}
+                        </div>
+                    )}
                 </CardHeader>
                 <CardContent className="space-y-6">
 
                     {/* Transcribe UI */}
-                    {activeTab === 'transcribe' && (
+                    {((!selectedTools || selectedTools.includes('transcribe')) && activeTab === 'transcribe') && (
                         <div className="space-y-4">
                             <div className="border-2 border-dashed border-border rounded-lg p-8 text-center"
                                 onClick={() => fileInputRef.current?.click()}>
@@ -183,7 +202,7 @@ export default function AudioProcessing() {
                     )}
 
                     {/* TTS UI */}
-                    {activeTab === 'tts' && (
+                    {((!selectedTools || selectedTools.includes('text_to_speech')) && activeTab === 'tts') && (
                         <div className="space-y-4">
                             <Textarea
                                 value={inputText}

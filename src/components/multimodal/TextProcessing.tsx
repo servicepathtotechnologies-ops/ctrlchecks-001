@@ -17,6 +17,12 @@ import {
 } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from '@/hooks/use-toast';
+import * as pdfjsLib from 'pdfjs-dist';
+import mammoth from 'mammoth';
+
+// Configure PDF.js worker - use jsdelivr CDN (works reliably with Vite)
+// For pdfjs-dist 5.x, use the .mjs worker file
+pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
 
 // Python backend URL (reusing logic from ImageProcessing)
 const PYTHON_BACKEND_URL = import.meta.env.VITE_PYTHON_BACKEND_URL || 'http://localhost:8501';
@@ -32,7 +38,11 @@ interface TextProcessingResult {
     duration?: number;
 }
 
-export default function TextProcessing() {
+interface TextProcessingProps {
+    selectedTools?: string[]; // Filter which tools to show (task names: chat, summarize, translate, qa, etc.)
+}
+
+export default function TextProcessing({ selectedTools }: TextProcessingProps = {}) {
     const [inputText, setInputText] = useState('');
     const [question, setQuestion] = useState('');
     const [targetLang, setTargetLang] = useState('Spanish');
@@ -45,13 +55,91 @@ export default function TextProcessing() {
         const file = e.target.files?.[0];
         if (!file) return;
 
-        if (file.type === 'text/plain') {
-            const text = await file.text();
-            setInputText(text);
-        } else {
+        const fileName = file.name.toLowerCase();
+        const fileExtension = fileName.substring(fileName.lastIndexOf('.'));
+        
+        try {
+            let extractedText = '';
+
+            // Handle PDF files
+            if (fileExtension === '.pdf' || file.type === 'application/pdf') {
+                const arrayBuffer = await file.arrayBuffer();
+                const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+                const numPages = pdf.numPages;
+                const textPages: string[] = [];
+
+                for (let pageNum = 1; pageNum <= numPages; pageNum++) {
+                    const page = await pdf.getPage(pageNum);
+                    const textContent = await page.getTextContent();
+                    const pageText = textContent.items.map((item: any) => item.str).join(' ');
+                    textPages.push(pageText);
+                }
+
+                extractedText = textPages.join('\n\n');
+            }
+            // Handle Word documents (.docx)
+            else if (fileExtension === '.docx' || file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
+                const arrayBuffer = await file.arrayBuffer();
+                const result = await mammoth.extractRawText({ arrayBuffer });
+                extractedText = result.value;
+            }
+            // Handle legacy Word documents (.doc) - show error
+            else if (fileExtension === '.doc' || file.type === 'application/msword') {
+                toast({
+                    title: 'Legacy Word format',
+                    description: '.doc files are not supported. Please convert to .docx or PDF format.',
+                    variant: 'destructive'
+                });
+                return;
+            }
+            // Handle text files (including .md, .txt, and all other text formats)
+            else {
+                const textExtensions = [
+                    '.txt', '.md', '.csv', '.json', '.xml', '.html', '.htm', '.css',
+                    '.js', '.ts', '.jsx', '.tsx', '.py', '.log', '.ini', '.conf',
+                    '.yml', '.yaml', '.rtf', '.sh', '.bat', '.cmd', '.ps1', '.env',
+                    '.sql', '.toml', '.properties', '.config'
+                ];
+
+                const textMimeTypes = [
+                    'text/', 'application/json', 'application/xml', 'application/x-yaml',
+                    'application/rtf'
+                ];
+
+                const isTextFile = textExtensions.includes(fileExtension) ||
+                                  textMimeTypes.some(type => file.type.startsWith(type)) ||
+                                  file.type === '';
+
+                if (isTextFile) {
+                    extractedText = await file.text();
+                } else {
+                    toast({
+                        title: 'Unsupported file type',
+                        description: 'Please upload a text file, PDF, or Word document (.txt, .md, .pdf, .docx, etc.)',
+                        variant: 'destructive'
+                    });
+                    return;
+                }
+            }
+
+            if (extractedText.trim()) {
+                setInputText(extractedText);
+                toast({
+                    title: 'File loaded',
+                    description: `Successfully loaded ${file.name} (${extractedText.length} characters)`,
+                });
+            } else {
+                toast({
+                    title: 'Empty file',
+                    description: 'The file appears to be empty or could not extract text.',
+                    variant: 'destructive'
+                });
+            }
+        } catch (error: any) {
+            console.error('Error processing file:', error);
             toast({
-                title: 'Unsupported file',
-                description: 'Please upload a .txt file. For PDF/DOCX, please copy-paste the text for now.',
+                title: 'Error reading file',
+                description: error.message || 'Could not read the file. Please try a different file.',
                 variant: 'destructive'
             });
         }
@@ -194,12 +282,12 @@ export default function TextProcessing() {
                                 onClick={() => fileInputRef.current?.click()}
                             >
                                 <Upload className="h-4 w-4 mr-2" />
-                                Load .txt File
+                                Load File
                             </Button>
                             <input
                                 ref={fileInputRef}
                                 type="file"
-                                accept=".txt"
+                                accept=".txt,.md,.pdf,.doc,.docx,.csv,.json,.xml,.html,.css,.js,.ts,.jsx,.tsx,.py,.log,.ini,.conf,.yml,.yaml,.rtf,.sh,.bat,.cmd,.ps1,.env"
                                 className="hidden"
                                 onChange={handleFileSelect}
                             />
@@ -218,30 +306,35 @@ export default function TextProcessing() {
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
 
                         {/* Chat */}
-                        <Button
-                            onClick={() => processText('chat')}
-                            disabled={isProcessing || !inputText.trim()}
-                            variant="outline"
-                            className="flex flex-col h-auto py-4"
-                        >
-                            <MessageSquare className="h-5 w-5 mb-2" />
-                            <span>Chat / Generate</span>
-                            <span className="text-xs text-muted-foreground">Continue the text</span>
-                        </Button>
+                        {(!selectedTools || selectedTools.includes('chat')) && (
+                            <Button
+                                onClick={() => processText('chat')}
+                                disabled={isProcessing || !inputText.trim()}
+                                variant="outline"
+                                className="flex flex-col h-auto py-4"
+                            >
+                                <MessageSquare className="h-5 w-5 mb-2" />
+                                <span>Chat / Generate</span>
+                                <span className="text-xs text-muted-foreground">Continue the text</span>
+                            </Button>
+                        )}
 
                         {/* Summarize */}
-                        <Button
-                            onClick={() => processText('summarize')}
-                            disabled={isProcessing || !inputText.trim()}
-                            variant="outline"
-                            className="flex flex-col h-auto py-4"
-                        >
-                            <FileText className="h-5 w-5 mb-2" />
-                            <span>Summarize</span>
-                            <span className="text-xs text-muted-foreground">Shorten content</span>
-                        </Button>
+                        {(!selectedTools || selectedTools.includes('summarize')) && (
+                            <Button
+                                onClick={() => processText('summarize')}
+                                disabled={isProcessing || !inputText.trim()}
+                                variant="outline"
+                                className="flex flex-col h-auto py-4"
+                            >
+                                <FileText className="h-5 w-5 mb-2" />
+                                <span>Summarize</span>
+                                <span className="text-xs text-muted-foreground">Shorten content</span>
+                            </Button>
+                        )}
 
                         {/* Translate */}
+                        {(!selectedTools || selectedTools.includes('translate')) && (
                         <div className="flex flex-col gap-2">
                             <select
                                 className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
@@ -270,26 +363,29 @@ export default function TextProcessing() {
                                 Translate
                             </Button>
                         </div>
+                        )}
 
                         {/* QA */}
-                        <div className="flex flex-col gap-2">
-                            <input
-                                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                                placeholder="Ask a question..."
-                                value={question}
-                                onChange={(e) => setQuestion(e.target.value)}
-                                disabled={isProcessing}
-                            />
-                            <Button
-                                onClick={() => processText('qa')}
-                                disabled={isProcessing || !inputText.trim() || !question.trim()}
-                                variant="outline"
-                                className="w-full"
-                            >
-                                <HelpCircle className="h-4 w-4 mr-2" />
-                                Ask Question
-                            </Button>
-                        </div>
+                        {(!selectedTools || selectedTools.includes('qa')) && (
+                            <div className="flex flex-col gap-2">
+                                <input
+                                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                                    placeholder="Ask a question..."
+                                    value={question}
+                                    onChange={(e) => setQuestion(e.target.value)}
+                                    disabled={isProcessing}
+                                />
+                                <Button
+                                    onClick={() => processText('qa')}
+                                    disabled={isProcessing || !inputText.trim() || !question.trim()}
+                                    variant="outline"
+                                    className="w-full"
+                                >
+                                    <HelpCircle className="h-4 w-4 mr-2" />
+                                    Ask Question
+                                </Button>
+                            </div>
+                        )}
 
                     </div>
 

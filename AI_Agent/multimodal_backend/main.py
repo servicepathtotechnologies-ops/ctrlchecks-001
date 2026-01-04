@@ -16,6 +16,15 @@ import base64
 import io
 from pathlib import Path
 
+# Load environment variables from .env file (if present)
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+    print("✅ Loaded environment variables from .env file")
+except ImportError:
+    # python-dotenv not installed, skip .env loading
+    pass
+
 # Add services to path
 sys.path.append(str(Path(__file__).parent))
 

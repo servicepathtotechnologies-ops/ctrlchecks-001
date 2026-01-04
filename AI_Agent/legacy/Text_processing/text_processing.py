@@ -1,6 +1,7 @@
 import streamlit as st
 from huggingface_hub import InferenceClient
 import sys
+import os
 
 # File processing libraries
 try:
@@ -21,14 +22,12 @@ if hasattr(st, 'cache_data'):
 if hasattr(st, 'cache_resource'):
     st.cache_resource.clear()
 
-import os
-
 # ---------------- CONFIG ----------------
 st.set_page_config("Advanced Text AI", layout="wide")
 st.title("🧠 Advanced Text Processing AI")
 st.caption("Chat • Describe • Q&A • Summarize • Translate")
 
-HF_API_KEY = os.getenv("HF_API_KEY")
+HF_API_KEY = os.getenv("HF_API_KEY") or "your_huggingface_api_key_here"
 
 # ---------------- HELPER FUNCTIONS ----------------
 def chunk_text(text, max_chars=800):

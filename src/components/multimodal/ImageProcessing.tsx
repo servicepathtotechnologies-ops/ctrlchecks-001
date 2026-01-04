@@ -36,7 +36,11 @@ interface ImageProcessingResult {
   imageUrl?: string; // For text-to-image results
 }
 
-export default function ImageProcessing() {
+interface ImageProcessingProps {
+  selectedTools?: string[]; // Filter which tools to show (task names: image_caption, story, image_prompt, text_to_image)
+}
+
+export default function ImageProcessing({ selectedTools }: ImageProcessingProps = {}) {
   const [selectedImage, setSelectedImage] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [sentenceCount, setSentenceCount] = useState(5);
@@ -333,7 +337,7 @@ export default function ImageProcessing() {
           </div>
 
           {/* Sentence Count Slider (for Story mode) */}
-          {selectedImage && (
+          {selectedImage && (selectedTools?.includes('story') || selectedTools?.includes('image_prompt') || !selectedTools) && (
             <div className="space-y-2">
               <label className="text-sm font-medium">
                 Number of sentences (for Story & Prompt): {sentenceCount}
@@ -351,99 +355,109 @@ export default function ImageProcessing() {
           )}
 
           {/* Text-to-Image Input */}
-          <div className="space-y-2">
-            <label className="text-sm font-medium">Text Prompt (for Text-to-Image)</label>
-            <Textarea
-              placeholder="Enter a prompt to generate an image (e.g., 'A cyberpunk city at night')"
-              value={textPrompt}
-              onChange={(e) => setTextPrompt(e.target.value)}
-              rows={3}
-              disabled={isProcessing}
-            />
-            {textPrompt && (
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <label className="text-xs text-muted-foreground">
-                    Steps (1-4): {steps}
-                  </label>
-                  <input
-                    type="range"
-                    min="1"
-                    max="4"
-                    value={steps}
-                    onChange={(e) => setSteps(Number(e.target.value))}
-                    className="w-full"
-                    disabled={isProcessing}
-                  />
+          {(!selectedTools || selectedTools.includes('text_to_image')) && (
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Text Prompt (for Text-to-Image)</label>
+              <Textarea
+                placeholder="Enter a prompt to generate an image (e.g., 'A cyberpunk city at night')"
+                value={textPrompt}
+                onChange={(e) => setTextPrompt(e.target.value)}
+                rows={3}
+                disabled={isProcessing}
+              />
+              {textPrompt && (
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <label className="text-xs text-muted-foreground">
+                      Steps (1-4): {steps}
+                    </label>
+                    <input
+                      type="range"
+                      min="1"
+                      max="4"
+                      value={steps}
+                      onChange={(e) => setSteps(Number(e.target.value))}
+                      className="w-full"
+                      disabled={isProcessing}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs text-muted-foreground">
+                      Guidance Scale (0.0-1.5): {guidanceScale.toFixed(1)}
+                    </label>
+                    <input
+                      type="range"
+                      min="0"
+                      max="1.5"
+                      step="0.1"
+                      value={guidanceScale}
+                      onChange={(e) => setGuidanceScale(Number(e.target.value))}
+                      className="w-full"
+                      disabled={isProcessing}
+                    />
+                  </div>
                 </div>
-                <div className="space-y-2">
-                  <label className="text-xs text-muted-foreground">
-                    Guidance Scale (0.0-1.5): {guidanceScale.toFixed(1)}
-                  </label>
-                  <input
-                    type="range"
-                    min="0"
-                    max="1.5"
-                    step="0.1"
-                    value={guidanceScale}
-                    onChange={(e) => setGuidanceScale(Number(e.target.value))}
-                    className="w-full"
-                    disabled={isProcessing}
-                  />
-                </div>
-              </div>
-            )}
-          </div>
+              )}
+            </div>
+          )}
 
           {/* Processing Buttons */}
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             {selectedImage && (
               <>
-                <Button
-                  onClick={() => processImage('short-note')}
-                  disabled={isProcessing}
-                  variant="outline"
-                  className="flex flex-col items-center gap-2 h-auto py-4"
-                >
-                  <FileText className="h-5 w-5" />
-                  <span>Short Note</span>
-                  <span className="text-xs text-muted-foreground">One sentence caption</span>
-                </Button>
+                {(!selectedTools || selectedTools.includes('image_caption')) && (
+                  <Button
+                    onClick={() => processImage('short-note')}
+                    disabled={isProcessing}
+                    variant="outline"
+                    className="flex flex-col items-center gap-2 h-auto py-4"
+                  >
+                    <FileText className="h-5 w-5" />
+                    <span>Short Note</span>
+                    <span className="text-xs text-muted-foreground">One sentence caption</span>
+                  </Button>
+                )}
 
-                <Button
-                  onClick={() => processImage('story')}
-                  disabled={isProcessing}
-                  variant="outline"
-                  className="flex flex-col items-center gap-2 h-auto py-4"
-                >
-                  <BookOpen className="h-5 w-5" />
-                  <span>Story Description</span>
-                  <span className="text-xs text-muted-foreground">Detailed multi-sentence</span>
-                </Button>
+                {(!selectedTools || selectedTools.includes('story')) && (
+                  <Button
+                    onClick={() => processImage('story')}
+                    disabled={isProcessing}
+                    variant="outline"
+                    className="flex flex-col items-center gap-2 h-auto py-4"
+                  >
+                    <BookOpen className="h-5 w-5" />
+                    <span>Story Description</span>
+                    <span className="text-xs text-muted-foreground">Detailed multi-sentence</span>
+                  </Button>
+                )}
 
-                <Button
-                  onClick={() => processImage('image-prompt')}
-                  disabled={isProcessing}
-                  variant="outline"
-                  className="flex flex-col items-center gap-2 h-auto py-4"
-                >
-                  <Palette className="h-5 w-5" />
-                  <span>Image to Prompt</span>
-                  <span className="text-xs text-muted-foreground">Stable Diffusion prompt</span>
-                </Button>
+                {(!selectedTools || selectedTools.includes('image_prompt')) && (
+                  <Button
+                    onClick={() => processImage('image-prompt')}
+                    disabled={isProcessing}
+                    variant="outline"
+                    className="flex flex-col items-center gap-2 h-auto py-4"
+                  >
+                    <Palette className="h-5 w-5" />
+                    <span>Image to Prompt</span>
+                    <span className="text-xs text-muted-foreground">Stable Diffusion prompt</span>
+                  </Button>
+                )}
               </>
             )}
             
-            <Button
-              onClick={() => processImage('text-to-image')}
-              disabled={isProcessing || !textPrompt.trim()}
-              variant="outline"
-              className="flex flex-col items-center gap-2 h-auto py-4"
-            >
-              <ImageIcon className="h-5 w-5" />
-              <span>Text to Image</span>
-              <span className="text-xs text-muted-foreground">Generate image from text</span>
-            </Button>
+            {(!selectedTools || selectedTools.includes('text_to_image')) && (
+              <Button
+                onClick={() => processImage('text-to-image')}
+                disabled={isProcessing || !textPrompt.trim()}
+                variant="outline"
+                className="flex flex-col items-center gap-2 h-auto py-4"
+              >
+                <ImageIcon className="h-5 w-5" />
+                <span>Text to Image</span>
+                <span className="text-xs text-muted-foreground">Generate image from text</span>
+              </Button>
+            )}
           </div>
 
           {/* Progress */}
@@ -492,11 +506,11 @@ export default function ImageProcessing() {
                   </div>
                 )}
                 {result.imageUrl && (
-                  <div className="space-y-2">
+                  <div className="space-y-2 flex justify-center">
                     <img
                       src={result.imageUrl}
                       alt="Generated image"
-                      className="w-full rounded-lg border border-border"
+                      className="max-w-full max-h-[600px] w-auto h-auto object-contain rounded-lg border border-border"
                     />
                   </div>
                 )}

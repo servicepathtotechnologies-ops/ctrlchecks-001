@@ -114,7 +114,7 @@ class AgentExecutor {
     }
 
     // Initialize agent state
-    let agentState: AgentState = {
+    const agentState: AgentState = {
       iteration: 0,
       currentState: input,
       reasoningHistory: [],

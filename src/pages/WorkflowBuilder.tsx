@@ -193,7 +193,7 @@ export default function WorkflowBuilder() {
 
     // Check if workflow has a form trigger node
     const formNode = nodes.find((node: any) => node.data?.type === 'form');
-    let testInput: any = {};
+    const testInput: any = {};
 
     if (formNode) {
       // For Form Trigger nodes, check if workflow is active

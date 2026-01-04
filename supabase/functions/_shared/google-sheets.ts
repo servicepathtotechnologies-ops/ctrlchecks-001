@@ -398,7 +398,7 @@ async function appendToSheet(config: GoogleSheetsConfig): Promise<GoogleSheetsRe
 
     // Build range string (sheet name only, API will append to end)
     // For append operation, we need to URL-encode the sheet name
-    let rangeStr = sheetName ? encodeURIComponent(sheetName) : 'Sheet1';
+    const rangeStr = sheetName ? encodeURIComponent(sheetName) : 'Sheet1';
 
     const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${rangeStr}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`;
 

@@ -26,7 +26,7 @@ export interface TemplateMetadata {
  * Get all active templates (for users)
  */
 export async function getActiveTemplates(): Promise<Template[]> {
-  // @ts-ignore - Type inference issue with Supabase complex types
+  // @ts-expect-error - Type inference issue with Supabase complex types
   const { data, error } = await supabase
     .from('templates')
     .select('*')
@@ -53,7 +53,7 @@ export async function getTemplateById(templateId: string): Promise<Template | nu
     if (error.code === 'PGRST116') return null; // Not found
     throw error;
   }
-  
+
   return data;
 }
 
@@ -63,7 +63,7 @@ export async function getTemplateById(templateId: string): Promise<Template | nu
 export async function copyTemplate(templateId: string, workflowName?: string): Promise<{ workflow: any; message: string }> {
   try {
     const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-  
+
     if (sessionError || !session) {
       throw new Error('Not authenticated');
     }
