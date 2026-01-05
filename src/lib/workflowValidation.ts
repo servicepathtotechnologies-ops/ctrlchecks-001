@@ -79,8 +79,21 @@ export function validateAndFixWorkflow(data: any): { nodes: any[], edges: any[],
     // 0. Hydrate AI Nodes (Fix 'manual_trigger' vs 'custom' mismatch)
     // The AI returns "type": "manual_trigger" but frontend needs "type": "custom", "data": { "type": "manual_trigger" }
     nodes = nodes.map((node: any) => {
-        if (node.type !== 'custom') {
-            const definition = NODE_TYPES.find((d: any) => d.type === node.type);
+        // Get the actual node type from either node.type or node.data?.type
+        const nodeType = node.data?.type || node.type;
+        
+        // Skip form nodes - they have special handling
+        if (nodeType === 'form') {
+            return node;
+        }
+        
+        // If node is already 'custom' but missing data fields, we need to fix it
+        const needsNormalization = node.type === 'custom' 
+            ? (!node.data?.label || !node.data?.category || !node.data?.icon)
+            : node.type !== 'custom';
+        
+        if (needsNormalization) {
+            const definition = NODE_TYPES.find((d: any) => d.type === nodeType);
             if (definition) {
                 return {
                     ...node,
@@ -90,8 +103,27 @@ export function validateAndFixWorkflow(data: any): { nodes: any[], edges: any[],
                         type: definition.type,
                         category: definition.category,
                         icon: definition.icon,
-                        config: { ...definition.defaultConfig, ...(node.config || {}) }, // Merge AI config
-                        ...node.data
+                        config: { 
+                            ...definition.defaultConfig, 
+                            ...(node.data?.config || node.config || {})
+                        }, // Merge AI config
+                        ...(node.data || {}), // Preserve any existing data fields
+                        executionStatus: node.data?.executionStatus // Preserve execution status
+                    }
+                };
+            } else {
+                // If no definition found, try to preserve what we can
+                console.warn(`[WORKFLOW VALIDATION] No definition found for node type: ${nodeType}`);
+                return {
+                    ...node,
+                    type: 'custom',
+                    data: {
+                        label: node.data?.label || nodeType,
+                        type: nodeType,
+                        category: node.data?.category || 'data',
+                        icon: node.data?.icon || 'Box',
+                        config: node.data?.config || node.config || {},
+                        ...(node.data || {})
                     }
                 };
             }

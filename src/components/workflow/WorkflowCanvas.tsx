@@ -160,8 +160,14 @@ function WorkflowCanvasInner() {
   );
 
   const onNodeClick = useCallback(
-    (_: React.MouseEvent, node: Node<NodeData>) => {
-      selectNode(node);
+    (event: React.MouseEvent, node: Node<NodeData>) => {
+      event.preventDefault();
+      event.stopPropagation();
+      try {
+        selectNode(node);
+      } catch (error) {
+        console.error('Error selecting node:', error);
+      }
     },
     [selectNode]
   );

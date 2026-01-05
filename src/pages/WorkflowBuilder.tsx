@@ -15,6 +15,7 @@ import ExecutionConsole from '@/components/workflow/ExecutionConsole';
 import { Edge } from '@xyflow/react';
 import { Json } from '@/integrations/supabase/types';
 import AIAssistant from '@/components/workflow/AIAssistant';
+import { validateAndFixWorkflow } from '@/lib/workflowValidation';
 
 export default function WorkflowBuilder() {
   const { id } = useParams();
@@ -66,8 +67,15 @@ export default function WorkflowBuilder() {
       if (data) {
         setWorkflowId(data.id);
         setWorkflowName(data.name);
-        setNodes((data.nodes as unknown as WorkflowNode[]) || []);
-        setEdges((data.edges as unknown as Edge[]) || []);
+        
+        // Normalize nodes to ensure they have label, category, icon, etc.
+        const normalized = validateAndFixWorkflow({
+          nodes: data.nodes || [],
+          edges: data.edges || []
+        });
+        
+        setNodes(normalized.nodes);
+        setEdges(normalized.edges);
         setIsDirty(false);
       }
     } catch (error) {

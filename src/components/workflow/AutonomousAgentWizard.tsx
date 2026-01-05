@@ -16,6 +16,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { useWorkflowStore } from '@/stores/workflowStore';
 import { motion, AnimatePresence } from 'framer-motion';
+import { validateAndFixWorkflow } from '@/lib/workflowValidation';
 
 type WizardStep = 'idle' | 'analyzing' | 'questioning' | 'refining' | 'confirmation' | 'building' | 'complete';
 
@@ -143,8 +144,11 @@ export function AutonomousAgentWizard() {
             if (saveError) throw saveError;
 
             setGeneratedWorkflowId(savedWorkflow.id);
-            setNodes(data.nodes);
-            setEdges(data.edges);
+            
+            // Normalize nodes to include label, category, icon, etc.
+            const normalized = validateAndFixWorkflow(data);
+            setNodes(normalized.nodes);
+            setEdges(normalized.edges);
 
             setTimeout(() => {
                 setBuildingLogs(prev => [...prev, 'Workflow Generated Successfully!', 'Verifying Logic...']);

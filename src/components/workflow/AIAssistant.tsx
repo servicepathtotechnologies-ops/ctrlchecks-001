@@ -161,14 +161,11 @@ export default function AIAssistant({ isOpen, onClose }: AIAssistantProps) {
             }
 
             if (data && data.nodes && data.edges) {
-                // Validate before applying
-                const validated = validateAndFixWorkflow(data); // Reuse existing client-side validation if available or rely on basic checks
-
-                // TODO: ideally validateAndFixWorkflow should be imported from a shared lib or utility
-                // For now, let's assume the backend did a good job or we use basic structural checks
-
-                setNodes(data.nodes);
-                setEdges(data.edges);
+                // Normalize nodes to include label, category, icon, etc.
+                const validated = validateAndFixWorkflow(data);
+                
+                setNodes(validated.nodes);
+                setEdges(validated.edges);
 
                 const explanation = data.explanation || `I've updated the workflow based on your request.`;
                 const historyNote = hasExecutionHistory 

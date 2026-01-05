@@ -20,6 +20,7 @@ import { validateAndFixWorkflow } from "./workflow-validation.ts";
 import { AutonomousWorkflowAgent } from "./autonomous-agent.ts";
 import { LLMAdapter } from "./llm-adapter.ts";
 import { getTrainingExamplesSection, getRelevantExamples, getTrainingExampleContext } from "./training-examples.ts";
+import { loadNodeReference } from "./node-reference-loader.ts";
 
 // CORS headers - comprehensive configuration for browser access
 const corsHeaders = {
@@ -239,8 +240,16 @@ serve(async (req) => {
       (requestBody as any)._requiresWebhook = true;
     }
 
-    // Initialize Agent (with valid knowledge base)
-    // We'll use a placeholder for now, or fetch from DB if needed
+    // Load comprehensive node reference guide
+    let nodeReferenceContent = '';
+    try {
+      nodeReferenceContent = await loadNodeReference();
+      console.log('[generate-workflow] Node reference loaded successfully');
+    } catch (error) {
+      console.warn('[generate-workflow] Failed to load node reference, using fallback:', error);
+      // Continue with empty nodeReferenceContent - fallback is provided by loadNodeReference
+    }
+
     // Initialize Agent with comprehensive node knowledge
     const nodeKnowledge = `
 SYSTEM CAPABILITIES & AVAILABLE NODES:
@@ -255,11 +264,24 @@ IMPORTANT NODE RULES:
 3. Form: Use 'form' trigger for user inputs.
 4. Logic: Use 'if_else' for conditions, 'loop' for iterating arrays.
 5. Slack: Use 'slack_message' or 'slack_webhook'.
+
+════════════════════════════════════
+COMPREHENSIVE NODE REFERENCE GUIDE
+════════════════════════════════════
+
+${nodeReferenceContent}
 `;
 
+    // Get API keys (Hugging Face only - no Gemini)
+    const huggingFaceApiKey = Deno.env.get('HUGGINGFACE_API_KEY') || requestBody.config?.huggingFaceApiKey || '';
+    const provider = 'huggingface'; // Always use Hugging Face for workflow generation
+    const model = requestBody.config?.model || 'qwen-7b'; // Default Hugging Face model
+
     const agent = new AutonomousWorkflowAgent({
-      apiKey: Deno.env.get('GEMINI_API_KEY') || requestBody.config?.apiKey || '',
-      model: 'gemini-2.5-flash',
+      apiKey: '', // Not used when provider is huggingface
+      huggingFaceApiKey: huggingFaceApiKey,
+      provider: 'huggingface' as const,
+      model: model,
       maxIterations: 5,
       enableLearning: true
     }, nodeKnowledge);
@@ -1653,16 +1675,22 @@ Structure: chat_trigger → memory (retrieve) → javascript (build prompt with 
    - Webhook trigger → input.body.fieldName
 
 ${getTrainingExamplesSection()}
+
+════════════════════════════════════
+COMPREHENSIVE NODE REFERENCE GUIDE
+════════════════════════════════════
+
+${nodeReferenceContent}
 `;
 
-    // Initialize LLM adapter and API key early
+    // Initialize LLM adapter and API keys early
     const llmAdapter = new LLMAdapter();
-    const apiKey = Deno.env.get('GEMINI_API_KEY');
-    if (!apiKey) {
-      console.error('GEMINI_API_KEY not found in environment variables');
+    // Hugging Face API key is required
+    if (!huggingFaceApiKey) {
+      console.error('HUGGINGFACE_API_KEY not found in environment variables');
       return new Response(
         JSON.stringify({
-          error: 'GEMINI_API_KEY is not configured. Please set it in Supabase project settings under Edge Functions secrets.'
+          error: 'HUGGINGFACE_API_KEY must be configured. Please set it in Supabase project settings under Edge Functions secrets.'
         }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
@@ -1766,8 +1794,10 @@ ${getTrainingExamplesSection()}
 
                 const agent = new AutonomousWorkflowAgent(
                   {
-                    apiKey,
-                    model: 'gemini-2.5-flash',
+                    apiKey: '', // Not used when provider is huggingface
+                    huggingFaceApiKey: huggingFaceApiKey,
+                    provider: 'huggingface' as const,
+                    model: 'qwen-7b',
                     temperature: 0.3,
                     maxIterations: 1, // CRITICAL: Reduced to 1 to prevent quota exhaustion (was 3, making 21+ API calls)
                     enableLearning: false, // Disable learning to reduce resource usage
@@ -1910,10 +1940,15 @@ ${getTrainingExamplesSection()}
         // Get relevant training examples with detailed context
         const examplesContext = getTrainingExampleContext(prompt, 3);
 
+        // Use Hugging Face model
+        const createModel = requestBody.config?.model || 'qwen-7b';
+
         const agent = new AutonomousWorkflowAgent(
           {
-            apiKey,
-            model: 'gemini-2.5-flash',
+            apiKey: '', // Not used when provider is huggingface
+            huggingFaceApiKey: huggingFaceApiKey,
+            provider: 'huggingface' as const,
+            model: createModel,
             temperature: 0.3,
             maxIterations: 1, // CRITICAL: Reduced to 1 to prevent quota exhaustion (was 3, making 21+ API calls)
             enableLearning: false, // Disable learning to reduce resource usage
@@ -2360,7 +2395,7 @@ return {
 
         if (isQuotaError) {
           let userFriendlyError = errorMessage.replace(/^QUOTA_EXCEEDED: /, '');
-          userFriendlyError = 'Gemini API quota exceeded. You have reached the free tier limit of 20 requests. ';
+          userFriendlyError = 'Hugging Face API rate limit exceeded. Please wait a few minutes before trying again. ';
           const retryMatch = errorMessage.match(/retry in ([\d.]+)s/i);
           if (retryMatch) {
             const retrySeconds = Math.ceil(parseFloat(retryMatch[1]));
@@ -2368,7 +2403,7 @@ return {
           } else {
             userFriendlyError += 'Please wait a few minutes before trying again. ';
           }
-          userFriendlyError += 'To increase limits, upgrade your Gemini API plan at https://ai.google.dev/pricing';
+          userFriendlyError += 'To increase limits, upgrade your Hugging Face API plan at https://huggingface.co/pricing';
 
           return new Response(
             JSON.stringify({
@@ -2509,10 +2544,10 @@ Be thorough and accurate. If you detect Google Doc + output pattern, explicitly 
       ];
 
       console.log('Step 1: Analyzing requirements...');
-      const analysisResponse = await llmAdapter.chat('gemini', analysisMessages, {
-        model: 'gemini-2.5-flash',
+      const analysisResponse = await llmAdapter.chat('huggingface', analysisMessages, {
+        model: 'qwen-7b',
         temperature: 0.3, // Lower temperature for more focused analysis
-        apiKey,
+        apiKey: huggingFaceApiKey,
       });
 
       let analysisText = analysisResponse.content.trim();
@@ -3121,30 +3156,28 @@ Generate the updated workflow JSON. Return ONLY valid JSON, no markdown or expla
       console.log(`[EDIT MODE] System prompt generated, length: ${systemPrompt.length}`);
     }
 
-    // Use Google Gemini API to generate workflow
-    // Model: gemini-2.5-flash (default)
-    // API Endpoint: https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent
-    // API Key: GEMINI_API_KEY (from Supabase Edge Function secrets)
-    // Documentation: See AI_EDITOR_DOCUMENTATION.md
-    const provider = 'gemini';
-    const model = 'gemini-2.5-flash'; // Fast, cost-effective model for workflow generation
+    // Use Hugging Face API to generate workflow
+    // Model: qwen-7b (default)
+    // API Endpoint: Hugging Face Inference API
+    // API Key: HUGGINGFACE_API_KEY (from Supabase Edge Function secrets)
+    const editModel = requestBody.config?.model || 'qwen-7b'; // Hugging Face model for workflow generation
 
     const messages: LLMMessage[] = [
       { role: 'system', content: systemPrompt },
       { role: 'user', content: prompt },
     ];
 
-    console.log('Calling Gemini API with model:', model);
+    console.log('Calling Hugging Face API with model:', editModel);
     let response;
     try {
-      response = await llmAdapter.chat('gemini', messages, {
-        model,
+      response = await llmAdapter.chat('huggingface', messages, {
+        model: editModel,
         temperature: 0.7,
-        apiKey,
+        apiKey: huggingFaceApiKey,
       });
-      console.log('Gemini API response received, content length:', response.content?.length || 0);
+      console.log('Hugging Face API response received, content length:', response.content?.length || 0);
     } catch (llmError) {
-      console.error('Gemini API call failed:', llmError);
+      console.error('Hugging Face API call failed:', llmError);
       const llmErrorMessage = llmError instanceof Error ? llmError.message : String(llmError);
 
       // Check for quota/rate limit errors and throw with proper type
