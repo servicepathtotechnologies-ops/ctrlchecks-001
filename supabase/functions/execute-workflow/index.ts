@@ -13603,7 +13603,7 @@ async function executeNode(
         const userId = getStringProperty(config, 'userId', '') || getStringProperty(inputObj, 'userId', '');
         const anonymousId = userId || 'anonymous-' + Date.now();
 
-        let body: Record<string, unknown> = {
+        const body: Record<string, unknown> = {
           anonymousId,
           context: {
             library: {

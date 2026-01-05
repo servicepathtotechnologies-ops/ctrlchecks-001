@@ -47,8 +47,10 @@ export interface AgentState {
 }
 
 export interface AutonomousAgentConfig {
-  apiKey: string;
-  model?: string;
+  apiKey: string; // Gemini API key (for fallback)
+  huggingFaceApiKey?: string; // Hugging Face API key (optional, defaults to env var)
+  provider?: 'huggingface' | 'gemini'; // Primary provider (defaults to 'huggingface')
+  model?: string; // Model name (provider-specific)
   temperature?: number;
   maxIterations?: number;
   enableLearning?: boolean;
@@ -88,7 +90,11 @@ export interface RefinementResult {
 
 export class AutonomousWorkflowAgent {
   private llm: LLMAdapter;
-  private config: Required<Omit<AutonomousAgentConfig, 'onProgress'>> & { onProgress?: (progress: ProgressUpdate) => void };
+  private config: Required<Omit<AutonomousAgentConfig, 'onProgress' | 'huggingFaceApiKey' | 'provider'>> & { 
+    onProgress?: (progress: ProgressUpdate) => void;
+    huggingFaceApiKey?: string;
+    provider: 'huggingface' | 'gemini';
+  };
   private state: AgentState;
   private nodeKnowledge: string;
   private startTime: number = 0;
@@ -98,7 +104,9 @@ export class AutonomousWorkflowAgent {
     this.llm = new LLMAdapter();
     this.config = {
       apiKey: config.apiKey,
-      model: config.model || 'gemini-2.5-flash',
+      huggingFaceApiKey: config.huggingFaceApiKey || Deno.env.get('HUGGINGFACE_API_KEY'),
+      provider: config.provider || 'huggingface', // Default to Hugging Face
+      model: config.model || (config.provider === 'gemini' ? 'gemini-2.5-flash' : 'qwen-7b'),
       temperature: config.temperature ?? 0.3,
       maxIterations: config.maxIterations ?? 10,
       enableLearning: config.enableLearning ?? false, // Default to false for speed
@@ -188,6 +196,76 @@ export class AutonomousWorkflowAgent {
   }
 
   /**
+   * Helper method: Call LLM with automatic provider fallback
+   * Tries Hugging Face first, falls back to Gemini if needed
+   */
+  private async callLLMWithFallback(
+    messages: LLMMessage[],
+    options: { temperature?: number; maxTokens?: number }
+  ): Promise<LLMResponse> {
+    // Determine primary and fallback providers
+    const primaryProvider = this.config.provider;
+    const fallbackProvider = primaryProvider === 'huggingface' ? 'gemini' : 'huggingface';
+    
+    // Try primary provider first
+    try {
+      if (primaryProvider === 'huggingface') {
+        if (!this.config.huggingFaceApiKey) {
+          throw new Error('HuggingFace API key not configured');
+        }
+        console.log(`[AGENT] Using Hugging Face (${this.config.model})`);
+        return await this.llm.chat('huggingface', messages, {
+          model: this.config.model,
+          temperature: options.temperature ?? this.config.temperature,
+          maxTokens: options.maxTokens,
+          apiKey: this.config.huggingFaceApiKey,
+        });
+      } else {
+        console.log(`[AGENT] Using Gemini (${this.config.model})`);
+        return await this.llm.chat('gemini', messages, {
+          model: this.config.model,
+          temperature: options.temperature ?? this.config.temperature,
+          maxTokens: options.maxTokens,
+          apiKey: this.config.apiKey,
+        });
+      }
+    } catch (error: any) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      console.warn(`[AGENT] Primary provider (${primaryProvider}) failed: ${errorMsg}`);
+      console.log(`[AGENT] Falling back to ${fallbackProvider}...`);
+      
+      // Fallback to secondary provider
+      try {
+        if (fallbackProvider === 'gemini') {
+          console.log(`[AGENT] Using Gemini fallback (gemini-2.5-flash)`);
+          return await this.llm.chat('gemini', messages, {
+            model: 'gemini-2.5-flash',
+            temperature: options.temperature ?? this.config.temperature,
+            maxTokens: options.maxTokens,
+            apiKey: this.config.apiKey,
+          });
+        } else {
+          // Fallback to Hugging Face (if HF key available)
+          if (!this.config.huggingFaceApiKey) {
+            throw new Error('HuggingFace API key not configured for fallback');
+          }
+          console.log(`[AGENT] Using Hugging Face fallback (qwen-7b)`);
+          return await this.llm.chat('huggingface', messages, {
+            model: 'qwen-7b',
+            temperature: options.temperature ?? this.config.temperature,
+            maxTokens: options.maxTokens,
+            apiKey: this.config.huggingFaceApiKey,
+          });
+        }
+      } catch (fallbackError: any) {
+        const fallbackErrorMsg = fallbackError instanceof Error ? fallbackError.message : String(fallbackError);
+        console.error(`[AGENT] Both providers failed. Primary: ${errorMsg}, Fallback: ${fallbackErrorMsg}`);
+        throw new Error(`LLM call failed with both providers. Primary (${primaryProvider}): ${errorMsg}. Fallback (${fallbackProvider}): ${fallbackErrorMsg}`);
+      }
+    }
+  }
+
+  /**
    * STEP 1: Analyze user request and generate clarifying questions
    */
   /**
@@ -229,10 +307,8 @@ export class AutonomousWorkflowAgent {
         { role: 'user', content: prompt }
       ];
 
-      const response = await this.llm.chat('gemini', messages, {
-        model: this.config.model,
+      const response = await this.callLLMWithFallback(messages, {
         temperature: 0.3,
-        apiKey: this.config.apiKey
       });
 
       let resultText = response.content.trim();
@@ -323,10 +399,8 @@ export class AutonomousWorkflowAgent {
         { role: 'user', content: prompt }
       ];
 
-      const response = await this.llm.chat('gemini', messages, {
-        model: this.config.model,
+      const response = await this.callLLMWithFallback(messages, {
         temperature: 0.2,
-        apiKey: this.config.apiKey
       });
 
       let resultText = response.content.trim();
@@ -627,10 +701,8 @@ If they say "chat" or "chatbot", use "chat" trigger.`;
       { role: 'user', content: summaryPrompt },
     ];
 
-    const response = await this.llm.chat('gemini', messages, {
-      model: this.config.model,
+    const response = await this.callLLMWithFallback(messages, {
       temperature: 0.1, // Very low temperature for precise summarization
-      apiKey: this.config.apiKey,
     });
 
     let summaryText = response.content.trim();
@@ -737,10 +809,8 @@ CRITICAL: If a training example above matches the user's goal, explicitly refere
       { role: 'user', content: prompt },
     ];
 
-    const response = await this.llm.chat('gemini', messages, {
-      model: this.config.model,
+    const response = await this.callLLMWithFallback(messages, {
       temperature: 0.2, // Low temperature for precise analysis
-      apiKey: this.config.apiKey,
     });
 
     let analysisText = response.content.trim();
@@ -872,10 +942,8 @@ Ensure:
       { role: 'user', content: prompt },
     ];
 
-    const response = await this.llm.chat('gemini', messages, {
-      model: this.config.model,
+    const response = await this.callLLMWithFallback(messages, {
       temperature: 0.3,
-      apiKey: this.config.apiKey,
     });
 
     let planText = response.content.trim();
@@ -1023,10 +1091,8 @@ Ensure:
       { role: 'user', content: prompt },
     ];
 
-    const response = await this.llm.chat('gemini', messages, {
-      model: this.config.model,
+    const response = await this.callLLMWithFallback(messages, {
       temperature: 0.3,
-      apiKey: this.config.apiKey,
     });
 
     let combined;
@@ -1321,10 +1387,8 @@ JAVASCRIPT NODE CODE EXAMPLES FOR DATA FORMATTING:
       { role: 'user', content: prompt },
     ];
 
-    const response = await this.llm.chat('gemini', messages, {
-      model: this.config.model,
+    const response = await this.callLLMWithFallback(messages, {
       temperature: 0.4,
-      apiKey: this.config.apiKey,
     });
 
     let workflowText = response.content.trim();
@@ -2102,10 +2166,8 @@ ${hasGmail ? '- If any email node other than google_gmail exists, that is a CRIT
       { role: 'user', content: prompt },
     ];
 
-    const response = await this.llm.chat('gemini', messages, {
-      model: this.config.model,
+    const response = await this.callLLMWithFallback(messages, {
       temperature: 0.2,
-      apiKey: this.config.apiKey,
     });
 
     let validationText = response.content.trim();
@@ -2208,10 +2270,8 @@ CRITICAL: You MUST NOT ask for help. Fix errors automatically using:
       { role: 'user', content: prompt },
     ];
 
-    const response = await this.llm.chat('gemini', messages, {
-      model: this.config.model,
+    const response = await this.callLLMWithFallback(messages, {
       temperature: 0.3,
-      apiKey: this.config.apiKey,
     });
 
     let fixedWorkflowText = response.content.trim();
@@ -2313,10 +2373,8 @@ Goal is achieved ONLY if:
       { role: 'user', content: prompt },
     ];
 
-    const response = await this.llm.chat('gemini', messages, {
-      model: this.config.model,
+    const response = await this.callLLMWithFallback(messages, {
       temperature: 0.2,
-      apiKey: this.config.apiKey,
     });
 
     let verificationText = response.content.trim();

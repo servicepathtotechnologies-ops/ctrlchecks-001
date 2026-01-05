@@ -202,8 +202,22 @@ export default function PropertiesPanel({ onClose }: PropertiesPanelProps) {
     );
   }
 
+  // Safety check: ensure node has proper data structure
+  if (!selectedNode.data || !selectedNode.data.type) {
+    console.warn('[PropertiesPanel] Node missing data or type:', selectedNode);
+    return (
+      <div className="flex-1 flex items-center justify-center p-6">
+        <div className="text-center text-muted-foreground">
+          <HelpCircle className="h-8 w-8 mx-auto mb-3 opacity-50" />
+          <p className="text-sm font-medium">Invalid Node</p>
+          <p className="text-xs mt-1">This node has missing data. Please reload the workflow.</p>
+        </div>
+      </div>
+    );
+  }
+
   const nodeDefinition = getNodeDefinition(selectedNode.data.type);
-  const IconComponent = iconMap[selectedNode.data.icon] || Box;
+  const IconComponent = iconMap[selectedNode.data.icon || 'Box'] || Box;
 
   const handleConfigChange = (key: string, value: unknown) => {
     // Prevent focus loss by using stopPropagation on the update
@@ -278,7 +292,7 @@ export default function PropertiesPanel({ onClose }: PropertiesPanelProps) {
   };
 
   const renderField = (field: ConfigField) => {
-    const value = selectedNode.data.config[field.key] ?? field.defaultValue ?? '';
+    const value = (selectedNode.data.config || {})[field.key] ?? field.defaultValue ?? '';
 
     switch (field.type) {
       case 'text':
@@ -416,11 +430,11 @@ export default function PropertiesPanel({ onClose }: PropertiesPanelProps) {
           <div className="space-y-3">
             <div>
               <Label className="text-xs text-muted-foreground">Type</Label>
-              <p className="text-sm font-medium">{selectedNode.data.label}</p>
+              <p className="text-sm font-medium">{selectedNode.data.label || selectedNode.data.type || 'Unknown'}</p>
             </div>
             <div>
               <Label className="text-xs text-muted-foreground">Description</Label>
-              <p className="text-sm text-muted-foreground">{nodeDefinition?.description}</p>
+              <p className="text-sm text-muted-foreground">{nodeDefinition?.description || 'No description available'}</p>
             </div>
           </div>
 

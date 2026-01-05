@@ -26,14 +26,26 @@ type WorkflowNodeProps = Node<NodeData>;
 
 const WorkflowNode = memo(({ data, selected }: NodeProps<WorkflowNodeProps>) => {
   // Skip rendering form nodes - they use custom FormTriggerNode component
-  if (data.type === 'form') {
+  if (data?.type === 'form') {
     return null;
   }
   
-  const category = NODE_CATEGORIES.find((c) => c.id === data.category);
-  const IconComponent = iconMap[data.icon] || Box;
-  const isIfElseNode = data.type === 'if_else';
-  const isSwitchNode = data.type === 'switch';
+  // Fallback for missing data fields
+  if (!data) {
+    console.warn('[WorkflowNode] Missing data prop');
+    return null;
+  }
+  
+  // Ensure required fields exist with fallbacks
+  const nodeType = data.type || 'unknown';
+  const nodeLabel = data.label || nodeType || 'Unknown Node';
+  const nodeCategory = data.category || 'data';
+  const nodeIcon = data.icon || 'Box';
+  
+  const category = NODE_CATEGORIES.find((c) => c.id === nodeCategory);
+  const IconComponent = iconMap[nodeIcon] || Box;
+  const isIfElseNode = nodeType === 'if_else';
+  const isSwitchNode = nodeType === 'switch';
 
   // Parse Switch cases to create output handles
   // This will automatically update when data.config.cases changes
@@ -106,8 +118,8 @@ const WorkflowNode = memo(({ data, selected }: NodeProps<WorkflowNodeProps>) => 
           <IconComponent className="h-4 w-4" />
         </div>
         <div className="flex-1 min-w-0">
-          <div className="font-medium text-sm leading-tight break-words hyphens-auto">{data.label}</div>
-          <div className="text-xs text-muted-foreground capitalize leading-tight break-words mt-0.5">{data.category}</div>
+          <div className="font-medium text-sm leading-tight break-words hyphens-auto">{nodeLabel}</div>
+          <div className="text-xs text-muted-foreground capitalize leading-tight break-words mt-0.5">{nodeCategory}</div>
         </div>
       </div>
 

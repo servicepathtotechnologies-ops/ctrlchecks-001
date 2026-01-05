@@ -50,13 +50,13 @@ function WorkflowCanvasInner() {
     const handleKeyDown = (event: KeyboardEvent) => {
       // Ignore if input/textarea/select is focused or if typing in an input field
       const target = event.target as HTMLElement;
-      const isInputElement = 
+      const isInputElement =
         target instanceof HTMLInputElement ||
         target instanceof HTMLTextAreaElement ||
         target instanceof HTMLSelectElement ||
         (target instanceof HTMLDivElement && target.contentEditable === 'true') ||
         target.closest('input, textarea, select, [contenteditable="true"]');
-      
+
       if (isInputElement) {
         // Allow Delete/Backspace in inputs for normal text editing
         return;
@@ -82,23 +82,18 @@ function WorkflowCanvasInner() {
       if (event.ctrlKey || event.metaKey) {
         switch (event.key.toLowerCase()) {
           case 'z':
-            if (!event.shiftKey) {
-              event.preventDefault();
-              event.stopPropagation();
+            event.preventDefault();
+            event.stopPropagation();
+            if (event.shiftKey) {
+              redo();
+            } else {
               undo();
             }
             break;
           case 'y':
-          case 'z':
-            if (event.shiftKey && event.key.toLowerCase() === 'z') {
-              event.preventDefault();
-              event.stopPropagation();
-              redo();
-            } else if (event.key.toLowerCase() === 'y') {
-              event.preventDefault();
-              event.stopPropagation();
-              redo();
-            }
+            event.preventDefault();
+            event.stopPropagation();
+            redo();
             break;
           case 'c':
             event.preventDefault();
@@ -145,7 +140,7 @@ function WorkflowCanvasInner() {
 
       // Use 'form' node type for Form Trigger, 'custom' for others
       const nodeType = nodeData.type === 'form' ? 'form' : 'custom';
-      
+
       const newNode: Node<NodeData> = {
         id: `${nodeData.type}_${Date.now()}`,
         type: nodeType,
@@ -165,8 +160,14 @@ function WorkflowCanvasInner() {
   );
 
   const onNodeClick = useCallback(
-    (_: React.MouseEvent, node: Node<NodeData>) => {
-      selectNode(node);
+    (event: React.MouseEvent, node: Node<NodeData>) => {
+      event.preventDefault();
+      event.stopPropagation();
+      try {
+        selectNode(node);
+      } catch (error) {
+        console.error('Error selecting node:', error);
+      }
     },
     [selectNode]
   );
@@ -196,11 +197,11 @@ function WorkflowCanvasInner() {
   const styledEdges = edges.map((edge) => {
     const sourceNode = nodes.find(n => n.id === edge.source);
     const targetNode = nodes.find(n => n.id === edge.target);
-    
+
     // Determine edge color based on execution status
     let edgeColor = 'hsl(var(--border))'; // Default gray
     let strokeWidth = 2;
-    
+
     if (sourceNode?.data?.executionStatus === 'success' && targetNode?.data?.executionStatus !== 'error') {
       // Green for successful execution path
       edgeColor = '#22c55e'; // green-500
@@ -214,7 +215,7 @@ function WorkflowCanvasInner() {
       edgeColor = '#3b82f6'; // blue-500
       strokeWidth = 2.5;
     }
-    
+
     return {
       ...edge,
       style: {
@@ -253,11 +254,7 @@ function WorkflowCanvasInner() {
         <Controls className="!bg-card !border-border !shadow-md [&>button]:!bg-card [&>button]:!border-border [&>button]:!text-foreground [&>button:hover]:!bg-muted" />
         <MiniMap
           className="!bg-card !border-border"
-          nodeSize={(node) => {
-            // Return the same size for all nodes to ensure consistency in minimap
-            // This prevents form nodes from appearing larger than other nodes
-            return 20;
-          }}
+
           nodeColor={(node) => {
             const data = node.data as NodeData;
             switch (data?.category) {

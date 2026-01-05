@@ -75,7 +75,24 @@ export async function getUserRole(): Promise<AppRole | null> {
       .eq('user_id', user.id)
       .single();
 
-    if (error || !data) return null;
+    // Handle 406 errors gracefully (RLS policy may not be set up yet)
+    if (error) {
+      // 406 = Not Acceptable (usually RLS blocking access)
+      // PGRST116 = PostgREST error code for 406
+      const is406Error = error.code === 'PGRST116' || 
+                        error.message?.includes('406') ||
+                        (error as any).status === 406;
+      
+      if (is406Error) {
+        console.warn('user_roles 406 error (RLS policy may need to be applied):', error);
+        return null;
+      }
+      
+      console.error('Error getting user role:', error);
+      return null;
+    }
+
+    if (!data) return null;
 
     return data.role;
   } catch (error) {

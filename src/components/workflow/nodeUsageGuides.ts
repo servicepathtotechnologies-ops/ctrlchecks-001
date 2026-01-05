@@ -726,21 +726,7 @@ AI Agent can then analyze, filter, or process this data.`,
     ],
   },
 
-  merge_data: {
-    overview: 'Combine data from multiple sources. Merge objects together or concatenate arrays.',
-    inputs: ['multiple data inputs'],
-    outputs: ['merged_data'],
-    example: `Mode: "merge"
-Inputs from two nodes:
-  1: {name: "John", age: 30}
-  2: {email: "john@test.com"}
 
-Output: {name: "John", age: 30, email: "john@test.com"}
-
-Mode: "concat" for arrays:
-  [1,2] + [3,4] = [1,2,3,4]`,
-    tips: ['Merge combines object properties', 'Concat joins arrays', 'Connect multiple nodes as inputs'],
-  },
 
   database_read: {
     overview: 'Read data from your database tables. Query with filters, ordering, and limits.',
@@ -1098,7 +1084,7 @@ Output: {
   jobComplete: true
 }`,
     tips: [
-      'Use backticks for table names: \`project.dataset.table\`',
+      'Use backticks for table names: `project.dataset.table`',
       'Standard SQL recommended (set Use Legacy SQL to false)',
       'Results automatically formatted as JSON objects',
       'Large queries may take time',
