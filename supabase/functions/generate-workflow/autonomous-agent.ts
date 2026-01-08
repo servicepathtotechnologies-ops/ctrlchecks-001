@@ -458,7 +458,7 @@ export class AutonomousWorkflowAgent {
       const rulesMatch = userContent.match(/RULES:[^]*?(?=Return|$)/);
       const jsonExampleMatch = userContent.match(/Return[^]*$/);
       
-      const goal = goalMatch ? goalMatch[1] : userGoal || '';
+      const goal = goalMatch ? goalMatch[1] : this.state.goal || '';
       let requiredNodes: string[] = [];
       if (requiredNodesMatch) {
         try {

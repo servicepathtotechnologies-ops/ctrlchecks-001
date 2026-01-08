@@ -199,7 +199,12 @@ function createTestNode(type, config) {
 /**
  * Example usage for testing
  */
-if (require.main === module) {
+// Check if this file is being run directly (ES module equivalent of require.main === module)
+import { fileURLToPath } from 'url';
+const __filename = fileURLToPath(import.meta.url);
+const isMainModule = process.argv[1] && process.argv[1].endsWith('extract-auth-node-properties.js');
+
+if (isMainModule) {
   console.log('=== Authentication Node Properties Extractor ===\n');
   
   // Example: Create a test OAuth2 node
@@ -243,7 +248,7 @@ if (require.main === module) {
   console.log(JSON.stringify(jwtProps, null, 2));
 }
 
-module.exports = {
+export {
   getStringProperty,
   getNumberProperty,
   getBooleanProperty,
