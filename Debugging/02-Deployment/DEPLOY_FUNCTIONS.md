@@ -33,13 +33,13 @@ npm run deploy:webhook-trigger
 
 ### For Linux/Mac:
 ```bash
-chmod +x deploy-all-functions.sh
-./deploy-all-functions.sh
+chmod +x deploy-functions.sh
+./deploy-functions.sh
 ```
 
 ### For Windows (PowerShell):
 ```powershell
-.\deploy-all-functions.ps1
+.\deploy-functions.ps1
 ```
 
 ## 📦 List of Functions
