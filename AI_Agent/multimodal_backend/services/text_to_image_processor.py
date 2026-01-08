@@ -45,7 +45,7 @@ class TextToImageProcessor:
             self.pipe = self.pipe.to("cpu")
             self.pipe.enable_attention_slicing()
             
-            logger.info("✅ Stable Diffusion Turbo model loaded successfully")
+            logger.info("[OK] Stable Diffusion Turbo model loaded successfully")
         except Exception as e:
             logger.error(f"Failed to load Stable Diffusion model: {e}")
             raise

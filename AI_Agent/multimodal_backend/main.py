@@ -6,7 +6,7 @@ CRITICAL: All AI processing happens here using BLIP and FLAN-T5 (local CPU model
 Matches the Streamlit implementation exactly
 """
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from typing import Optional, Dict, Any
@@ -20,7 +20,7 @@ from pathlib import Path
 try:
     from dotenv import load_dotenv
     load_dotenv()
-    print("✅ Loaded environment variables from .env file")
+    print("[OK] Loaded environment variables from .env file")
 except ImportError:
     # python-dotenv not installed, skip .env loading
     pass

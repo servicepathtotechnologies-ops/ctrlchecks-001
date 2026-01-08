@@ -163,15 +163,22 @@ export class HuggingFaceRouterClient {
       messages = prompt;
     }
 
+    // ENFORCE HF ROUTER LIMIT: max_new_tokens = 512
+    const MAX_NEW_TOKENS = 512;
+    const safeMaxTokens = Math.min(options.max_tokens ?? MAX_NEW_TOKENS, MAX_NEW_TOKENS);
+    
     const url = `${this.baseUrl}/v1/chat/completions`;
     const payload = {
       model: modelName,
       messages: messages,
       temperature: options.temperature ?? 0.7,
-      max_tokens: options.max_tokens ?? 300,
+      max_tokens: safeMaxTokens,
       top_p: options.top_p ?? 0.9,
       ...options,
     };
+    
+    // Override max_tokens in options to ensure it's enforced
+    payload.max_tokens = safeMaxTokens;
 
     let lastError: Error | null = null;
 

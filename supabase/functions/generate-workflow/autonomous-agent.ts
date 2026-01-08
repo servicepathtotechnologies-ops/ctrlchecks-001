@@ -88,6 +88,108 @@ export interface RefinementResult {
   }>;
 }
 
+/**
+ * Check if an object contains a valid workflow structure
+ * Accepts multiple formats: {nodes, edges}, {workflow}, {analysis, plan}
+ */
+function isValidWorkflow(obj: any): boolean {
+  if (!obj || typeof obj !== 'object') {
+    return false;
+  }
+  
+  // Format 1: Direct workflow { nodes: [...], edges: [...] }
+  if (Array.isArray(obj.nodes)) {
+    return true;
+  }
+  
+  // Format 2: Nested workflow { workflow: { nodes: [...], edges: [...] } }
+  if (obj.workflow && Array.isArray(obj.workflow.nodes)) {
+    return true;
+  }
+  
+  // Format 3: Analysis/Plan format (legacy, but still valid)
+  if (obj.analysis && obj.plan) {
+    return true;
+  }
+  
+  return false;
+}
+
+/**
+ * Extract the first valid JSON object from text
+ * Handles markdown code blocks, explanations, etc.
+ */
+function extractFirstJSONObject(text: string): string {
+  // Remove markdown code blocks
+  let cleaned = text.trim();
+  
+  // Try to extract from ```json blocks
+  if (cleaned.includes('```json')) {
+    const match = cleaned.match(/```json\s*([\s\S]*?)\s*```/);
+    if (match && match[1]) {
+      cleaned = match[1].trim();
+    }
+  } else if (cleaned.includes('```')) {
+    // Try generic code blocks
+    const match = cleaned.match(/```\s*([\s\S]*?)\s*```/);
+    if (match && match[1]) {
+      cleaned = match[1].trim();
+    }
+  }
+  
+  // Find first { ... } block
+  const firstBrace = cleaned.indexOf('{');
+  if (firstBrace === -1) {
+    throw new Error('No JSON object found in response');
+  }
+  
+  let braceCount = 0;
+  let endIndex = firstBrace;
+  
+  for (let i = firstBrace; i < cleaned.length; i++) {
+    if (cleaned[i] === '{') braceCount++;
+    if (cleaned[i] === '}') braceCount--;
+    if (braceCount === 0) {
+      endIndex = i + 1;
+      break;
+    }
+  }
+  
+  if (braceCount !== 0) {
+    throw new Error('Malformed JSON: unmatched braces');
+  }
+  
+  return cleaned.substring(firstBrace, endIndex);
+}
+
+/**
+ * Normalize workflow object to standard format { nodes, edges }
+ */
+function normalizeWorkflow(obj: any): { nodes: any[]; edges: any[] } {
+  // Format 1: Direct workflow
+  if (Array.isArray(obj.nodes)) {
+    return {
+      nodes: obj.nodes,
+      edges: Array.isArray(obj.edges) ? obj.edges : []
+    };
+  }
+  
+  // Format 2: Nested workflow
+  if (obj.workflow && Array.isArray(obj.workflow.nodes)) {
+    return {
+      nodes: obj.workflow.nodes,
+      edges: Array.isArray(obj.workflow.edges) ? obj.workflow.edges : []
+    };
+  }
+  
+  // Format 3: Analysis/Plan (cannot be normalized to workflow, return empty)
+  if (obj.analysis && obj.plan) {
+    return { nodes: [], edges: [] };
+  }
+  
+  throw new Error('Invalid workflow format: cannot normalize');
+}
+
 export class AutonomousWorkflowAgent {
   private llm: LLMAdapter;
   private config: Required<Omit<AutonomousAgentConfig, 'onProgress' | 'huggingFaceApiKey' | 'provider'>> & { 
@@ -196,72 +298,383 @@ export class AutonomousWorkflowAgent {
   }
 
   /**
-   * Helper method: Call LLM with automatic provider fallback
-   * Tries Hugging Face first, falls back to Gemini if needed
+   * Estimate token count (rough approximation: 1 token ≈ 4 characters)
+   */
+  private estimateTokens(text: string): number {
+    return Math.ceil(text.length / 4);
+  }
+
+  /**
+   * Strip debug text, comments, stack traces, and verbose logs from text
+   */
+  private stripDebugText(text: string): string {
+    // Remove console.log statements and their content
+    text = text.replace(/console\.(log|warn|error|debug)\([^)]*\)/g, '');
+    // Remove comments (single-line and multi-line)
+    text = text.replace(/\/\/.*$/gm, '');
+    text = text.replace(/\/\*[\s\S]*?\*\//g, '');
+    // Remove stack traces
+    text = text.replace(/at\s+[\w\.]+\([^)]+\)/g, '');
+    // Remove verbose error messages
+    text = text.replace(/Error:\s*[^\n]+/g, '');
+    // Remove excessive whitespace
+    text = text.replace(/\n{3,}/g, '\n\n');
+    return text.trim();
+  }
+
+  /**
+   * Compress node reference to only relevant nodes based on goal
+   */
+  private compressNodeReference(fullReference: string, userGoal: string, requiredNodes: string[]): string {
+    const goalLower = userGoal.toLowerCase();
+    
+    // Extract only relevant sections from node reference
+    const sections: string[] = [];
+    
+    // Determine trigger type from goal
+    let triggerType = 'manual_trigger';
+    if (goalLower.includes('form') || goalLower.includes('collect data') || goalLower.includes('user data')) {
+      triggerType = 'form';
+    } else if (goalLower.includes('webhook') || goalLower.includes('http request')) {
+      triggerType = 'webhook';
+    } else if (goalLower.includes('schedule') || goalLower.includes('daily') || goalLower.includes('every')) {
+      triggerType = 'schedule';
+    } else if (goalLower.includes('chat') || goalLower.includes('chatbot')) {
+      triggerType = 'chat_trigger';
+    }
+    
+    sections.push(`TRIGGERS: ${triggerType} (primary), manual_trigger, webhook, schedule, form`);
+    
+    // Include only required node types with minimal descriptions
+    const nodeDescriptions: Record<string, string> = {
+      'google_sheets': 'google_sheets: read/append data (returns array-of-arrays)',
+      'google_doc': 'google_doc: read document content',
+      'google_gmail': 'google_gmail: send email (operation: "send")',
+      'slack_webhook': 'slack_webhook/slack_message: send to Slack',
+      'if_else': 'if_else: conditional logic (needs true + false edges)',
+      'javascript': 'javascript: custom code (return {content, text, body})',
+      'form': 'form: collect user input (data in input.data)',
+      'webhook': 'webhook: receive HTTP (data in input.body)',
+      'database_read': 'database_read: read from Supabase',
+      'database_write': 'database_write: write to Supabase',
+      'http_request': 'http_request: call external API',
+    };
+    
+    // Add relevant node descriptions
+    const addedNodes = new Set<string>();
+    for (const node of requiredNodes) {
+      if (nodeDescriptions[node] && !addedNodes.has(node)) {
+        sections.push(nodeDescriptions[node]);
+        addedNodes.add(node);
+      }
+    }
+    
+    // Add critical rules only (compressed)
+    sections.push(`CRITICAL RULES:
+- ${triggerType === 'form' ? 'Form: data in input.data' : triggerType === 'webhook' ? 'Webhook: data in input.body' : 'Trigger: use appropriate type'}
+- Google Sheets: add javascript node after to parse arrays
+- JavaScript: return {content: "text"}
+- Output: use {{input.content}} or {{input.text}}
+- if_else: needs both true and false edges`);
+    
+    return sections.join('\n');
+  }
+
+  /**
+   * Trim execution history to last N steps only
+   */
+  private trimExecutionHistory(history: any[], maxSteps: number = 3): any[] {
+    if (!Array.isArray(history) || history.length <= maxSteps) {
+      return history;
+    }
+    return history.slice(-maxSteps);
+  }
+
+  /**
+   * Compress training examples to minimal format
+   */
+  private compressTrainingExamples(trainingContext: string, maxTokens: number = 500): string {
+    if (this.estimateTokens(trainingContext) <= maxTokens) {
+      return trainingContext;
+    }
+    
+    // Extract only the most relevant example
+    const lines = trainingContext.split('\n');
+    let compressed = '';
+    let currentExample = '';
+    let tokenCount = 0;
+    
+    for (const line of lines) {
+      const lineTokens = this.estimateTokens(line);
+      if (tokenCount + lineTokens > maxTokens) {
+        break;
+      }
+      currentExample += line + '\n';
+      tokenCount += lineTokens;
+    }
+    
+    return currentExample.trim() || 'No training examples (token limit)';
+  }
+
+  /**
+   * Actively reduce prompt size to fit within token budget
+   * Returns modified messages that fit within the budget
+   */
+  private reducePromptToFitBudget(messages: LLMMessage[], maxTokens: number = 10500): LLMMessage[] {
+    const fullText = messages.map(m => m.content).join('\n');
+    let currentTokens = this.estimateTokens(fullText);
+    
+    if (currentTokens <= maxTokens) {
+      return messages;
+    }
+    
+    console.warn(`[TOKEN_BUDGET] Prompt too large (${currentTokens} tokens), reducing to fit ${maxTokens} token budget...`);
+    
+    // Clone messages to avoid mutating original
+    const reducedMessages = messages.map(m => ({ ...m, content: m.content }));
+    
+    // Strategy 1: Strip debug text from all messages
+    for (let i = 0; i < reducedMessages.length; i++) {
+      reducedMessages[i].content = this.stripDebugText(reducedMessages[i].content);
+    }
+    
+    currentTokens = this.estimateTokens(reducedMessages.map(m => m.content).join('\n'));
+    if (currentTokens <= maxTokens) {
+      console.log(`[TOKEN_BUDGET] Reduced to ${currentTokens} tokens by stripping debug text`);
+      return reducedMessages;
+    }
+    
+    // Strategy 2: Compress user message (contains node reference, training examples, etc.)
+    const userMessage = reducedMessages.find(m => m.role === 'user');
+    if (userMessage) {
+      let userContent = userMessage.content;
+      
+      // Extract components
+      const goalMatch = userContent.match(/USER GOAL:\s*"([^"]+)"/);
+      const configMatch = userContent.match(/USER (?:PROVIDED )?CONFIG[^]*?(?=REQUIRED|TRAINING|NODE|RULES|$)/i);
+      const requiredNodesMatch = userContent.match(/REQUIRED NODES[:\s]+(\[[^\]]+\]|[\w\s,]+)/);
+      const trainingMatch = userContent.match(/(TRAINING|EXAMPLE)[^]*?(?=NODE|RULES|Return|$)/i);
+      const nodeRefMatch = userContent.match(/(NODE REFERENCE|COMPREHENSIVE|SYSTEM CAPABILITIES|RULES:)[^]*?(?=RULES:|Return|$)/i);
+      const rulesMatch = userContent.match(/RULES:[^]*?(?=Return|$)/);
+      const jsonExampleMatch = userContent.match(/Return[^]*$/);
+      
+      const goal = goalMatch ? goalMatch[1] : userGoal || '';
+      let requiredNodes: string[] = [];
+      if (requiredNodesMatch) {
+        try {
+          requiredNodes = JSON.parse(requiredNodesMatch[1]);
+        } catch {
+          // If not JSON, try to extract node names
+          const nodesText = requiredNodesMatch[1];
+          requiredNodes = nodesText.split(',').map(n => n.trim()).filter(n => n.length > 0);
+        }
+      }
+      
+      // Rebuild with compressed components
+      let compressedContent = `You are an expert workflow construction agent. Build a COMPLETE, executable workflow.\n\n`;
+      compressedContent += `USER GOAL: "${goal}"\n\n`;
+      
+      if (configMatch) {
+        const configText = configMatch[0];
+        if (this.estimateTokens(configText) > 500) {
+          compressedContent += `USER CONFIG: [Config provided - use values as needed]\n\n`;
+        } else {
+          compressedContent += configText + '\n\n';
+        }
+      }
+      
+      if (requiredNodesMatch) {
+        compressedContent += `REQUIRED NODES: ${JSON.stringify(requiredNodes)}\n\n`;
+      }
+      
+      // Compress training examples
+      if (trainingMatch) {
+        const trainingText = this.compressTrainingExamples(trainingMatch[0], 300);
+        compressedContent += `TRAINING EXAMPLE:\n${trainingText}\n\n`;
+      }
+      
+      // Compress node reference
+      if (nodeRefMatch) {
+        const nodeRefText = this.compressNodeReference(nodeRefMatch[0], goal, requiredNodes);
+        compressedContent += `NODE REFERENCE:\n${nodeRefText}\n\n`;
+      } else {
+        // If no node reference found, add minimal one
+        const minimalRef = this.compressNodeReference('', goal, requiredNodes);
+        compressedContent += `NODE REFERENCE:\n${minimalRef}\n\n`;
+      }
+      
+      // Keep rules but compress
+      if (rulesMatch) {
+        const rulesText = rulesMatch[0];
+        // Keep only essential rules (first 8 lines)
+        const essentialRules = rulesText.split('\n').slice(0, 8).join('\n');
+        compressedContent += `${essentialRules}\n\n`;
+      } else {
+        // Add minimal rules if not found
+        compressedContent += `RULES:\n1. Use correct trigger type\n2. Include all required nodes\n3. Use template variables\n4. Connect nodes properly\n\n`;
+      }
+      
+      // Keep JSON example
+      if (jsonExampleMatch) {
+        compressedContent += jsonExampleMatch[0];
+      }
+      
+      userMessage.content = compressedContent;
+    }
+    
+    currentTokens = this.estimateTokens(reducedMessages.map(m => m.content).join('\n'));
+    
+    // Strategy 3: If still too large, aggressively truncate user message
+    if (currentTokens > maxTokens && userMessage) {
+      const systemTokens = this.estimateTokens(reducedMessages.filter(m => m.role !== 'user').map(m => m.content).join('\n'));
+      const targetUserTokens = maxTokens - systemTokens - 500; // Reserve 500 tokens safety margin
+      const currentUserTokens = this.estimateTokens(userMessage.content);
+      
+      if (currentUserTokens > targetUserTokens) {
+        // Keep only essential parts: goal, required nodes, minimal rules, JSON example
+        const goalMatch = userMessage.content.match(/USER GOAL:\s*"([^"]+)"/);
+        const requiredNodesMatch = userMessage.content.match(/REQUIRED NODES[:\s]+(\[[^\]]+\]|[\w\s,]+)/);
+        const jsonExampleMatch = userMessage.content.match(/Return[^]*$/);
+        
+        let minimalContent = `You are a workflow construction agent.\n\n`;
+        if (goalMatch) {
+          minimalContent += `USER GOAL: "${goalMatch[1]}"\n\n`;
+        }
+        if (requiredNodesMatch) {
+          minimalContent += `REQUIRED NODES: ${requiredNodesMatch[1]}\n\n`;
+        }
+        minimalContent += `RULES: Use correct trigger, include all required nodes, use template variables, connect properly.\n\n`;
+        if (jsonExampleMatch) {
+          minimalContent += jsonExampleMatch[0];
+        }
+        
+        // Verify it fits
+        const minimalTokens = this.estimateTokens(minimalContent);
+        if (minimalTokens <= targetUserTokens) {
+          userMessage.content = minimalContent;
+          console.warn(`[TOKEN_BUDGET] Aggressively compressed user message to minimal format`);
+        } else {
+          // Last resort: truncate JSON example
+          const jsonPart = jsonExampleMatch ? jsonExampleMatch[0] : '';
+          const jsonTokens = this.estimateTokens(jsonPart);
+          const remainingTokens = targetUserTokens - this.estimateTokens(minimalContent.replace(jsonPart, ''));
+          if (jsonTokens > remainingTokens) {
+            const jsonRatio = remainingTokens / jsonTokens;
+            const truncatedJson = jsonPart.substring(0, Math.floor(jsonPart.length * jsonRatio * 0.9));
+            minimalContent = minimalContent.replace(jsonPart, truncatedJson + '...');
+          }
+          userMessage.content = minimalContent;
+          console.warn(`[TOKEN_BUDGET] Last resort: truncated to minimal format`);
+        }
+      }
+    }
+    
+    const finalTokens = this.estimateTokens(reducedMessages.map(m => m.content).join('\n'));
+    console.log(`[TOKEN_BUDGET] Final prompt size: ${finalTokens} tokens (target: ${maxTokens})`);
+    
+    if (finalTokens > maxTokens) {
+      // Last resort: return minimal prompt
+      console.error(`[TOKEN_BUDGET] CRITICAL: Still exceeds budget after all compression. Using minimal prompt.`);
+      const goalMatch = reducedMessages.find(m => m.role === 'user')?.content.match(/USER GOAL:\s*"([^"]+)"/);
+      const goal = goalMatch ? goalMatch[1] : 'Generate workflow';
+      
+      reducedMessages[reducedMessages.findIndex(m => m.role === 'user')].content = 
+        `USER GOAL: "${goal}"\n\nBuild workflow JSON with nodes and edges. Use appropriate trigger and required nodes.`;
+      
+      const emergencyTokens = this.estimateTokens(reducedMessages.map(m => m.content).join('\n'));
+      if (emergencyTokens > maxTokens) {
+        throw new Error(`CRITICAL: Even minimal prompt (${emergencyTokens} tokens) exceeds budget (${maxTokens}). System error.`);
+      }
+    }
+    
+    return reducedMessages;
+  }
+
+  /**
+   * Check token count and actively reduce prompt if exceeds limit
+   * Hugging Face Router limit: inputs + max_new_tokens <= 32769
+   * We enforce: MAX_INPUT_TOKENS = 10500 (safe margin), max_new_tokens = 512
+   */
+  private checkTokenBudget(messages: LLMMessage[]): LLMMessage[] {
+    const MAX_INPUT_TOKENS = 10500; // Safe margin below 12000
+    const MAX_NEW_TOKENS = 512;
+    
+    // Actively reduce prompt to fit budget
+    const reducedMessages = this.reducePromptToFitBudget(messages, MAX_INPUT_TOKENS);
+    
+    const fullText = reducedMessages.map(m => m.content).join('\n');
+    const estimatedTokens = this.estimateTokens(fullText);
+    
+    // Final validation
+    if (estimatedTokens > MAX_INPUT_TOKENS) {
+      throw new Error(`Prompt exceeds Hugging Face token limit: ${estimatedTokens} tokens (max: ${MAX_INPUT_TOKENS}). Unable to reduce further.`);
+    }
+    
+    if (estimatedTokens + MAX_NEW_TOKENS > 32769) {
+      throw new Error(`Token limit violation: input tokens (${estimatedTokens}) + max_new_tokens (${MAX_NEW_TOKENS}) = ${estimatedTokens + MAX_NEW_TOKENS} > 32769.`);
+    }
+    
+    return reducedMessages;
+  }
+
+  /**
+   * Call Hugging Face Router ONLY - no fallbacks, no retries
+   * 
+   * CRITICAL FIXES:
+   * - Hard 8s timeout protection
+   * - NO fallbacks (HF Router ONLY)
+   * - NO retries (single call)
+   * - Observability logging
+   * - Token budget check (fail fast at 12k)
    */
   private async callLLMWithFallback(
     messages: LLMMessage[],
     options: { temperature?: number; maxTokens?: number }
   ): Promise<LLMResponse> {
-    // Determine primary and fallback providers
-    const primaryProvider = this.config.provider;
-    const fallbackProvider = primaryProvider === 'huggingface' ? 'gemini' : 'huggingface';
+    // HARD TOKEN BUDGET: Fail fast if exceeds 12k
+    this.checkTokenBudget(messages);
+    const startTime = Date.now();
     
-    // Try primary provider first
+    if (!this.config.huggingFaceApiKey) {
+      throw new Error('HuggingFace API key not configured');
+    }
+    
+    console.log(`[AGENT] Using Hugging Face Router ONLY (${this.config.model}) - no fallbacks, no retries`);
+    
+    // HARD TIMEOUT PROTECTION: 8 seconds max per request
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => {
+      controller.abort();
+    }, 8000);
+    
     try {
-      if (primaryProvider === 'huggingface') {
-        if (!this.config.huggingFaceApiKey) {
-          throw new Error('HuggingFace API key not configured');
-        }
-        console.log(`[AGENT] Using Hugging Face (${this.config.model})`);
-        return await this.llm.chat('huggingface', messages, {
+      // SINGLE CALL: Hugging Face Router ONLY
+      const response = await Promise.race([
+        this.llm.chat('huggingface', messages, {
           model: this.config.model,
           temperature: options.temperature ?? this.config.temperature,
-          maxTokens: options.maxTokens,
+          maxTokens: options.maxTokens ?? 512, // Enforce HF Router limit
           apiKey: this.config.huggingFaceApiKey,
-        });
-      } else {
-        console.log(`[AGENT] Using Gemini (${this.config.model})`);
-        return await this.llm.chat('gemini', messages, {
-          model: this.config.model,
-          temperature: options.temperature ?? this.config.temperature,
-          maxTokens: options.maxTokens,
-          apiKey: this.config.apiKey,
-        });
-      }
-    } catch (error: any) {
-      const errorMsg = error instanceof Error ? error.message : String(error);
-      console.warn(`[AGENT] Primary provider (${primaryProvider}) failed: ${errorMsg}`);
-      console.log(`[AGENT] Falling back to ${fallbackProvider}...`);
+        }),
+        new Promise<never>((_, reject) => {
+          setTimeout(() => reject(new Error('Request timeout after 8s')), 8000);
+        })
+      ]);
       
-      // Fallback to secondary provider
-      try {
-        if (fallbackProvider === 'gemini') {
-          console.log(`[AGENT] Using Gemini fallback (gemini-2.5-flash)`);
-          return await this.llm.chat('gemini', messages, {
-            model: 'gemini-2.5-flash',
-            temperature: options.temperature ?? this.config.temperature,
-            maxTokens: options.maxTokens,
-            apiKey: this.config.apiKey,
-          });
-        } else {
-          // Fallback to Hugging Face (if HF key available)
-          if (!this.config.huggingFaceApiKey) {
-            throw new Error('HuggingFace API key not configured for fallback');
-          }
-          console.log(`[AGENT] Using Hugging Face fallback (qwen-7b)`);
-          return await this.llm.chat('huggingface', messages, {
-            model: 'qwen-7b',
-            temperature: options.temperature ?? this.config.temperature,
-            maxTokens: options.maxTokens,
-            apiKey: this.config.huggingFaceApiKey,
-          });
-        }
-      } catch (fallbackError: any) {
-        const fallbackErrorMsg = fallbackError instanceof Error ? fallbackError.message : String(fallbackError);
-        console.error(`[AGENT] Both providers failed. Primary: ${errorMsg}, Fallback: ${fallbackErrorMsg}`);
-        throw new Error(`LLM call failed with both providers. Primary (${primaryProvider}): ${errorMsg}. Fallback (${fallbackProvider}): ${fallbackErrorMsg}`);
-      }
+      clearTimeout(timeoutId);
+      const executionTime = Date.now() - startTime;
+      console.log(`[OBSERVABILITY] modelUsed=${this.config.model}, executionTimeMs=${executionTime}, provider=huggingface, retryCount=0`);
+      return response;
+    } catch (error: any) {
+      clearTimeout(timeoutId);
+      const executionTime = Date.now() - startTime;
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      console.error(`[AGENT] Hugging Face Router failed: ${errorMsg}`);
+      console.log(`[OBSERVABILITY] modelUsed=${this.config.model}, executionTimeMs=${executionTime}, provider=huggingface, retryCount=0, error=${errorMsg}`);
+      // NO FALLBACK: Return error immediately
+      throw error instanceof Error ? error : new Error(String(error));
+    } finally {
+      clearTimeout(timeoutId);
     }
   }
 
@@ -422,245 +835,203 @@ export class AutonomousWorkflowAgent {
   }
 
   /**
-   * Main execution method - follows the 7-phase autonomous agent process
+   * SINGLE-SHOT WORKFLOW GENERATION
+   * One prompt, one model call, one JSON parse
+   * Replaces multi-phase generation to prevent token explosion
+   */
+  async generateWorkflowOnce(userGoal: string, userConfig: Record<string, any> = {}): Promise<any> {
+    console.log(`[SINGLE-SHOT] Generating workflow for: "${userGoal}"`);
+    
+    const goalLower = userGoal.toLowerCase();
+    const hasGmail = goalLower.includes('gmail') || goalLower.includes('email');
+    
+    // Extract required nodes from goal
+    const requiredNodes = this.extractRequiredNodes(userGoal);
+    
+    // Get training examples (limit to 1, will be compressed further if needed)
+    const { getTrainingExampleContext } = await import('./training-examples.ts');
+    let trainingContext = getTrainingExampleContext(userGoal, 1);
+    
+    // Check if form node is required
+    const formKeywords = [
+      'form', 'create a form', 'form data', 'user data', 'collect data', 'collect user data',
+      'name', 'email', 'mobile', 'phone', 'contact', 'registration', 'survey', 'feedback',
+      'submission', 'user input', 'input from users', 'contact form', 'registration form',
+      'feedback form', 'data collection', 'take the user data', 'user information',
+      'gather data', 'collect information', 'user submission'
+    ];
+    const requiresFormNode = formKeywords.some(keyword => goalLower.includes(keyword));
+    
+    // RESET CONTEXT: Clean userConfig thoroughly - remove all large objects
+    const cleanUserConfig: Record<string, any> = {};
+    for (const [key, value] of Object.entries(userConfig)) {
+      // Skip execution history, previous outputs, fallback workflows, logs
+      if (key === 'executionHistory' || key === 'previousOutputs' || key === 'fallbackWorkflow' || 
+          key === 'logs' || key === 'debug' || key === 'stackTrace') {
+        continue;
+      }
+      // Only include simple config values (strings, numbers, booleans, small objects)
+      if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+        cleanUserConfig[key] = value;
+      } else if (typeof value === 'object' && value !== null) {
+        const jsonStr = JSON.stringify(value);
+        // Only include if small (< 500 chars)
+        if (jsonStr.length < 500) {
+          cleanUserConfig[key] = value;
+        }
+      }
+    }
+
+    // Compress node reference to only relevant nodes
+    const compressedNodeRef = this.compressNodeReference(this.nodeKnowledge, userGoal, requiredNodes);
+    
+    // Compress training examples
+    trainingContext = this.compressTrainingExamples(trainingContext, 400);
+
+    const prompt = `You are an expert workflow construction agent. Build a COMPLETE, executable workflow.
+
+USER GOAL: "${userGoal}"
+
+${Object.keys(cleanUserConfig).length > 0 ? `USER CONFIG:\n${JSON.stringify(cleanUserConfig)}\n\n` : ''}REQUIRED NODES: ${JSON.stringify(requiredNodes)}
+
+${trainingContext}
+
+${compressedNodeRef}
+
+RULES:
+1. ${requiresFormNode ? '🚨 Use "form" node as FIRST node' : 'Start with trigger (manual_trigger, webhook, schedule)'}
+2. Position: x spacing 300px, y spacing 150px (start x:250, y:100)
+3. Use template variables: {{input.field}}
+4. if_else: MUST have both true and false edges
+5. ${hasGmail ? 'Email: google_gmail (operation: "send")' : ''}
+6. Google Sheets: Add javascript node after to parse arrays
+7. JavaScript: Return {content: "text", text: "text", body: "text"}
+8. Output nodes: Use {{input.content}} or {{input.text}}
+
+Return ONLY valid JSON (no explanations):
+{
+  "name": "Workflow name",
+  "nodes": [{"id": "id", "type": "type", "position": {"x": 250, "y": 100}, "config": {}}],
+  "edges": [{"id": "e1", "source": "id1", "target": "id2"}]
+}`;
+
+    const messages: LLMMessage[] = [
+      { 
+        role: 'system', 
+        content: 'You are a workflow construction agent. Return ONLY valid JSON, no explanations.' 
+      },
+      { role: 'user', content: prompt },
+    ];
+
+    // ACTIVE TOKEN BUDGET: Reduce prompt to fit budget (returns modified messages)
+    const reducedMessages = this.checkTokenBudget(messages);
+
+    // SINGLE LLM CALL: No retries, no fallbacks, HF Router ONLY
+    const response = await this.callLLMWithFallback(reducedMessages, {
+      temperature: 0.4,
+      maxTokens: 512, // Enforce HF Router limit: max_new_tokens = 512
+    });
+
+    // Extract JSON only
+    const responseText = response.content.trim();
+    const jsonText = extractFirstJSONObject(responseText);
+    const parsed = JSON.parse(jsonText);
+
+    // ACCEPT FLEXIBLE WORKFLOW JSON: Only check for nodes array
+    if (!parsed || typeof parsed !== 'object') {
+      throw new Error('LLM returned invalid workflow JSON: not an object');
+    }
+    
+    // Check if it's a valid workflow (has nodes array)
+    if (!Array.isArray(parsed.nodes)) {
+      throw new Error('LLM returned invalid workflow JSON: missing nodes array');
+    }
+
+    // Normalize to standard format
+    const workflow = normalizeWorkflow(parsed);
+    
+    // Validate nodes exist
+    if (!Array.isArray(workflow.nodes) || workflow.nodes.length === 0) {
+      throw new Error('LLM returned invalid workflow JSON: empty nodes array');
+    }
+
+    console.log(`[SINGLE-SHOT] Generated workflow with ${workflow.nodes.length} nodes`);
+    return {
+      name: parsed.name || `Workflow: ${userGoal.substring(0, 50)}`,
+      nodes: workflow.nodes,
+      edges: workflow.edges,
+    };
+  }
+
+  /**
+   * Main execution method - SINGLE LLM CALL (HF Router ONLY)
+   * Replaces multi-phase agent to prevent token explosion and infinite loops
    */
   async execute(userGoal: string, userConfig: Record<string, any> = {}): Promise<any> {
     this.state.goal = userGoal;
     this.state.userConfig = userConfig;
-    this.state.iteration = 0;
     this.startTime = Date.now();
     this.estimatedTime = this.estimateTime(userGoal);
 
-    console.log(`[AGENT] Starting autonomous workflow generation for goal: "${userGoal}"`);
-    console.log(`[AGENT] Estimated time: ${this.estimatedTime} seconds`);
+    console.log(`[AGENT] Starting SINGLE-SHOT workflow generation for goal: "${userGoal}"`);
+    console.log(`[AGENT] Using Hugging Face Router ONLY - no fallbacks, no retries`);
 
     // Send initial progress
-    this.updateProgress('Initializing', 0);
+    this.updateProgress('Generating', 0);
 
-    // Main execution loop - continues until goal is 100% achieved
-    while (this.state.iteration < this.state.maxIterations) {
-      // GUARD: Check for timeout (50s limit for edge function safety)
-      if ((Date.now() - this.startTime) > 50000) {
-        console.error('[AGENT] Execution time limit exceeded (50s). Breaking loop.');
-        break; // Will fall through to fallback generation
+    try {
+      // RESET CONTEXT: Clear all previous outputs and history
+      this.state.previousOutputs = undefined;
+      this.state.fallbackWorkflow = undefined;
+      this.state.executionHistory = [];
+      this.state.errors = [];
+      this.state.analysis = undefined;
+      this.state.plan = undefined;
+      this.state.workflow = undefined;
+
+      // SINGLE LLM CALL: Generate workflow in one shot
+      this.updateProgress('Generating Workflow', 50);
+      const workflow = await this.generateWorkflowOnce(userGoal, userConfig);
+      
+      // Validate workflow structure
+      if (!workflow || !Array.isArray(workflow.nodes) || workflow.nodes.length === 0) {
+        throw new Error('LLM returned invalid workflow: missing nodes array');
       }
 
-      this.state.iteration++;
-      console.log(`[AGENT] Iteration ${this.state.iteration}/${this.state.maxIterations}, Phase: ${this.state.phase}`);
-
-      try {
-        switch (this.state.phase) {
-          case 'understand':
-            this.updateProgress('Understanding & Planning', 10);
-            // OPTIMIZATION: When maxIterations <= 5, combine understand + planning to save 1 API call
-            if (this.config.maxIterations <= 5) {
-              console.log('[AGENT] Optimizing: Combining understand + planning phases (maxIterations <= 5)');
-              await this.phase1_UnderstandAndPlan_Combined(userGoal, userConfig);
-              this.updateProgress('Workflow Design', 50);
-            } else {
-              await this.phase1_UnderstandAndSummarize(userGoal, userConfig);
-              this.updateProgress('Understanding & Planning', 20);
-            }
-            break;
-          case 'planning':
-            this.updateProgress('Workflow Design', 30);
-            await this.phase2_Planning();
-            this.updateProgress('Workflow Design', 50);
-            break;
-          case 'construction':
-            this.updateProgress('Node Configuration', 55);
-            await this.phase3_WorkflowConstruction();
-            this.updateProgress('Node Configuration', 75);
-            break;
-          case 'validation':
-            this.updateProgress('Validation & Simulation', 77);
-
-            // OPTIMIZATION: Skip expensive LLM validation if maxIterations <= 5
-            if (this.config.maxIterations <= 5) {
-              console.log('[AGENT] Optimizing: Skipping LLM validation regarding maxIterations <= 5');
-              // We rely on static validation performed at the end of phase 3
-              if (this.state.errors.length > 0) {
-                this.state.phase = 'healing';
-              } else {
-                this.state.phase = 'verification';
-              }
-              break;
-            }
-
-            await this.phase4_ValidationAndSimulation();
-            this.updateProgress('Validation & Simulation', 90);
-
-            if (this.state.errors.length === 0) {
-              this.state.phase = 'verification';
-            } else {
-              this.state.phase = 'healing';
-            }
-            break;
-          case 'healing':
-            this.updateProgress('Error Handling', 85);
-            await this.phase5_ErrorHandlingAndSelfHealing();
-            break;
-          case 'verification':
-            this.updateProgress('Final Optimization', 92);
-
-            // OPTIMIZATION: Skip expensive LLM verification if maxIterations <= 5
-            if (this.config.maxIterations <= 5) {
-              console.log('[AGENT] Optimizing: Skipping LLM verification regarding maxIterations <= 5');
-              this.updateProgress('Completed', 100);
-              if (this.config.onProgress) {
-                const totalTime = (Date.now() - this.startTime) / 1000;
-                this.config.onProgress({
-                  status: 'completed',
-                  estimated_time_seconds: this.estimatedTime,
-                  elapsed_time_seconds: Math.round(totalTime * 10) / 10,
-                  progress_percentage: 100,
-                  current_phase: 'Completed',
-                });
-              }
-              return this.state.workflow;
-            }
-
-            const goalMet = await this.phase6_GoalVerification();
-            if (goalMet) {
-              // FINAL CHECK: Verify workflow is not just a fallback (trigger + log)
-              const finalCheck = this.verifyGoalProgrammatically(this.state.goal, this.state.workflow);
-              if (!finalCheck.passed) {
-                console.error(`[AGENT] Final check FAILED: ${finalCheck.reason}`);
-                this.state.errors.push({
-                  type: 'final_validation_failed',
-                  message: finalCheck.reason,
-                  fix: finalCheck.fix,
-                });
-                this.state.phase = 'planning';
-                break;
-              }
-
-              // Skip learning phase if learning is disabled
-              if (!this.config.enableLearning) {
-                this.updateProgress('Completed', 100);
-              } else {
-                this.updateProgress('Final Optimization', 98);
-                await this.phase7_LearningAndMemoryUpdate();
-                this.updateProgress('Completed', 100);
-              }
-
-              // Send completion
-              if (this.config.onProgress) {
-                const totalTime = (Date.now() - this.startTime) / 1000;
-                this.config.onProgress({
-                  status: 'completed',
-                  estimated_time_seconds: this.estimatedTime,
-                  elapsed_time_seconds: Math.round(totalTime * 10) / 10,
-                  progress_percentage: 100,
-                  current_phase: 'Completed',
-                });
-              }
-
-              return this.state.workflow;
-            }
-            // Goal not met, restart from planning
-            this.state.phase = 'planning';
-            break;
-          case 'learning':
-            this.updateProgress('Final Optimization', 99);
-            await this.phase7_LearningAndMemoryUpdate();
-            this.updateProgress('Completed', 100);
-
-            // Send completion
-            if (this.config.onProgress) {
-              const totalTime = (Date.now() - this.startTime) / 1000;
-              this.config.onProgress({
-                status: 'completed',
-                estimated_time_seconds: this.estimatedTime,
-                elapsed_time_seconds: Math.round(totalTime * 10) / 10,
-                progress_percentage: 100,
-                current_phase: 'Completed',
-              });
-            }
-
-            return this.state.workflow;
-        }
-      } catch (error) {
-        console.error(`[AGENT] Error in phase ${this.state.phase}:`, error);
-        this.state.errors.push({
-          type: 'phase_error',
-          message: error instanceof Error ? error.message : String(error),
-          fix: 'Retrying with error correction',
+      this.updateProgress('Completed', 100);
+      
+      if (this.config.onProgress) {
+        const totalTime = (Date.now() - this.startTime) / 1000;
+        this.config.onProgress({
+          status: 'completed',
+          estimated_time_seconds: this.estimatedTime,
+          elapsed_time_seconds: Math.round(totalTime * 10) / 10,
+          progress_percentage: 100,
+          current_phase: 'Completed',
         });
-
-        // Update progress even on error
-        if (this.config.onProgress) {
-          const elapsed = this.startTime > 0 ? (Date.now() - this.startTime) / 1000 : 0;
-          this.config.onProgress({
-            status: 'generating',
-            estimated_time_seconds: this.estimatedTime,
-            elapsed_time_seconds: Math.round(elapsed * 10) / 10,
-            progress_percentage: Math.min(95, Math.max(0, this.getCurrentProgressPercentage())),
-            current_phase: `Error handling: ${this.state.phase}`,
-          });
-        }
-
-        this.state.phase = 'healing';
       }
-    }
 
-    // If we've exhausted iterations, check if we have a valid workflow
-    if (this.state.workflow) {
-      // Verify it's not just a fallback
-      const nodeTypes = this.state.workflow.nodes?.map((n: any) => n.type) || [];
-      const isFallback = nodeTypes.length <= 2 && nodeTypes.includes('manual_trigger') && nodeTypes.includes('log_output');
-
-      if (!isFallback) {
-        console.warn(`[AGENT] Max iterations reached. Returning current workflow (${nodeTypes.length} nodes).`);
-        return this.state.workflow;
+      console.log(`[AGENT] Workflow generated successfully with ${workflow.nodes.length} nodes`);
+      return workflow;
+      
+    } catch (error) {
+      console.error(`[AGENT] Error in single-shot generation:`, error);
+      
+      // NO FALLBACK - Return error
+      if (this.config.onProgress) {
+        const elapsed = this.startTime > 0 ? (Date.now() - this.startTime) / 1000 : 0;
+        this.config.onProgress({
+          status: 'error',
+          estimated_time_seconds: this.estimatedTime,
+          elapsed_time_seconds: Math.round(elapsed * 10) / 10,
+          progress_percentage: 0,
+          current_phase: 'Error',
+        });
       }
+
+      // Re-throw error - no emergency fallback
+      throw error instanceof Error ? error : new Error(String(error));
     }
-
-    // If we only have a fallback or no workflow, return emergency fallback instead of throwing
-    console.error(`[AGENT] Max iterations reached and no valid workflow generated. Generating emergency fallback.`);
-
-    // Create emergency fallback workflow
-    const fallbackWorkflow = {
-      name: "Partially Generated Workflow",
-      summary: "The agent could not strictly validate this workflow within the time limit. A basic structure is provided for you to edit.",
-      nodes: [
-        {
-          id: "trigger_1",
-          type: "manual_trigger",
-          position: { x: 250, y: 100 },
-          config: {},
-          data: { label: "Manual Trigger" }
-        },
-        {
-          id: "log_1",
-          type: "log_output",
-          position: { x: 550, y: 100 },
-          config: {
-            message: "Workflow generation incomplete. Please add nodes manually."
-          },
-          data: { label: "Log Output" }
-        }
-      ],
-      edges: [
-        {
-          id: "e1",
-          source: "trigger_1",
-          target: "log_1"
-        }
-      ]
-    };
-
-    if (this.config.onProgress) {
-      this.config.onProgress({
-        status: 'completed',
-        estimated_time_seconds: this.estimatedTime,
-        elapsed_time_seconds: Math.round((Date.now() - this.startTime) / 1000 * 10) / 10,
-        progress_percentage: 100,
-        current_phase: 'Completed (Fallback)'
-      });
-    }
-
-    return fallbackWorkflow;
   }
 
   /**
@@ -1099,40 +1470,47 @@ Ensure:
     const responseText = response.content.trim();
 
     try {
-      // Attempt to repair and parse the JSON
-      const repaired = this.repairJson(responseText);
-      combined = JSON.parse(repaired);
+      // Extract JSON from response (handles markdown, explanations, etc.)
+      const jsonText = extractFirstJSONObject(responseText);
+      combined = JSON.parse(jsonText);
 
-      // Basic validation
+      // FIXED CONTRACT: Accept multiple formats
+      if (isValidWorkflow(combined)) {
+        // If LLM returned workflow directly, extract it
+        if (Array.isArray(combined.nodes)) {
+          // Direct workflow format - skip analysis/plan phases
+          console.log('[PHASE 1+2 COMBINED] LLM returned workflow directly, skipping analysis/plan');
+          this.state.workflow = {
+            nodes: combined.nodes,
+            edges: Array.isArray(combined.edges) ? combined.edges : []
+          };
+          this.state.phase = 'validation';
+          return;
+        } else if (combined.workflow && Array.isArray(combined.workflow.nodes)) {
+          // Nested workflow format
+          console.log('[PHASE 1+2 COMBINED] LLM returned nested workflow, extracting');
+          this.state.workflow = {
+            nodes: combined.workflow.nodes,
+            edges: Array.isArray(combined.workflow.edges) ? combined.workflow.edges : []
+          };
+          this.state.phase = 'validation';
+          return;
+        }
+      }
+
+      // Legacy format: analysis + plan
       if (!combined.analysis || !combined.plan) {
-        throw new Error('Missing analysis or plan fields');
+        throw new Error('LLM returned invalid format: missing analysis/plan and not a valid workflow');
       }
     } catch (parseError) {
-      console.error('[PHASE 1+2 COMBINED] JSON Parse failed. Using fallback plan to avoid crash.', parseError);
-      console.error('[PHASE 1+2 COMBINED] Parsed text preview:', responseText.substring(0, 200));
-
-      // Fallback to safe default plan so we can proceed to construction
-      combined = {
-        analysis: {
-          intent: "Construct workflow for: " + userGoal,
-          summary: "Analysis failed due to malformed LLM output. Proceeding with best-effort construction.",
-          requiredInputs: [],
-          expectedOutputs: [],
-          triggerType: requiresFormNode ? 'form' : 'manual_trigger',
-          emailNodeType: emailPreference || 'google_gmail'
-        },
-        plan: {
-          subTasks: [
-            // Just one generic task to pass validation, Phase 3 will do the real work
-            { id: "task_1", description: "Execute workflow logic", nodeType: requiresFormNode ? 'form' : 'manual_trigger', order: 1, dependencies: [] }
-          ],
-          executionOrder: ["task_1"],
-          dataFlow: "Linear flow"
-        }
-      };
+      // FAIL FAST: No fallback, throw error
+      const errorMsg = parseError instanceof Error ? parseError.message : String(parseError);
+      console.error('[PHASE 1+2 COMBINED] JSON Parse failed:', errorMsg);
+      console.error('[PHASE 1+2 COMBINED] Response preview:', responseText.substring(0, 500));
+      throw new Error(`LLM returned invalid workflow JSON: ${errorMsg}`);
     }
 
-    // Set both analysis and plan from the combined response (or fallback)
+    // Set both analysis and plan from the response
     this.state.analysis = combined.analysis;
     this.state.plan = combined.plan;
 
@@ -1148,8 +1526,11 @@ Ensure:
   private async phase3_WorkflowConstruction(): Promise<void> {
     console.log('[PHASE 3] Constructing workflow using training examples...');
 
-    const plan = this.state.plan;
-    const analysis = this.state.analysis;
+    // CRITICAL FIX: Do NOT feed previous outputs back into prompt
+    // Delete previous LLM outputs to prevent token explosion
+    delete (this.state as any).previousLLMOutput;
+    delete (this.state as any).generatedWorkflow;
+
     const goalLower = this.state.goal.toLowerCase();
     const hasGmail = goalLower.includes('gmail') || goalLower.includes('email');
     const userConfig = this.state.userConfig || {};
@@ -1157,12 +1538,9 @@ Ensure:
     // Extract required nodes from goal for validation
     const requiredNodes = this.extractRequiredNodes(this.state.goal);
 
-    // Get training examples for construction phase
+    // Get training examples for construction phase (limit to 1 to reduce tokens)
     const { getTrainingExampleContext } = await import('./training-examples.ts');
-    const trainingContext = getTrainingExampleContext(this.state.goal, 3);
-
-    // Extract similar training example from analysis if available
-    const similarExample = analysis?.similarTrainingExample || '';
+    const trainingContext = getTrainingExampleContext(this.state.goal, 1);
 
     // 🚨 Check if form node is required
     const formKeywords = [
@@ -1206,19 +1584,12 @@ USER GOAL: "${this.state.goal}"
 USER PROVIDED CONFIGURATION (USE THESE VALUES):
 ${JSON.stringify(userConfig, null, 2)}
 
-PLAN:
-${JSON.stringify(plan, null, 2)}
-
-ANALYSIS:
-${JSON.stringify(analysis, null, 2)}
-
 ${trainingContext}
 
 REQUIRED NODES (based on goal):
 ${JSON.stringify(requiredNodes, null, 2)}
 
 🚨🚨🚨 CRITICAL: FOLLOW TRAINING EXAMPLES EXACTLY 🚨🚨🚨
-${similarExample ? `Similar Training Example Identified: ${similarExample}` : ''}
 If a training example above matches this workflow:
 1. Use the EXACT same node types in the EXACT same order
 2. Follow the EXACT same data flow pattern
@@ -1383,22 +1754,41 @@ JAVASCRIPT NODE CODE EXAMPLES FOR DATA FORMATTING:
   return { content: combinedText, text: combinedText, body: combinedText };`;
 
     const messages: LLMMessage[] = [
-      { role: 'system', content: 'You are a precise workflow construction agent. Always start with a trigger node. Always include all required config fields. Always respond with valid JSON only.' },
+      { 
+        role: 'system', 
+        content: 'You are a precise workflow construction agent. You must return ONLY valid JSON. Do not include explanations, markdown code blocks, or any text outside the JSON object.' 
+      },
       { role: 'user', content: prompt },
     ];
+
+    // TOKEN BUDGET CHECK
+    this.checkTokenBudget(messages);
 
     const response = await this.callLLMWithFallback(messages, {
       temperature: 0.4,
     });
 
-    let workflowText = response.content.trim();
-    if (workflowText.includes('```json')) {
-      workflowText = workflowText.split('```json')[1].split('```')[0].trim();
-    } else if (workflowText.includes('```')) {
-      workflowText = workflowText.split('```')[1].split('```')[0].trim();
+    // Extract JSON only (handles markdown, explanations, etc.)
+    const responseText = response.content.trim();
+    const jsonText = extractFirstJSONObject(responseText);
+    const parsed = JSON.parse(jsonText);
+    
+    // Validate workflow structure
+    if (!isValidWorkflow(parsed)) {
+      throw new Error('LLM returned invalid workflow JSON: missing nodes array');
+    }
+    
+    // Normalize to standard format
+    const normalized = normalizeWorkflow(parsed);
+    if (!Array.isArray(normalized.nodes) || normalized.nodes.length === 0) {
+      throw new Error('LLM returned invalid workflow JSON: empty nodes array');
     }
 
-    this.state.workflow = JSON.parse(workflowText);
+    this.state.workflow = {
+      name: parsed.name || `Workflow: ${this.state.goal.substring(0, 50)}`,
+      nodes: normalized.nodes,
+      edges: normalized.edges,
+    };
 
     // 🚨 CRITICAL: Check and fix form node if required
     // goalLower, formKeywords, and requiresFormNode already declared earlier in this method (lines 527, 535, 542), reuse them
@@ -2224,21 +2614,18 @@ ${hasGmail ? '- If any email node other than google_gmail exists, that is a CRIT
       return;
     }
 
+    // CRITICAL FIX: Do NOT feed previous outputs back into prompt
+    // Only include essential information
+    
     const prompt = `You are a self-healing workflow agent. Fix ALL errors automatically.
 
 USER GOAL: "${goal}"
 
-CURRENT WORKFLOW:
-${JSON.stringify(workflow, null, 2)}
-
 ERRORS TO FIX:
-${JSON.stringify(errors, null, 2)}
+${JSON.stringify(errors.map(e => ({ type: e.type, message: e.message })), null, 2)}
 
 REQUIRED NODES (must be present):
 ${JSON.stringify(requiredNodes, null, 2)}
-
-PREVIOUS FIXES (from memory):
-${JSON.stringify(memoryFixes, null, 2)}
 
 ${this.nodeKnowledge}
 
@@ -2266,28 +2653,42 @@ CRITICAL: You MUST NOT ask for help. Fix errors automatically using:
 - Ensure ALL required nodes from the list above are present in the workflow`;
 
     const messages: LLMMessage[] = [
-      { role: 'system', content: 'You are a self-healing agent. Fix ALL errors automatically. Never ask for help. Always respond with valid JSON only.' },
+      { 
+        role: 'system', 
+        content: 'You are a self-healing agent. Fix ALL errors automatically. You must return ONLY valid JSON. Do not include explanations, markdown code blocks, or any text outside the JSON object.' 
+      },
       { role: 'user', content: prompt },
     ];
+
+    // TOKEN BUDGET CHECK
+    this.checkTokenBudget(messages);
 
     const response = await this.callLLMWithFallback(messages, {
       temperature: 0.3,
     });
 
-    let fixedWorkflowText = response.content.trim();
-    if (fixedWorkflowText.includes('```json')) {
-      fixedWorkflowText = fixedWorkflowText.split('```json')[1].split('```')[0].trim();
-    } else if (fixedWorkflowText.includes('```')) {
-      fixedWorkflowText = fixedWorkflowText.split('```')[1].split('```')[0].trim();
+    // Extract JSON only
+    const responseText = response.content.trim();
+    const jsonText = extractFirstJSONObject(responseText);
+    const fixedWorkflow = JSON.parse(jsonText);
+    
+    // Validate workflow structure
+    if (!isValidWorkflow(fixedWorkflow)) {
+      throw new Error('Self-healing returned invalid workflow JSON');
     }
 
-    const fixedWorkflow = JSON.parse(fixedWorkflowText);
-
+    // Validate and normalize fixed workflow
+    if (!isValidWorkflow(fixedWorkflow)) {
+      throw new Error('Self-healing returned invalid workflow JSON');
+    }
+    
+    const normalized = normalizeWorkflow(fixedWorkflow);
+    
     // Apply programmatic fixes
     this.state.workflow = validateAndFixWorkflow({
       name: fixedWorkflow.name || workflow.name,
-      nodes: fixedWorkflow.nodes || workflow.nodes,
-      edges: fixedWorkflow.edges || workflow.edges,
+      nodes: normalized.nodes,
+      edges: normalized.edges,
     });
 
     // CRITICAL: Verify required nodes are still present after fixing
