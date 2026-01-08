@@ -31,7 +31,7 @@ class AudioProcessor:
             self.asr_pipeline = pipeline(
                 "automatic-speech-recognition",
                 model="openai/whisper-tiny",
-                device=-1 # CPU
+                device="cpu"
             )
             
     def _load_tts(self):
@@ -40,7 +40,7 @@ class AudioProcessor:
             self.tts_pipeline = pipeline(
                 "text-to-speech",
                 model="facebook/mms-tts-eng",
-                device=-1 # CPU
+                device="cpu"
             )
 
     async def transcribe(self, audio_data_base64: str) -> str:

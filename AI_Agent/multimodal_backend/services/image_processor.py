@@ -43,7 +43,7 @@ class ImageProcessor:
                 "Salesforce/blip-image-captioning-base"
             ).to("cpu")
             
-            logger.info("✅ BLIP model loaded successfully")
+            logger.info("[OK] BLIP model loaded successfully")
         except Exception as e:
             logger.error(f"Failed to load BLIP model: {e}")
             raise
