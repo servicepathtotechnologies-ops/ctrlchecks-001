@@ -36,22 +36,22 @@ const corsHeaders = {
 // Available node types for workflow generation - COMPREHENSIVE LIST
 const AVAILABLE_NODES = {
   triggers: ['manual_trigger', 'webhook', 'schedule', 'chat_trigger', 'error_trigger', 'interval', 'workflow_trigger', 'form'],
-  ai: ['openai_gpt', 'anthropic_claude', 'google_gemini', 'text_summarizer', 'sentiment_analyzer', 'ai_agent', 'memory', 'llm_chain', 'azure_openai', 'hugging_face', 'cohere', 'ollama', 'embeddings', 'vector_store', 'chat_model'],
-  logic: ['if_else', 'switch', 'loop', 'wait', 'error_handler', 'filter', 'merge', 'noop', 'split_in_batches', 'stop_and_error'],
+  ai: ['openai_gpt', 'anthropic_claude', 'google_gemini', 'text_summarizer', 'sentiment_analyzer', 'ai_agent', 'memory', 'llm_chain', 'azure_openai', 'hugging_face', 'cohere', 'ollama', 'embeddings', 'vector_store', 'chat_model', 'workflow_generator_agent', 'node_selector_agent', 'prompt_synthesizer', 'multi_agent_coordinator', 'agent_role_assigner', 'agent_voting_consensus', 'execution_explainer', 'workflow_summary_generator'],
+  logic: ['if_else', 'switch', 'loop', 'wait', 'error_handler', 'filter', 'merge', 'noop', 'split_in_batches', 'stop_and_error', 'human_approval', 'escalation_router', 'fallback_router', 'retry_with_backoff', 'timeout_guard', 'circuit_breaker', 'workflow_state_manager', 'execution_context_store', 'session_manager'],
   data: ['javascript', 'json_parser', 'csv_processor', 'text_formatter', 'merge_data', 'set_variable', 'aggregate', 'edit_fields', 'execute_command', 'function', 'function_item', 'item_lists', 'limit', 'rename_keys', 'set', 'sort', 'date_time', 'math', 'crypto', 'html_extract', 'xml', 'rss_feed_read', 'pdf', 'image_manipulation'],
   database: ['database_read', 'database_write', 'postgresql', 'supabase', 'mysql', 'mongodb', 'redis', 'mssql', 'sqlite', 'snowflake', 'timescaledb', 'elasticsearch'],
-  storage: ['read_binary_file', 'write_binary_file', 'aws_s3', 'ftp', 'sftp', 'dropbox', 'onedrive', 'box', 'minio'],
+  storage: ['read_binary_file', 'write_binary_file', 'aws_s3', 'ftp', 'sftp', 'dropbox', 'onedrive', 'box', 'minio', 'document_ocr', 'resume_parser', 'invoice_parser', 'document_classifier', 'file_metadata_extractor'],
   http_api: ['http_request', 'graphql', 'respond_to_webhook', 'http_post'],
-  output: ['slack_message', 'slack_webhook', 'discord_webhook', 'microsoft_teams', 'telegram', 'whatsapp_cloud', 'twilio', 'log_output'],
+  output: ['slack_message', 'slack_webhook', 'discord_webhook', 'microsoft_teams', 'telegram', 'whatsapp_cloud', 'twilio', 'log_output', 'email_sequence_sender', 'auto_followup_sender', 'human_handoff_notification', 'approval_request_sender', 'reminder_scheduler'],
   google: ['google_sheets', 'google_doc', 'google_drive', 'google_calendar', 'google_gmail', 'google_bigquery', 'google_tasks', 'google_contacts', 'google_analytics'],
-  crm: ['hubspot', 'salesforce', 'zoho_crm', 'pipedrive', 'freshdesk', 'intercom', 'mailchimp', 'activecampaign'],
-  devops: ['github', 'gitlab', 'bitbucket', 'jenkins', 'docker', 'kubernetes', 'pagerduty', 'datadog'],
+  crm: ['hubspot', 'salesforce', 'zoho_crm', 'pipedrive', 'freshdesk', 'intercom', 'mailchimp', 'activecampaign', 'crm_lead_router', 'crm_ticket_prioritizer', 'crm_sla_monitor', 'crm_duplicate_detector'],
+  devops: ['github', 'gitlab', 'bitbucket', 'jenkins', 'docker', 'kubernetes', 'pagerduty', 'datadog', 'alert_correlation_engine', 'incident_classifier', 'auto_remediation_planner', 'postmortem_generator'],
   ecommerce: ['shopify', 'woocommerce', 'stripe', 'paypal', 'bigcommerce'],
-  analytics: ['google_analytics', 'mixpanel', 'segment', 'amplitude'],
+  analytics: ['google_analytics', 'mixpanel', 'segment', 'amplitude', 'agent_performance_tracker', 'cost_monitor', 'accuracy_evaluator', 'feedback_loop_collector', 'compliance_log_writer'],
   authentication: ['oauth2', 'jwt', 'api_key_auth'],
-  payment: ['stripe', 'paypal', 'razorpay'],
+  payment: ['stripe', 'paypal', 'razorpay', 'expense_categorizer', 'payment_reminder_engine', 'audit_trail_generator', 'tax_rule_engine', 'fraud_detection_node'],
   social_media: ['twitter', 'facebook', 'instagram', 'linkedin'],
-  productivity: ['notion', 'trello', 'asana', 'jira', 'linear', 'clickup'],
+  productivity: ['notion', 'trello', 'asana', 'jira', 'linear', 'clickup', 'knowledge_base_search', 'onboarding_flow_generator', 'policy_sync', 'employee_faq_indexer'],
 };
 
 /**
@@ -528,8 +528,13 @@ A workflow is considered successful ONLY if:
 - Data types match between nodes
 - Execution completes without runtime errors
 
-If this goal cannot be achieved, you MUST ask clarifying questions
-instead of guessing.
+If this goal cannot be achieved or requires missing configuration, you MUST ask contextual clarifying questions.
+Questions must be:
+- Specific to the user's goal and the nodes that will be used
+- About missing configuration details (API keys, URLs, credentials, etc.)
+- NOT generic "out of box" questions
+- Only about nodes that are actually part of this workflow
+Do NOT ask generic questions about timing, channels, or preferences if they're already clear from the prompt.
 
 ════════════════════════════════════
 3. TYPES OF TRAINING YOU FOLLOW
@@ -700,7 +705,9 @@ When a node is REMOVED:
 ════════════════════════════════════
 - NEVER hallucinate services, APIs, or logic
 - NEVER guess missing values
-- ALWAYS ask the user if required data is missing
+- ALWAYS ask contextual questions about missing configuration for nodes that will actually be used
+- Questions must be specific to the user's goal and relevant nodes, NOT generic "out of box" questions
+- Only ask about nodes that are part of the workflow being built
 - Prefer correctness over creativity
 - Follow constraints strictly
 
@@ -883,7 +890,8 @@ You MUST:
 Before responding, evaluate confidence:
 
 If confidence < 100%:
-- Ask clarifying questions
+- Ask contextual clarifying questions only about missing configuration for nodes that will be used
+- DO NOT ask generic "out of box" questions
 - DO NOT output risky or partial workflows
 
 ════════════════════════════════════

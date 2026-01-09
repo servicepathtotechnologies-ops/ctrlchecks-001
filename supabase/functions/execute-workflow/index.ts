@@ -434,7 +434,15 @@ serve(async (req: Request) => {
         // Execute node based on type
         // For AI nodes, retrieve conversation history based on node's memory limit
         let history: Array<{ role: string; content: string }> = [];
-        const isAINode = ["openai_gpt", "anthropic_claude", "google_gemini", "text_summarizer", "sentiment_analyzer"].includes(node.data.type);
+        const isAINode = [
+          "openai_gpt", "anthropic_claude", "google_gemini", "text_summarizer", "sentiment_analyzer",
+          "intent_classification_agent", "sentiment_analysis_agent", "confidence_scoring_agent",
+          "lead_qualification_agent", "lead_scoring_agent", "skill_matching_agent",
+          "document_qa_agent", "policy_reasoning_agent", "compliance_check_agent",
+          "anomaly_detection_agent", "root_cause_analysis_agent", "conversation_summarizer",
+          "meeting_notes_agent", "action_items_extractor", "workflow_planner_agent",
+          "decision_recommendation_agent"
+        ].includes(node.data.type);
 
         if (isAINode) {
           // Get memory limit from node config (default: 10 turns)
@@ -1055,7 +1063,9 @@ const VALID_EXECUTABLE_NODE_TYPES = new Set([
   'error_trigger', 'interval', 'workflow_trigger', 'form',
   // Logic
   'if_else', 'switch', 'loop', 'wait', 'error_handler', 'filter', 'merge', 'noop', 
-  'split_in_batches', 'stop_and_error',
+  'split_in_batches', 'stop_and_error', 'human_approval', 'escalation_router', 
+  'fallback_router', 'retry_with_backoff', 'timeout_guard', 'circuit_breaker',
+  'workflow_state_manager', 'execution_context_store', 'session_manager',
   // Data
   'javascript', 'json_parser', 'csv_processor', 'text_formatter', 'merge_data', 
   'set_variable', 'aggregate', 'edit_fields', 'execute_command', 'function', 
@@ -1066,36 +1076,52 @@ const VALID_EXECUTABLE_NODE_TYPES = new Set([
   'redis', 'mssql', 'sqlite', 'snowflake', 'timescaledb', 'elasticsearch',
   // Storage
   'read_binary_file', 'write_binary_file', 'aws_s3', 'ftp', 'sftp', 'dropbox', 
-  'onedrive', 'box', 'minio',
+  'onedrive', 'box', 'minio', 'document_ocr', 'resume_parser', 'invoice_parser',
+  'document_classifier', 'file_metadata_extractor',
   // AI
   'openai_gpt', 'anthropic_claude', 'google_gemini', 'text_summarizer', 
   'sentiment_analyzer', 'ai_agent', 'memory', 'llm_chain', 'azure_openai', 
   'hugging_face', 'cohere', 'ollama', 'embeddings', 'vector_store', 'chat_model',
+  'intent_classification_agent', 'sentiment_analysis_agent', 'confidence_scoring_agent',
+  'lead_qualification_agent', 'lead_scoring_agent', 'skill_matching_agent',
+  'document_qa_agent', 'policy_reasoning_agent', 'compliance_check_agent',
+  'anomaly_detection_agent', 'root_cause_analysis_agent', 'conversation_summarizer',
+  'meeting_notes_agent', 'action_items_extractor', 'workflow_planner_agent',
+  'decision_recommendation_agent', 'workflow_generator_agent', 'node_selector_agent',
+  'prompt_synthesizer', 'multi_agent_coordinator', 'agent_role_assigner',
+  'agent_voting_consensus', 'execution_explainer', 'workflow_summary_generator',
   // HTTP
   'http_request', 'graphql', 'respond_to_webhook', 'http_post',
   // Output
   'slack_message', 'slack_webhook', 'discord_webhook', 'microsoft_teams', 
-  'telegram', 'whatsapp_cloud', 'twilio', 'log_output',
+  'telegram', 'whatsapp_cloud', 'twilio', 'log_output', 'email_sequence_sender',
+  'auto_followup_sender', 'human_handoff_notification', 'approval_request_sender',
+  'reminder_scheduler',
   // Google
   'google_sheets', 'google_doc', 'google_drive', 'google_calendar', 'google_gmail', 
   'google_bigquery', 'google_tasks', 'google_contacts', 'google_analytics',
   // CRM
   'hubspot', 'salesforce', 'zoho_crm', 'pipedrive', 'freshdesk', 'intercom', 
-  'mailchimp', 'activecampaign',
+  'mailchimp', 'activecampaign', 'crm_lead_router', 'crm_ticket_prioritizer',
+  'crm_sla_monitor', 'crm_duplicate_detector',
   // DevOps
   'github', 'gitlab', 'bitbucket', 'jenkins', 'docker', 'kubernetes', 'pagerduty', 'datadog',
+  'alert_correlation_engine', 'incident_classifier', 'auto_remediation_planner', 'postmortem_generator',
   // Ecommerce
   'shopify', 'woocommerce', 'stripe', 'paypal', 'bigcommerce',
   // Analytics
-  'mixpanel', 'segment', 'amplitude',
+  'mixpanel', 'segment', 'amplitude', 'agent_performance_tracker', 'cost_monitor',
+  'accuracy_evaluator', 'feedback_loop_collector', 'compliance_log_writer',
   // Auth
   'oauth2', 'jwt', 'api_key_auth',
   // Payment
-  'razorpay',
+  'razorpay', 'expense_categorizer', 'payment_reminder_engine', 'audit_trail_generator',
+  'tax_rule_engine', 'fraud_detection_node',
   // Social
   'twitter', 'facebook', 'instagram', 'linkedin',
   // Productivity
-  'notion', 'trello', 'asana', 'jira', 'linear',
+  'notion', 'trello', 'asana', 'jira', 'linear', 'knowledge_base_search',
+  'onboarding_flow_generator', 'policy_sync_node', 'employee_faq_indexer',
 ]);
 
 async function executeNode(
@@ -1761,7 +1787,23 @@ async function executeNode(
     case "anthropic_claude":
     case "google_gemini":
     case "text_summarizer":
-    case "sentiment_analyzer": {
+    case "sentiment_analyzer":
+    case "intent_classification_agent":
+    case "sentiment_analysis_agent":
+    case "confidence_scoring_agent":
+    case "lead_qualification_agent":
+    case "lead_scoring_agent":
+    case "skill_matching_agent":
+    case "document_qa_agent":
+    case "policy_reasoning_agent":
+    case "compliance_check_agent":
+    case "anomaly_detection_agent":
+    case "root_cause_analysis_agent":
+    case "conversation_summarizer":
+    case "meeting_notes_agent":
+    case "action_items_extractor":
+    case "workflow_planner_agent":
+    case "decision_recommendation_agent": {
       const nodeApiKey = config.apiKey as string;
 
       // Google Gemini uses direct API call
@@ -1774,11 +1816,30 @@ async function executeNode(
 
       // For other AI nodes, API key is mandatory
       if (!nodeApiKey || !nodeApiKey.trim()) {
-        const nodeName = type === "openai_gpt" ? "OpenAI GPT" :
-          type === "anthropic_claude" ? "Anthropic Claude" :
-            type === "text_summarizer" ? "Text Summarizer" :
-              "Sentiment Analyzer";
-        throw new Error(`API Key is required for ${node.data.label || nodeName} node. Please add your API key in the node properties.`);
+        const nodeNameMap: Record<string, string> = {
+          "openai_gpt": "OpenAI GPT",
+          "anthropic_claude": "Anthropic Claude",
+          "text_summarizer": "Text Summarizer",
+          "sentiment_analyzer": "Sentiment Analyzer",
+          "intent_classification_agent": "Intent Classification Agent",
+          "sentiment_analysis_agent": "Sentiment Analysis Agent",
+          "confidence_scoring_agent": "Confidence Scoring Agent",
+          "lead_qualification_agent": "Lead Qualification Agent",
+          "lead_scoring_agent": "Lead Scoring Agent",
+          "skill_matching_agent": "Skill Matching Agent",
+          "document_qa_agent": "Document QA Agent",
+          "policy_reasoning_agent": "Policy Reasoning Agent",
+          "compliance_check_agent": "Compliance Check Agent",
+          "anomaly_detection_agent": "Anomaly Detection Agent",
+          "root_cause_analysis_agent": "Root Cause Analysis Agent",
+          "conversation_summarizer": "Conversation Summarizer",
+          "meeting_notes_agent": "Meeting Notes Agent",
+          "action_items_extractor": "Action Items Extractor",
+          "workflow_planner_agent": "Workflow Planner Agent",
+          "decision_recommendation_agent": "Decision Recommendation Agent"
+        };
+        const nodeName = nodeNameMap[type] || node.data.label || "AI Node";
+        throw new Error(`API Key is required for ${nodeName} node. Please add your API key in the node properties.`);
       }
 
       const finalApiKey = nodeApiKey;
@@ -1821,15 +1882,19 @@ async function executeNode(
         // Allow selecting any supported provider for summarizer/sentiment
         // Try all providers in order of preference
         model = setOpenAI(configModel) || setClaude(configModel) || setGemini(configModel) || model;
+      } else {
+        // For new agent nodes, allow selecting any supported provider
+        // Try all providers in order of preference
+        model = setOpenAI(configModel) || setClaude(configModel) || setGemini(configModel) || model;
       }
       // Note: google_gemini is handled earlier with early return, so we don't need to check it here
 
-      // Special prompts for specific node types
-      if (type === "text_summarizer") {
+      // Special prompts for specific node types (only override if prompt is not already set in config)
+      if (type === "text_summarizer" && !prompt) {
         const maxLength = (config.maxLength as number) || 200;
         const style = (config.style as string) || "concise";
         prompt = `Summarize the following text in a ${style} manner. Keep it under ${maxLength} words. ${style === "bullets" ? "Use bullet points." : ""}`;
-      } else if (type === "sentiment_analyzer") {
+      } else if (type === "sentiment_analyzer" && !prompt) {
         prompt = "Analyze the sentiment of the following text. Return a JSON object with 'sentiment' (positive/negative/neutral), 'confidence' (0-1), and 'emotions' (array of detected emotions).";
       }
 
@@ -1848,12 +1913,47 @@ async function executeNode(
 
       // Add current user message
       const userMessage = (() => {
+        // For agent nodes that expect structured JSON input, format it properly
+        const agentNodes = [
+          "intent_classification_agent",
+          "sentiment_analysis_agent",
+          "confidence_scoring_agent",
+          "lead_qualification_agent",
+          "lead_scoring_agent",
+          "skill_matching_agent",
+          "document_qa_agent",
+          "policy_reasoning_agent",
+          "compliance_check_agent",
+          "anomaly_detection_agent",
+          "root_cause_analysis_agent",
+          "conversation_summarizer",
+          "meeting_notes_agent",
+          "action_items_extractor",
+          "workflow_planner_agent",
+          "decision_recommendation_agent"
+        ];
+
         // Extract message from input - handle different input formats
         if (typeof input === "string") {
+          // For agent nodes, try to parse string as JSON if possible
+          if (agentNodes.includes(type)) {
+            try {
+              const parsed = JSON.parse(input);
+              return JSON.stringify(parsed, null, 2);
+            } catch {
+              return input;
+            }
+          }
           return input;
         } else if (typeof input === "object" && input !== null) {
           const inputObj = input as Record<string, unknown>;
-          // Try to extract message from common fields
+          
+          // For agent nodes, format as JSON directly
+          if (agentNodes.includes(type)) {
+            return JSON.stringify(inputObj, null, 2);
+          }
+          
+          // For other nodes, try to extract message from common fields
           return (inputObj.message as string) ||
             (inputObj.text as string) ||
             (inputObj.content as string) ||
@@ -1884,16 +1984,45 @@ async function executeNode(
 
         const content = response.content;
 
-        // Try to parse as JSON for sentiment analyzer
-        if (type === "sentiment_analyzer") {
+        // Try to parse as JSON for nodes that expect JSON output
+        const jsonOutputNodes = [
+          "sentiment_analyzer",
+          "intent_classification_agent",
+          "sentiment_analysis_agent",
+          "confidence_scoring_agent",
+          "lead_qualification_agent",
+          "lead_scoring_agent",
+          "skill_matching_agent",
+          "document_qa_agent",
+          "policy_reasoning_agent",
+          "compliance_check_agent",
+          "anomaly_detection_agent",
+          "root_cause_analysis_agent",
+          "conversation_summarizer",
+          "meeting_notes_agent",
+          "action_items_extractor",
+          "workflow_planner_agent",
+          "decision_recommendation_agent"
+        ];
+
+        if (jsonOutputNodes.includes(type)) {
           try {
-            const parsed = JSON.parse(content);
-            if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+            // Try to extract JSON from markdown code blocks if present
+            let jsonContent = content.trim();
+            const jsonMatch = jsonContent.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+            if (jsonMatch) {
+              jsonContent = jsonMatch[1].trim();
+            }
+
+            const parsed = JSON.parse(jsonContent);
+            if (parsed && typeof parsed === 'object') {
               return parsed;
             }
             return { raw: content, parsed };
-          } catch {
-            return { raw: content };
+          } catch (parseError) {
+            // If JSON parsing fails, return raw content but log warning
+            console.warn(`[${type}] Failed to parse JSON output:`, parseError);
+            return { raw: content, error: "Failed to parse JSON output" };
           }
         }
 
@@ -2162,6 +2291,594 @@ async function executeNode(
       } catch (error) {
         throw new Error(`Ollama: ${error instanceof Error ? error.message : String(error)}`);
       }
+    }
+
+    case "workflow_generator_agent": {
+      // Workflow Generator Agent: Generate complete workflow from user goal
+      const userGoal = getStringProperty(config, 'userGoal', '');
+      const constraintsConfig = config.constraints || {};
+      const availableNodesConfig = config.availableNodes || [];
+
+      if (!userGoal || !userGoal.trim()) {
+        throw new Error("Workflow Generator Agent: User goal is required");
+      }
+
+      let availableNodes: string[] = [];
+      if (availableNodesConfig) {
+        if (typeof availableNodesConfig === 'string') {
+          try {
+            availableNodes = JSON.parse(availableNodesConfig);
+          } catch {
+            availableNodes = [availableNodesConfig];
+          }
+        } else if (Array.isArray(availableNodesConfig)) {
+          availableNodes = availableNodesConfig;
+        }
+      }
+
+      // In a real implementation, this would use AI to:
+      // 1. Understand the user goal
+      // 2. Decompose into logical steps
+      // 3. Select appropriate nodes from availableNodes (or all nodes if empty)
+      // 4. Order nodes logically
+      // 5. Create edges connecting nodes
+      // 6. Ensure end-to-end feasibility
+
+      // Simulate workflow generation (placeholder)
+      const workflow = {
+        nodes: [
+          { nodeId: 'trigger_1', nodeType: 'manual_trigger', purpose: 'Start workflow' },
+          { nodeId: 'node_1', nodeType: 'http_request', purpose: 'Process user goal' }
+        ],
+        edges: [
+          { from: 'trigger_1', to: 'node_1' }
+        ]
+      };
+
+      const assumptions = [
+        'Workflow assumes standard input/output formats',
+        'Nodes are available and properly configured'
+      ];
+
+      return {
+        workflow,
+        assumptions,
+        confidence: 0.7,
+        userGoal,
+        constraints: constraintsConfig,
+        note: "Workflow generation requires AI/LLM integration to analyze goals and select nodes. This is a placeholder implementation."
+      };
+    }
+
+    case "node_selector_agent": {
+      // Node Selector Agent: Choose best nodes for a task
+      const taskDescription = getStringProperty(config, 'taskDescription', '');
+      const availableNodesConfig = config.availableNodes;
+
+      if (!taskDescription || !taskDescription.trim()) {
+        throw new Error("Node Selector Agent: Task description is required");
+      }
+
+      let availableNodes: Array<{ nodeName: string; capabilities: string[] }> = [];
+      if (availableNodesConfig) {
+        if (typeof availableNodesConfig === 'string') {
+          try {
+            availableNodes = JSON.parse(availableNodesConfig);
+          } catch {
+            throw new Error("Node Selector Agent: Invalid available nodes JSON format");
+          }
+        } else if (Array.isArray(availableNodesConfig)) {
+          availableNodes = availableNodesConfig;
+        }
+      }
+
+      if (availableNodes.length === 0) {
+        throw new Error("Node Selector Agent: At least one available node is required");
+      }
+
+      // Match task requirements to node capabilities
+      const taskLower = taskDescription.toLowerCase();
+      const selectedNodes: string[] = [];
+      const ranking: string[] = [];
+      const missingCapabilities: string[] = [];
+
+      // Simple keyword matching (in production, this would use semantic matching)
+      for (const node of availableNodes) {
+        if (!node.nodeName || !node.capabilities || !Array.isArray(node.capabilities)) {
+          continue;
+        }
+
+        // Check if any capability matches task description
+        const matchingCapabilities = node.capabilities.filter(cap =>
+          taskLower.includes(cap.toLowerCase())
+        );
+
+        if (matchingCapabilities.length > 0) {
+          selectedNodes.push(node.nodeName);
+          ranking.push(node.nodeName);
+        }
+      }
+
+      // If no nodes match, identify missing capabilities
+      if (selectedNodes.length === 0) {
+        missingCapabilities.push('No nodes found matching task requirements');
+      }
+
+      const selectionReasoning = selectedNodes.length > 0
+        ? `Selected ${selectedNodes.length} node(s) based on capability matching: ${selectedNodes.join(', ')}`
+        : 'No suitable nodes found. Missing capabilities may be required.';
+
+      return {
+        selectedNodes,
+        ranking,
+        missingCapabilities: missingCapabilities.length > 0 ? missingCapabilities : null,
+        selectionReasoning,
+        taskDescription,
+        note: "Node selection requires semantic matching and capability analysis. This is a simplified keyword-based implementation."
+      };
+    }
+
+    case "prompt_synthesizer": {
+      // Prompt Synthesizer: Generate high-quality prompts
+      const nodeType = getStringProperty(config, 'nodeType', '');
+      const objective = getStringProperty(config, 'objective', '');
+      const inputSchemaConfig = config.inputSchema;
+      const outputSchemaConfig = config.outputSchema;
+      const constraintsConfig = config.constraints || [];
+
+      if (!nodeType || !objective) {
+        throw new Error("Prompt Synthesizer: Node type and objective are required");
+      }
+
+      let inputSchema: Record<string, unknown> = {};
+      if (inputSchemaConfig) {
+        if (typeof inputSchemaConfig === 'string') {
+          try {
+            inputSchema = JSON.parse(inputSchemaConfig);
+          } catch {
+            inputSchema = {};
+          }
+        } else if (typeof inputSchemaConfig === 'object') {
+          inputSchema = inputSchemaConfig as Record<string, unknown>;
+        }
+      }
+
+      let outputSchema: Record<string, unknown> = {};
+      if (outputSchemaConfig) {
+        if (typeof outputSchemaConfig === 'string') {
+          try {
+            outputSchema = JSON.parse(outputSchemaConfig);
+          } catch {
+            outputSchema = {};
+          }
+        } else if (typeof outputSchemaConfig === 'object') {
+          outputSchema = outputSchemaConfig as Record<string, unknown>;
+        }
+      }
+
+      let constraints: string[] = [];
+      if (constraintsConfig) {
+        if (typeof constraintsConfig === 'string') {
+          try {
+            constraints = JSON.parse(constraintsConfig);
+          } catch {
+            constraints = [constraintsConfig];
+          }
+        } else if (Array.isArray(constraintsConfig)) {
+          constraints = constraintsConfig;
+        }
+      }
+
+      // Generate prompt
+      let generatedPrompt = `You are a ${nodeType} node inside an automation engine.\n\n`;
+      generatedPrompt += `OBJECTIVE: ${objective}\n\n`;
+      generatedPrompt += `INPUT SCHEMA: ${JSON.stringify(inputSchema, null, 2)}\n\n`;
+      generatedPrompt += `OUTPUT SCHEMA: ${JSON.stringify(outputSchema, null, 2)}\n\n`;
+
+      if (constraints.length > 0) {
+        generatedPrompt += `CONSTRAINTS:\n${constraints.map(c => `- ${c}`).join('\n')}\n\n`;
+      }
+
+      generatedPrompt += `STRICT RULES:\n`;
+      generatedPrompt += `- Always return VALID JSON matching the output schema\n`;
+      generatedPrompt += `- Never hallucinate data\n`;
+      generatedPrompt += `- Preserve input structure unless explicitly required to transform\n`;
+
+      const designNotes = [
+        `Prompt designed for ${nodeType} node`,
+        `Output must match specified schema`,
+        constraints.length > 0 ? `${constraints.length} constraint(s) applied` : 'No specific constraints'
+      ];
+
+      const complianceChecks = [
+        'JSON output validation',
+        'Schema compliance',
+        'No hallucination rules enforced'
+      ];
+
+      return {
+        generatedPrompt,
+        designNotes,
+        complianceChecks
+      };
+    }
+
+    case "multi_agent_coordinator": {
+      // Multi-Agent Coordinator: Coordinate execution across agents
+      const agentsConfig = config.agents;
+      const task = getStringProperty(config, 'task', '');
+      const coordinationStrategy = getStringProperty(config, 'coordinationStrategy', 'parallel') as 'parallel' | 'sequential' | 'hierarchical';
+
+      if (!task || !task.trim()) {
+        throw new Error("Multi-Agent Coordinator: Task is required");
+      }
+
+      let agents: Array<{ agentId: string; role: string }> = [];
+      if (agentsConfig) {
+        if (typeof agentsConfig === 'string') {
+          try {
+            agents = JSON.parse(agentsConfig);
+          } catch {
+            throw new Error("Multi-Agent Coordinator: Invalid agents JSON format");
+          }
+        } else if (Array.isArray(agentsConfig)) {
+          agents = agentsConfig;
+        }
+      }
+
+      if (agents.length === 0) {
+        throw new Error("Multi-Agent Coordinator: At least one agent is required");
+      }
+
+      // Generate execution plan based on strategy
+      const executionPlan: Array<{ agentId: string; assignedTask: string; dependsOn: string[] | null }> = [];
+
+      if (coordinationStrategy === 'parallel') {
+        // All agents work in parallel, no dependencies
+        for (const agent of agents) {
+          executionPlan.push({
+            agentId: agent.agentId,
+            assignedTask: `${task} - ${agent.role} component`,
+            dependsOn: null
+          });
+        }
+      } else if (coordinationStrategy === 'sequential') {
+        // Agents work sequentially, each depends on previous
+        for (let i = 0; i < agents.length; i++) {
+          const agent = agents[i];
+          const dependsOn = i > 0 ? [agents[i - 1].agentId] : null;
+          executionPlan.push({
+            agentId: agent.agentId,
+            assignedTask: `${task} - Step ${i + 1}: ${agent.role}`,
+            dependsOn
+          });
+        }
+      } else if (coordinationStrategy === 'hierarchical') {
+        // First agent coordinates, others depend on it
+        const coordinator = agents[0];
+        executionPlan.push({
+          agentId: coordinator.agentId,
+          assignedTask: `${task} - Coordination and planning`,
+          dependsOn: null
+        });
+
+        for (let i = 1; i < agents.length; i++) {
+          const agent = agents[i];
+          executionPlan.push({
+            agentId: agent.agentId,
+            assignedTask: `${task} - ${agent.role} execution`,
+            dependsOn: [coordinator.agentId]
+          });
+        }
+      }
+
+      return {
+        executionPlan,
+        strategyUsed: coordinationStrategy,
+        totalAgents: agents.length
+      };
+    }
+
+    case "agent_role_assigner": {
+      // Agent Role Assigner: Assign optimal roles to agents
+      const agentsConfig = config.agents;
+      const requiredRolesConfig = config.requiredRoles;
+
+      let agents: Array<{ agentId: string; skills: string[] }> = [];
+      if (agentsConfig) {
+        if (typeof agentsConfig === 'string') {
+          try {
+            agents = JSON.parse(agentsConfig);
+          } catch {
+            throw new Error("Agent Role Assigner: Invalid agents JSON format");
+          }
+        } else if (Array.isArray(agentsConfig)) {
+          agents = agentsConfig;
+        }
+      }
+
+      if (agents.length === 0) {
+        throw new Error("Agent Role Assigner: At least one agent is required");
+      }
+
+      let requiredRoles: string[] = [];
+      if (requiredRolesConfig) {
+        if (typeof requiredRolesConfig === 'string') {
+          try {
+            requiredRoles = JSON.parse(requiredRolesConfig);
+          } catch {
+            requiredRoles = [requiredRolesConfig];
+          }
+        } else if (Array.isArray(requiredRolesConfig)) {
+          requiredRoles = requiredRolesConfig;
+        }
+      }
+
+      if (requiredRoles.length === 0) {
+        throw new Error("Agent Role Assigner: At least one required role is required");
+      }
+
+      // Match agents to roles based on skills
+      const roleAssignments: Array<{ agentId: string; role: string }> = [];
+      const assignedRoles = new Set<string>();
+      const unassignedRoles: string[] = [];
+
+      for (const role of requiredRoles) {
+        let bestMatch: { agentId: string; score: number } | null = null;
+        const roleLower = role.toLowerCase();
+
+        for (const agent of agents) {
+          if (!agent.agentId || !agent.skills || !Array.isArray(agent.skills)) {
+            continue;
+          }
+
+          // Check if agent already assigned
+          const alreadyAssigned = roleAssignments.some(ra => ra.agentId === agent.agentId);
+          if (alreadyAssigned) {
+            continue;
+          }
+
+          // Score agent based on skill match
+          const matchingSkills = agent.skills.filter(skill =>
+            skill.toLowerCase().includes(roleLower) || roleLower.includes(skill.toLowerCase())
+          );
+
+          const score = matchingSkills.length;
+          if (score > 0 && (!bestMatch || score > bestMatch.score)) {
+            bestMatch = { agentId: agent.agentId, score };
+          }
+        }
+
+        if (bestMatch) {
+          roleAssignments.push({
+            agentId: bestMatch.agentId,
+            role
+          });
+          assignedRoles.add(role);
+        } else {
+          unassignedRoles.push(role);
+        }
+      }
+
+      return {
+        roleAssignments,
+        unassignedRoles: unassignedRoles.length > 0 ? unassignedRoles : null,
+        totalRoles: requiredRoles.length,
+        assignedCount: roleAssignments.length
+      };
+    }
+
+    case "agent_voting_consensus": {
+      // Agent Voting / Consensus: Resolve decisions via consensus
+      const proposal = getStringProperty(config, 'proposal', '');
+      const votesConfig = config.votes;
+      const consensusRule = getStringProperty(config, 'consensusRule', 'majority') as 'majority' | 'weighted' | 'unanimous';
+
+      if (!proposal || !proposal.trim()) {
+        throw new Error("Agent Voting / Consensus: Proposal is required");
+      }
+
+      let votes: Array<{ agentId: string; vote: 'approve' | 'reject'; confidence: number }> = [];
+      if (votesConfig) {
+        if (typeof votesConfig === 'string') {
+          try {
+            votes = JSON.parse(votesConfig);
+          } catch {
+            throw new Error("Agent Voting / Consensus: Invalid votes JSON format");
+          }
+        } else if (Array.isArray(votesConfig)) {
+          votes = votesConfig;
+        }
+      }
+
+      if (votes.length === 0) {
+        throw new Error("Agent Voting / Consensus: At least one vote is required");
+      }
+
+      // Validate votes
+      for (const vote of votes) {
+        if (!vote.agentId || !vote.vote || !['approve', 'reject'].includes(vote.vote)) {
+          throw new Error("Agent Voting / Consensus: Each vote must have agentId and vote (approve/reject)");
+        }
+        if (vote.confidence === undefined || vote.confidence < 0 || vote.confidence > 1) {
+          throw new Error("Agent Voting / Consensus: Each vote must have confidence between 0 and 1");
+        }
+      }
+
+      // Calculate vote breakdown
+      const approveVotes = votes.filter(v => v.vote === 'approve');
+      const rejectVotes = votes.filter(v => v.vote === 'reject');
+      const approveCount = approveVotes.length;
+      const rejectCount = rejectVotes.length;
+
+      // Calculate weighted scores if needed
+      const approveWeighted = approveVotes.reduce((sum, v) => sum + v.confidence, 0);
+      const rejectWeighted = rejectVotes.reduce((sum, v) => sum + v.confidence, 0);
+
+      let decision: 'approved' | 'rejected';
+      let consensusAchieved = false;
+
+      if (consensusRule === 'unanimous') {
+        consensusAchieved = approveCount === votes.length || rejectCount === votes.length;
+        decision = approveCount === votes.length ? 'approved' : 'rejected';
+      } else if (consensusRule === 'weighted') {
+        consensusAchieved = Math.abs(approveWeighted - rejectWeighted) >= 0.3; // 30% threshold
+        decision = approveWeighted > rejectWeighted ? 'approved' : 'rejected';
+      } else { // majority
+        consensusAchieved = Math.abs(approveCount - rejectCount) > 0 || votes.length === 1;
+        decision = approveCount > rejectCount ? 'approved' : 'rejected';
+      }
+
+      const voteBreakdown = {
+        approve: {
+          count: approveCount,
+          weighted: approveWeighted,
+          votes: approveVotes.map(v => ({ agentId: v.agentId, confidence: v.confidence }))
+        },
+        reject: {
+          count: rejectCount,
+          weighted: rejectWeighted,
+          votes: rejectVotes.map(v => ({ agentId: v.agentId, confidence: v.confidence }))
+        }
+      };
+
+      return {
+        decision,
+        voteBreakdown,
+        consensusAchieved,
+        proposal,
+        consensusRule
+      };
+    }
+
+    case "execution_explainer": {
+      // Execution Explainer: Explain workflow execution
+      const workflowId = getStringProperty(config, 'workflowId', '');
+      const executionLogConfig = config.executionLog;
+
+      if (!workflowId) {
+        throw new Error("Execution Explainer: Workflow ID is required");
+      }
+
+      let executionLog: Array<{ nodeId: string; status: string; timestamp: string }> = [];
+      if (executionLogConfig) {
+        if (typeof executionLogConfig === 'string') {
+          try {
+            executionLog = JSON.parse(executionLogConfig);
+          } catch {
+            throw new Error("Execution Explainer: Invalid execution log JSON format");
+          }
+        } else if (Array.isArray(executionLogConfig)) {
+          executionLog = executionLogConfig;
+        }
+      }
+
+      if (executionLog.length === 0) {
+        throw new Error("Execution Explainer: At least one execution log entry is required");
+      }
+
+      // Analyze execution flow
+      const successfulNodes = executionLog.filter(e => e.status === 'success' || e.status === 'completed');
+      const failedNodes = executionLog.filter(e => e.status === 'failed' || e.status === 'error');
+      const totalNodes = executionLog.length;
+
+      // Identify decision points (nodes that might branch)
+      const decisionPoints: string[] = [];
+      const failureReasons: string[] = [];
+
+      for (const entry of executionLog) {
+        if (entry.status === 'failed' || entry.status === 'error') {
+          failureReasons.push(`${entry.nodeId}: ${entry.status}`);
+        }
+      }
+
+      // Generate summary
+      const summary = `Workflow ${workflowId} executed ${totalNodes} node(s). `;
+      const successRate = (successfulNodes.length / totalNodes) * 100;
+      const summaryDetails = `${successfulNodes.length} succeeded, ${failedNodes.length} failed (${successRate.toFixed(1)}% success rate).`;
+
+      return {
+        summary: summary + summaryDetails,
+        decisionPoints,
+        failureReasons: failureReasons.length > 0 ? failureReasons : null,
+        workflowId,
+        totalNodes,
+        successfulNodes: successfulNodes.length,
+        failedNodes: failedNodes.length,
+        successRate: Math.round(successRate)
+      };
+    }
+
+    case "workflow_summary_generator": {
+      // Workflow Summary Generator: Generate human-readable summary
+      const workflowConfig = config.workflow;
+      const targetAudience = getStringProperty(config, 'targetAudience', 'technical') as 'technical' | 'non_technical';
+
+      let workflow: { nodes: unknown[]; edges: unknown[] } | null = null;
+      if (workflowConfig) {
+        if (typeof workflowConfig === 'string') {
+          try {
+            workflow = JSON.parse(workflowConfig);
+          } catch {
+            throw new Error("Workflow Summary Generator: Invalid workflow JSON format");
+          }
+        } else if (typeof workflowConfig === 'object') {
+          workflow = workflowConfig as { nodes: unknown[]; edges: unknown[] };
+        }
+      }
+
+      if (!workflow || !workflow.nodes || !Array.isArray(workflow.nodes)) {
+        throw new Error("Workflow Summary Generator: Workflow with nodes array is required");
+      }
+
+      const nodeCount = workflow.nodes.length;
+      const edgeCount = workflow.edges?.length || 0;
+      
+      // Determine complexity
+      let estimatedComplexity: 'low' | 'medium' | 'high' = 'low';
+      if (nodeCount > 10) {
+        estimatedComplexity = 'high';
+      } else if (nodeCount > 5) {
+        estimatedComplexity = 'medium';
+      }
+
+      // Generate summary based on audience
+      let summary = '';
+      const keySteps: string[] = [];
+
+      if (targetAudience === 'technical') {
+        summary = `This workflow consists of ${nodeCount} nodes with ${edgeCount} connections. `;
+        summary += `The workflow executes nodes in a defined sequence to accomplish its objectives. `;
+        summary += `Complexity: ${estimatedComplexity}.`;
+
+        // Extract node types for technical summary
+        const nodeTypes = new Set<string>();
+        if (Array.isArray(workflow.nodes)) {
+          workflow.nodes.forEach((node: unknown) => {
+            if (typeof node === 'object' && node !== null && 'type' in node) {
+              nodeTypes.add((node as { type: string }).type);
+            }
+          });
+        }
+        keySteps.push(`Uses ${nodeTypes.size} unique node type(s): ${Array.from(nodeTypes).join(', ')}`);
+        keySteps.push(`Total execution nodes: ${nodeCount}`);
+      } else {
+        summary = `This workflow automates a process using ${nodeCount} automated steps. `;
+        summary += `It processes information and performs actions in a logical sequence. `;
+        summary += `The workflow is ${estimatedComplexity} in complexity.`;
+
+        keySteps.push(`Processes data through ${nodeCount} steps`);
+        keySteps.push(`${estimatedComplexity === 'high' ? 'Handles complex' : estimatedComplexity === 'medium' ? 'Manages moderate' : 'Handles simple'} automation tasks`);
+      }
+
+      return {
+        summary,
+        keySteps,
+        estimatedComplexity,
+        targetAudience,
+        nodeCount,
+        edgeCount
+      };
     }
 
     case "slack_message":
@@ -2583,6 +3300,421 @@ async function executeNode(
         await new Promise(resolve => setTimeout(resolve, safeDuration));
       }
       return input;
+    }
+
+    case "human_approval": {
+      const approvers = config.approvers;
+      const approvalType = getStringProperty(config, 'approvalType', 'single') as 'single' | 'multiple';
+      const timeout = getNumberProperty(config, 'timeout', 3600);
+      const defaultAction = getStringProperty(config, 'defaultAction', 'none') as 'approve' | 'reject' | 'none';
+      
+      let approversList: string[] = [];
+      if (approvers) {
+        if (typeof approvers === 'string') {
+          try {
+            approversList = JSON.parse(approvers);
+          } catch {
+            approversList = [approvers];
+          }
+        } else if (Array.isArray(approvers)) {
+          approversList = approvers;
+        }
+      }
+
+      if (approversList.length === 0) {
+        throw new Error("Human Approval: At least one approver is required");
+      }
+
+      // Extract payload from input
+      const inputObj = input && typeof input === 'object' ? input as Record<string, unknown> : {};
+      const payload = inputObj.payload || inputObj.data || inputObj.input || inputObj;
+
+      // In a real implementation, this would:
+      // 1. Create an approval request in the database
+      // 2. Send notifications to approvers
+      // 3. Wait for response or timeout
+      // For now, we simulate with default action after timeout
+      
+      const startTime = Date.now();
+      const timeoutMs = timeout * 1000;
+      
+      // Simulate waiting (in production, this would poll the database)
+      // For now, we'll apply the default action immediately if timeout is 0 or very small
+      if (timeoutMs <= 100) {
+        if (defaultAction === 'approve') {
+          return {
+            status: 'approved',
+            approvedBy: approversList[0],
+            timestamp: new Date().toISOString(),
+            payload,
+            metadata: {
+              approvalType,
+              timeoutUsed: 0
+            }
+          };
+        } else if (defaultAction === 'reject') {
+          return {
+            status: 'rejected',
+            approvedBy: null,
+            timestamp: new Date().toISOString(),
+            payload,
+            metadata: {
+              approvalType,
+              timeoutUsed: 0
+            }
+          };
+        } else {
+          throw new Error("Human Approval: Timeout reached and no default action configured");
+        }
+      }
+
+      // For production, this should integrate with a real approval system
+      // For now, return a pending state (in real implementation, workflow would pause)
+      return {
+        status: 'pending',
+        approvedBy: null,
+        timestamp: new Date().toISOString(),
+        payload,
+        metadata: {
+          approvalType,
+          timeoutUsed: 0,
+          approvers: approversList
+        }
+      };
+    }
+
+    case "escalation_router": {
+      const severity = getStringProperty(config, 'severity', 'medium') as 'low' | 'medium' | 'high' | 'critical';
+      const rulesConfig = config.rules;
+      
+      let rules: Record<string, string> = {};
+      if (rulesConfig) {
+        if (typeof rulesConfig === 'string') {
+          try {
+            rules = JSON.parse(rulesConfig);
+          } catch {
+            throw new Error("Escalation Router: Invalid rules JSON format");
+          }
+        } else if (typeof rulesConfig === 'object') {
+          rules = rulesConfig as Record<string, string>;
+        }
+      }
+
+      const routeTo = rules[severity] || '';
+      if (!routeTo) {
+        throw new Error(`Escalation Router: No route defined for severity level: ${severity}`);
+      }
+
+      const inputObj = input && typeof input === 'object' ? input as Record<string, unknown> : {};
+      const event = inputObj.event || inputObj.data || inputObj;
+
+      return {
+        routeTo,
+        severity,
+        event,
+        metadata: {
+          routingRuleApplied: severity
+        }
+      };
+    }
+
+    case "fallback_router": {
+      const fallbackPathsConfig = config.fallbackPaths;
+      let fallbackPaths: string[] = [];
+      
+      if (fallbackPathsConfig) {
+        if (typeof fallbackPathsConfig === 'string') {
+          try {
+            fallbackPaths = JSON.parse(fallbackPathsConfig);
+          } catch {
+            fallbackPaths = [fallbackPathsConfig];
+          }
+        } else if (Array.isArray(fallbackPathsConfig)) {
+          fallbackPaths = fallbackPathsConfig;
+        }
+      }
+
+      if (fallbackPaths.length === 0) {
+        throw new Error("Fallback Router: At least one fallback path is required");
+      }
+
+      const inputObj = input && typeof input === 'object' ? input as Record<string, unknown> : {};
+      const primaryResult = inputObj.primaryResult || inputObj.result || inputObj.data || inputObj;
+      const error = inputObj.error || null;
+
+      // If there's an error, use fallback
+      if (error) {
+        return {
+          route: 'fallback',
+          fallbackUsed: fallbackPaths[0],
+          reason: error instanceof Error ? error.message : String(error),
+          primaryResult,
+          error
+        };
+      }
+
+      return {
+        route: 'primary',
+        fallbackUsed: null,
+        reason: 'Primary execution succeeded',
+        primaryResult
+      };
+    }
+
+    case "retry_with_backoff": {
+      const maxRetries = getNumberProperty(config, 'maxRetries', 3);
+      const initialDelay = getNumberProperty(config, 'initialDelay', 1000);
+      const backoffMultiplier = getNumberProperty(config, 'backoffMultiplier', 2);
+
+      if (maxRetries < 1) {
+        throw new Error("Retry With Backoff: Max retries must be at least 1");
+      }
+      if (initialDelay < 0) {
+        throw new Error("Retry With Backoff: Initial delay must be non-negative");
+      }
+      if (backoffMultiplier < 1) {
+        throw new Error("Retry With Backoff: Backoff multiplier must be at least 1");
+      }
+
+      const inputObj = input && typeof input === 'object' ? input as Record<string, unknown> : {};
+      const operation = inputObj.operation || inputObj.data || inputObj;
+
+      let attempts = 0;
+      let lastError: unknown = null;
+      const delaysUsed: number[] = [];
+
+      // Note: In a real implementation, this would retry the previous node's execution
+      // For now, we simulate retry logic
+      while (attempts < maxRetries) {
+        attempts++;
+        try {
+          // In production, this would re-execute the previous node
+          // For now, we assume success on first attempt (or simulate based on input)
+          const hasError = inputObj.error !== undefined && inputObj.error !== null;
+          
+          if (!hasError) {
+            return {
+              success: true,
+              attempts,
+              finalResult: operation,
+              error: null,
+              metadata: {
+                delaysUsed
+              }
+            };
+          }
+
+          // If there's an error and we have retries left, wait and retry
+          if (attempts < maxRetries) {
+            const delay = initialDelay * Math.pow(backoffMultiplier, attempts - 1);
+            delaysUsed.push(delay);
+            await new Promise(resolve => setTimeout(resolve, delay));
+          }
+        } catch (error) {
+          lastError = error;
+          if (attempts < maxRetries) {
+            const delay = initialDelay * Math.pow(backoffMultiplier, attempts - 1);
+            delaysUsed.push(delay);
+            await new Promise(resolve => setTimeout(resolve, delay));
+          }
+        }
+      }
+
+      return {
+        success: false,
+        attempts,
+        finalResult: null,
+        error: lastError,
+        metadata: {
+          delaysUsed
+        }
+      };
+    }
+
+    case "timeout_guard": {
+      const timeout = getNumberProperty(config, 'timeout', 30000);
+      
+      if (timeout <= 0) {
+        throw new Error("Timeout Guard: Timeout must be greater than 0");
+      }
+
+      const inputObj = input && typeof input === 'object' ? input as Record<string, unknown> : {};
+      const execution = inputObj.execution || inputObj.data || inputObj;
+
+      const startTime = Date.now();
+      
+      // In a real implementation, this would monitor the execution of the next node
+      // For now, we simulate by checking if execution time exceeds timeout
+      const executionTime = Date.now() - startTime;
+      const timedOut = executionTime >= timeout;
+
+      if (timedOut) {
+        return {
+          completed: false,
+          timedOut: true,
+          executionTime,
+          result: null,
+          error: 'Execution exceeded timeout limit'
+        };
+      }
+
+      return {
+        completed: true,
+        timedOut: false,
+        executionTime,
+        result: execution
+      };
+    }
+
+    case "circuit_breaker": {
+      const serviceName = getStringProperty(config, 'serviceName', '');
+      const failureThreshold = getNumberProperty(config, 'failureThreshold', 5);
+      const cooldownPeriod = getNumberProperty(config, 'cooldownPeriod', 60000);
+
+      if (!serviceName) {
+        throw new Error("Circuit Breaker: Service name is required");
+      }
+      if (failureThreshold < 1) {
+        throw new Error("Circuit Breaker: Failure threshold must be at least 1");
+      }
+      if (cooldownPeriod < 0) {
+        throw new Error("Circuit Breaker: Cooldown period must be non-negative");
+      }
+
+      // In a real implementation, this would check a shared state store (Redis, database, etc.)
+      // For now, we simulate circuit breaker state
+      const inputObj = input && typeof input === 'object' ? input as Record<string, unknown> : {};
+      const failureCount = getNumberProperty(inputObj, 'failureCount', 0);
+
+      // Circuit breaker logic
+      let circuitState: 'closed' | 'open' | 'half_open' = 'closed';
+      let allowed = true;
+      let nextRetryAt: string | null = null;
+
+      if (failureCount >= failureThreshold) {
+        circuitState = 'open';
+        allowed = false;
+        const retryTime = new Date(Date.now() + cooldownPeriod);
+        nextRetryAt = retryTime.toISOString();
+      } else if (failureCount > 0) {
+        circuitState = 'half_open';
+        allowed = true;
+      }
+
+      return {
+        circuitState,
+        allowed,
+        nextRetryAt,
+        serviceName,
+        failureCount,
+        failureThreshold
+      };
+    }
+
+    case "workflow_state_manager": {
+      const mode = getStringProperty(config, 'mode', 'save') as 'save' | 'load' | 'update';
+      const workflowIdConfig = config.workflowId;
+      
+      const inputObj = input && typeof input === 'object' ? input as Record<string, unknown> : {};
+      const workflowId = workflowIdConfig || inputObj._workflow_id || '';
+      const state = inputObj.state || inputObj.data || inputObj;
+
+      if (!workflowId) {
+        throw new Error("Workflow State Manager: Workflow ID is required");
+      }
+
+      // In a real implementation, this would interact with a database or state store
+      // For now, we simulate state management
+      let status: 'stored' | 'retrieved' | 'updated' = 'stored';
+      
+      if (mode === 'load') {
+        status = 'retrieved';
+      } else if (mode === 'update') {
+        status = 'updated';
+      }
+
+      return {
+        workflowId,
+        state,
+        status,
+        mode
+      };
+    }
+
+    case "execution_context_store": {
+      const action = getStringProperty(config, 'action', 'set') as 'set' | 'get' | 'delete';
+      const contextKey = getStringProperty(config, 'contextKey', '');
+      
+      if (!contextKey) {
+        throw new Error("Execution Context Store: Context key is required");
+      }
+
+      const inputObj = input && typeof input === 'object' ? input as Record<string, unknown> : {};
+      const value = inputObj.value !== undefined ? inputObj.value : inputObj.data || inputObj;
+
+      // In a real implementation, this would use a shared context store (Redis, in-memory cache, etc.)
+      // For now, we simulate context storage
+      let actionPerformed = action;
+      let resultValue: unknown = null;
+
+      if (action === 'set') {
+        resultValue = value;
+        actionPerformed = 'set';
+      } else if (action === 'get') {
+        // In production, this would retrieve from the context store
+        resultValue = value; // Simulated: return the input value
+        actionPerformed = 'get';
+      } else if (action === 'delete') {
+        resultValue = null;
+        actionPerformed = 'delete';
+      }
+
+      return {
+        contextKey,
+        value: resultValue,
+        actionPerformed
+      };
+    }
+
+    case "session_manager": {
+      const action = getStringProperty(config, 'action', 'create') as 'create' | 'validate' | 'terminate';
+      const ttl = getNumberProperty(config, 'ttl', 3600);
+      const sessionIdConfig = config.sessionId;
+
+      const inputObj = input && typeof input === 'object' ? input as Record<string, unknown> : {};
+      const sessionId = sessionIdConfig || inputObj.sessionId || null;
+
+      if ((action === 'validate' || action === 'terminate') && !sessionId) {
+        throw new Error("Session Manager: Session ID is required for validate/terminate actions");
+      }
+
+      // In a real implementation, this would interact with a session store (Redis, database, etc.)
+      // For now, we simulate session management
+      let valid = false;
+      let expiresAt: string | null = null;
+      let newSessionId: string | null = null;
+
+      if (action === 'create') {
+        newSessionId = sessionId || `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        expiresAt = new Date(Date.now() + ttl * 1000).toISOString();
+        valid = true;
+      } else if (action === 'validate') {
+        // In production, this would check the session store
+        valid = sessionId !== null; // Simplified validation
+        if (valid) {
+          expiresAt = new Date(Date.now() + ttl * 1000).toISOString();
+        }
+      } else if (action === 'terminate') {
+        valid = false;
+        expiresAt = null;
+      }
+
+      return {
+        sessionId: newSessionId || sessionId,
+        valid,
+        expiresAt,
+        actionPerformed: action
+      };
     }
 
     case "javascript": {
@@ -3264,6 +4396,327 @@ async function executeNode(
       const level = (config.level as string) || "info";
       console.log(`[${level.toUpperCase()}] ${message}`);
       return { logged: message, level, input };
+    }
+
+    case "email_sequence_sender": {
+      // Email Sequence Sender: Send multi-step email campaigns
+      const recipientConfig = config.recipient;
+      const sequenceConfig = config.sequence;
+      const stopOnReply = getBooleanProperty(config, 'stopOnReply', false);
+      const trackingConfig = config.tracking || { openTracking: true, clickTracking: true };
+
+      let recipient: { email: string; name: string | null } | null = null;
+      if (recipientConfig) {
+        if (typeof recipientConfig === 'string') {
+          try {
+            recipient = JSON.parse(recipientConfig);
+          } catch {
+            throw new Error("Email Sequence Sender: Invalid recipient JSON format");
+          }
+        } else if (typeof recipientConfig === 'object') {
+          recipient = recipientConfig as { email: string; name: string | null };
+        }
+      }
+
+      const inputObj = input && typeof input === 'object' ? input as Record<string, unknown> : {};
+      if (!recipient && inputObj.recipient) {
+        if (typeof inputObj.recipient === 'object') {
+          recipient = inputObj.recipient as { email: string; name: string | null };
+        }
+      }
+
+      if (!recipient || !recipient.email) {
+        throw new Error("Email Sequence Sender: Recipient with email is required");
+      }
+
+      let sequence: Array<{ step: number; subject: string; body: string; delayAfter: number; sendCondition: string | null }> = [];
+      if (sequenceConfig) {
+        if (typeof sequenceConfig === 'string') {
+          try {
+            sequence = JSON.parse(sequenceConfig);
+          } catch {
+            throw new Error("Email Sequence Sender: Invalid sequence JSON format");
+          }
+        } else if (Array.isArray(sequenceConfig)) {
+          sequence = sequenceConfig;
+        }
+      }
+
+      if (sequence.length === 0) {
+        throw new Error("Email Sequence Sender: At least one sequence step is required");
+      }
+
+      // In a real implementation, this would:
+      // 1. Store sequence in database with unique sequenceId
+      // 2. Send emails in order with delays
+      // 3. Track opens, clicks, and replies
+      // 4. Stop sequence if reply detected and stopOnReply is true
+
+      const sequenceId = `seq_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      const sentSteps: number[] = [];
+
+      // Simulate sending sequence (in production, this would be async with delays)
+      for (const step of sequence) {
+        // Check sendCondition if provided
+        if (step.sendCondition) {
+          // Evaluate condition (simplified - would use expression evaluator in production)
+          const conditionMet = true; // Placeholder
+          if (!conditionMet) {
+            continue;
+          }
+        }
+
+        // In production: Send email here with subject, body, recipient
+        sentSteps.push(step.step);
+
+        // Apply delay after sending (except for last step)
+        if (step.delayAfter && step.delayAfter > 0 && step !== sequence[sequence.length - 1]) {
+          // In production, this would be handled by a scheduler/cron job
+          // For now, we simulate immediate completion
+        }
+      }
+
+      return {
+        sequenceId,
+        status: sentSteps.length === sequence.length ? 'completed' : 'paused',
+        sentSteps,
+        tracking: {
+          opens: 0,
+          clicks: 0,
+          replies: 0
+        },
+        metadata: {
+          recipient: recipient.email
+        },
+        note: "Email sequence requires email service integration and async scheduling. This is a placeholder implementation."
+      };
+    }
+
+    case "auto_followup_sender": {
+      // Auto Follow-up Sender: Send follow-ups when no response
+      const originalMessageId = getStringProperty(config, 'originalMessageId', '');
+      const recipient = getStringProperty(config, 'recipient', '');
+      const followUpMessageConfig = config.followUpMessage;
+      const waitTime = getNumberProperty(config, 'waitTime', 86400);
+      const maxAttempts = getNumberProperty(config, 'maxAttempts', 3);
+
+      if (!originalMessageId) {
+        throw new Error("Auto Follow-up Sender: Original message ID is required");
+      }
+      if (!recipient) {
+        throw new Error("Auto Follow-up Sender: Recipient is required");
+      }
+
+      let followUpMessage: { subject: string; body: string } | null = null;
+      if (followUpMessageConfig) {
+        if (typeof followUpMessageConfig === 'string') {
+          try {
+            followUpMessage = JSON.parse(followUpMessageConfig);
+          } catch {
+            throw new Error("Auto Follow-up Sender: Invalid follow-up message JSON format");
+          }
+        } else if (typeof followUpMessageConfig === 'object') {
+          followUpMessage = followUpMessageConfig as { subject: string; body: string };
+        }
+      }
+
+      if (!followUpMessage || !followUpMessage.subject || !followUpMessage.body) {
+        throw new Error("Auto Follow-up Sender: Follow-up message with subject and body is required");
+      }
+
+      if (maxAttempts < 1) {
+        throw new Error("Auto Follow-up Sender: Max attempts must be at least 1");
+      }
+
+      // In a real implementation, this would:
+      // 1. Check response status of original message
+      // 2. Wait for waitTime
+      // 3. Send follow-up if no reply
+      // 4. Repeat up to maxAttempts
+
+      // Simulate checking for reply (in production, this would query email/webhook service)
+      const hasReply = false; // Placeholder
+
+      const attemptsMade = hasReply ? 0 : 1; // Simulate one attempt if no reply
+      const finalStatus = hasReply ? 'replied' : (attemptsMade >= maxAttempts ? 'max_attempts_reached' : 'sent');
+      const lastSentAt = hasReply ? null : new Date().toISOString();
+
+      return {
+        attemptsMade,
+        finalStatus,
+        lastSentAt,
+        originalMessageId,
+        recipient,
+        note: "Auto follow-up requires message monitoring and scheduling system. This is a placeholder implementation."
+      };
+    }
+
+    case "human_handoff_notification": {
+      // Human Handoff Notification: Notify human agent to take over
+      const channel = getStringProperty(config, 'channel', 'email') as 'email' | 'slack' | 'sms';
+      const recipient = getStringProperty(config, 'recipient', '');
+      const contextConfig = config.context;
+      const priority = getStringProperty(config, 'priority', 'medium') as 'low' | 'medium' | 'high';
+
+      if (!recipient) {
+        throw new Error("Human Handoff Notification: Recipient is required");
+      }
+
+      let context: Record<string, unknown> = {};
+      if (contextConfig) {
+        if (typeof contextConfig === 'string') {
+          try {
+            context = JSON.parse(contextConfig);
+          } catch {
+            throw new Error("Human Handoff Notification: Invalid context JSON format");
+          }
+        } else if (typeof contextConfig === 'object') {
+          context = contextConfig as Record<string, unknown>;
+        }
+      }
+
+      const inputObj = input && typeof input === 'object' ? input as Record<string, unknown> : {};
+      if (Object.keys(context).length === 0 && inputObj.context) {
+        if (typeof inputObj.context === 'object') {
+          context = inputObj.context as Record<string, unknown>;
+        }
+      }
+
+      // In a real implementation, this would:
+      // 1. Send notification via specified channel (email/Slack/SMS)
+      // 2. Mark workflow execution as awaiting human action
+      // 3. Store context for human agent to review
+      // 4. Pause workflow until human resumes
+
+      // Simulate sending notification
+      const notificationSent = true;
+
+      return {
+        notificationSent,
+        channel,
+        timestamp: new Date().toISOString(),
+        handoffStatus: 'pending',
+        recipient,
+        priority,
+        context,
+        note: "Human handoff requires integration with notification channels and workflow pause/resume functionality. This is a placeholder implementation."
+      };
+    }
+
+    case "approval_request_sender": {
+      // Approval Request Sender: Request explicit approval
+      const approver = getStringProperty(config, 'approver', '');
+      const approvalMessage = getStringProperty(config, 'approvalMessage', '');
+      const approvalOptionsConfig = config.approvalOptions;
+      const timeout = getNumberProperty(config, 'timeout', 86400);
+
+      if (!approver) {
+        throw new Error("Approval Request Sender: Approver is required");
+      }
+      if (!approvalMessage) {
+        throw new Error("Approval Request Sender: Approval message is required");
+      }
+
+      let approvalOptions: string[] = ['approve', 'reject'];
+      if (approvalOptionsConfig) {
+        if (typeof approvalOptionsConfig === 'string') {
+          try {
+            approvalOptions = JSON.parse(approvalOptionsConfig);
+          } catch {
+            approvalOptions = [approvalOptionsConfig];
+          }
+        } else if (Array.isArray(approvalOptionsConfig)) {
+          approvalOptions = approvalOptionsConfig;
+        }
+      }
+
+      if (timeout < 0) {
+        throw new Error("Approval Request Sender: Timeout must be non-negative");
+      }
+
+      // In a real implementation, this would:
+      // 1. Send approval request to approver
+      // 2. Store request in database with timeout
+      // 3. Poll for response or wait for webhook
+      // 4. Return decision or timeout
+
+      // Simulate approval request (in production, this would create a pending approval record)
+      const decision: 'approve' | 'reject' | 'timed_out' = 'timed_out'; // Placeholder
+      const respondedAt = decision !== 'timed_out' ? new Date().toISOString() : null;
+      const approvedBy = decision === 'approve' ? approver : null;
+
+      return {
+        decision,
+        respondedAt,
+        approvedBy,
+        approver,
+        approvalMessage,
+        timeout,
+        note: "Approval request requires approval system integration and response tracking. This is a placeholder implementation."
+      };
+    }
+
+    case "reminder_scheduler": {
+      // Reminder Scheduler: Schedule reminders
+      const recipient = getStringProperty(config, 'recipient', '');
+      const message = getStringProperty(config, 'message', '');
+      const channel = getStringProperty(config, 'channel', 'email') as 'email' | 'sms' | 'push';
+      const scheduleConfig = config.schedule;
+
+      if (!recipient) {
+        throw new Error("Reminder Scheduler: Recipient is required");
+      }
+      if (!message) {
+        throw new Error("Reminder Scheduler: Message is required");
+      }
+
+      let schedule: { type: 'one_time' | 'recurring'; time: string; cron: string | null } | null = null;
+      if (scheduleConfig) {
+        if (typeof scheduleConfig === 'string') {
+          try {
+            schedule = JSON.parse(scheduleConfig);
+          } catch {
+            throw new Error("Reminder Scheduler: Invalid schedule JSON format");
+          }
+        } else if (typeof scheduleConfig === 'object') {
+          schedule = scheduleConfig as { type: 'one_time' | 'recurring'; time: string; cron: string | null };
+        }
+      }
+
+      if (!schedule || !schedule.type || !schedule.time) {
+        throw new Error("Reminder Scheduler: Schedule with type and time is required");
+      }
+
+      if (schedule.type === 'recurring' && !schedule.cron) {
+        throw new Error("Reminder Scheduler: Cron expression is required for recurring reminders");
+      }
+
+      // Validate time format (ISO 8601)
+      try {
+        new Date(schedule.time);
+      } catch {
+        throw new Error("Reminder Scheduler: Invalid time format. Use ISO 8601 format (e.g., 2024-12-31T12:00:00Z)");
+      }
+
+      // In a real implementation, this would:
+      // 1. Create reminder record in database
+      // 2. Schedule job using cron scheduler or job queue
+      // 3. Send reminder at scheduled time via specified channel
+      // 4. Handle recurring reminders
+
+      const reminderId = `reminder_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      const status = 'scheduled';
+      const nextRun = schedule.type === 'recurring' ? schedule.time : null; // Would calculate next run from cron
+
+      return {
+        reminderId,
+        status,
+        nextRun,
+        recipient,
+        channel,
+        schedule,
+        note: "Reminder scheduling requires job scheduler integration (e.g., cron, Bull, Agenda). This is a placeholder implementation."
+      };
     }
 
     case "database_read": {
@@ -5684,6 +7137,353 @@ async function executeNode(
       } catch (error) {
         throw new Error(`Write Binary File: Failed to write file. ${error instanceof Error ? error.message : String(error)}`);
       }
+    }
+
+    case "document_ocr": {
+      // Document OCR: Extract text from images or scanned documents
+      const fileConfig = config.file;
+      const language = getStringProperty(config, 'language', 'auto');
+      const detectLayout = getBooleanProperty(config, 'detectLayout', true);
+      const confidenceRequired = getBooleanProperty(config, 'confidenceRequired', false);
+
+      let fileObj: { name: string; type: string; binary: string } | null = null;
+      
+      if (fileConfig) {
+        if (typeof fileConfig === 'string') {
+          try {
+            fileObj = JSON.parse(fileConfig);
+          } catch {
+            throw new Error("Document OCR: Invalid file JSON format");
+          }
+        } else if (typeof fileConfig === 'object') {
+          fileObj = fileConfig as { name: string; type: string; binary: string };
+        }
+      }
+
+      // Also check input for file data
+      const inputObj = input && typeof input === 'object' ? input as Record<string, unknown> : {};
+      if (!fileObj && inputObj.file) {
+        if (typeof inputObj.file === 'object') {
+          fileObj = inputObj.file as { name: string; type: string; binary: string };
+        }
+      }
+
+      if (!fileObj || !fileObj.binary) {
+        throw new Error("Document OCR: File with binary data is required");
+      }
+
+      const fileType = fileObj.type?.toLowerCase() || '';
+      if (!['image', 'pdf'].includes(fileType)) {
+        throw new Error(`Document OCR: Unsupported file type: ${fileType}. Supported types: image, pdf`);
+      }
+
+      // In a real implementation, this would use an OCR service (Tesseract, Google Vision API, etc.)
+      // For now, we simulate OCR extraction
+      // Note: Actual OCR requires external service integration
+      
+      const fileName = fileObj.name || 'document';
+      const binaryData = fileObj.binary;
+
+      // Simulate OCR processing
+      // In production, this would:
+      // 1. Decode base64 binary
+      // 2. Send to OCR service
+      // 3. Process results with layout detection
+      // 4. Return structured text blocks
+
+      return {
+        text: "", // Empty text if extraction fails or no text found
+        blocks: [],
+        averageConfidence: 0,
+        languageDetected: language === 'auto' ? 'en' : language,
+        metadata: {
+          fileName,
+          fileType
+        },
+        note: "OCR processing requires external service integration. This is a placeholder implementation."
+      };
+    }
+
+    case "resume_parser": {
+      // Resume Parser: Convert resumes into structured data
+      const fileConfig = config.file;
+      const normalizeSkills = getBooleanProperty(config, 'normalizeSkills', true);
+      const experienceCalculation = getBooleanProperty(config, 'experienceCalculation', true);
+
+      let fileObj: { name: string; type: string; binary: string } | null = null;
+      
+      if (fileConfig) {
+        if (typeof fileConfig === 'string') {
+          try {
+            fileObj = JSON.parse(fileConfig);
+          } catch {
+            throw new Error("Resume Parser: Invalid file JSON format");
+          }
+        } else if (typeof fileConfig === 'object') {
+          fileObj = fileConfig as { name: string; type: string; binary: string };
+        }
+      }
+
+      const inputObj = input && typeof input === 'object' ? input as Record<string, unknown> : {};
+      if (!fileObj && inputObj.file) {
+        if (typeof inputObj.file === 'object') {
+          fileObj = inputObj.file as { name: string; type: string; binary: string };
+        }
+      }
+
+      if (!fileObj || !fileObj.binary) {
+        throw new Error("Resume Parser: File with binary data is required");
+      }
+
+      const fileType = fileObj.type?.toLowerCase() || '';
+      if (!['pdf', 'docx', 'image'].includes(fileType)) {
+        throw new Error(`Resume Parser: Unsupported file type: ${fileType}. Supported types: pdf, docx, image`);
+      }
+
+      // In a real implementation, this would:
+      // 1. Extract text from resume (OCR if image, parse if PDF/DOCX)
+      // 2. Use NLP/AI to extract structured information
+      // 3. Normalize skills and job titles
+      // 4. Calculate total experience
+
+      const fileName = fileObj.name || 'resume';
+
+      return {
+        personalInfo: {
+          name: null,
+          email: null,
+          phone: null
+        },
+        skills: [],
+        experience: [],
+        education: [],
+        totalExperience: null,
+        metadata: {
+          fileName
+        },
+        note: "Resume parsing requires NLP/AI service integration. This is a placeholder implementation."
+      };
+    }
+
+    case "invoice_parser": {
+      // Invoice Parser: Extract financial fields from invoices
+      const fileConfig = config.file;
+      const currencyNormalization = getBooleanProperty(config, 'currencyNormalization', true);
+      const taxDetection = getBooleanProperty(config, 'taxDetection', true);
+
+      let fileObj: { name: string; type: string; binary: string } | null = null;
+      
+      if (fileConfig) {
+        if (typeof fileConfig === 'string') {
+          try {
+            fileObj = JSON.parse(fileConfig);
+          } catch {
+            throw new Error("Invoice Parser: Invalid file JSON format");
+          }
+        } else if (typeof fileConfig === 'object') {
+          fileObj = fileConfig as { name: string; type: string; binary: string };
+        }
+      }
+
+      const inputObj = input && typeof input === 'object' ? input as Record<string, unknown> : {};
+      if (!fileObj && inputObj.file) {
+        if (typeof inputObj.file === 'object') {
+          fileObj = inputObj.file as { name: string; type: string; binary: string };
+        }
+      }
+
+      if (!fileObj || !fileObj.binary) {
+        throw new Error("Invoice Parser: File with binary data is required");
+      }
+
+      const fileType = fileObj.type?.toLowerCase() || '';
+      if (!['pdf', 'image'].includes(fileType)) {
+        throw new Error(`Invoice Parser: Unsupported file type: ${fileType}. Supported types: pdf, image`);
+      }
+
+      // In a real implementation, this would:
+      // 1. Extract text from invoice (OCR if image, parse if PDF)
+      // 2. Use pattern matching and NLP to extract invoice fields
+      // 3. Normalize currency values
+      // 4. Detect and extract tax information
+      // 5. Parse line items
+
+      return {
+        invoiceNumber: null,
+        vendorName: null,
+        invoiceDate: null,
+        dueDate: null,
+        currency: null,
+        subtotal: null,
+        tax: null,
+        totalAmount: null,
+        lineItems: [],
+        confidence: 0,
+        note: "Invoice parsing requires OCR and NLP service integration. This is a placeholder implementation."
+      };
+    }
+
+    case "document_classifier": {
+      // Document Classifier: Automatically classify documents
+      const text = getStringProperty(config, 'text', '');
+      const availableClassesConfig = config.availableClasses;
+      const confidenceThreshold = getNumberProperty(config, 'confidenceThreshold', 0.7);
+
+      if (!text || !text.trim()) {
+        throw new Error("Document Classifier: Text content is required");
+      }
+
+      let availableClasses: string[] = [];
+      
+      if (availableClassesConfig) {
+        if (typeof availableClassesConfig === 'string') {
+          try {
+            availableClasses = JSON.parse(availableClassesConfig);
+          } catch {
+            throw new Error("Document Classifier: Invalid available classes JSON format");
+          }
+        } else if (Array.isArray(availableClassesConfig)) {
+          availableClasses = availableClassesConfig;
+        }
+      }
+
+      if (availableClasses.length === 0) {
+        throw new Error("Document Classifier: At least one available class is required");
+      }
+
+      if (confidenceThreshold < 0 || confidenceThreshold > 1) {
+        throw new Error("Document Classifier: Confidence threshold must be between 0 and 1");
+      }
+
+      // In a real implementation, this would:
+      // 1. Analyze text content using NLP/AI
+      // 2. Classify document based on patterns and keywords
+      // 3. Calculate confidence scores
+      // 4. Return classification with alternatives
+
+      // Simple keyword-based classification (placeholder)
+      const textLower = text.toLowerCase();
+      let documentType = availableClasses[0]; // Default to first class
+      let confidence = 0.5;
+      let isUncertain = true;
+
+      // Basic keyword matching (simplified)
+      for (const className of availableClasses) {
+        const classLower = className.toLowerCase();
+        if (textLower.includes(classLower)) {
+          documentType = className;
+          confidence = 0.8;
+          isUncertain = false;
+          break;
+        }
+      }
+
+      if (confidence < confidenceThreshold) {
+        isUncertain = true;
+      }
+
+      return {
+        documentType,
+        confidence,
+        isUncertain,
+        possibleAlternatives: availableClasses.filter(c => c !== documentType).slice(0, 3),
+        metadata: {
+          textLength: text.length
+        },
+        note: "Document classification requires NLP/AI service integration. This is a simplified keyword-based implementation."
+      };
+    }
+
+    case "file_metadata_extractor": {
+      // File Metadata Extractor: Extract file-level metadata
+      const fileConfig = config.file;
+
+      let fileObj: { name: string; type: string; size: number; binary: string } | null = null;
+      
+      if (fileConfig) {
+        if (typeof fileConfig === 'string') {
+          try {
+            fileObj = JSON.parse(fileConfig);
+          } catch {
+            throw new Error("File Metadata Extractor: Invalid file JSON format");
+          }
+        } else if (typeof fileConfig === 'object') {
+          fileObj = fileConfig as { name: string; type: string; size: number; binary: string };
+        }
+      }
+
+      const inputObj = input && typeof input === 'object' ? input as Record<string, unknown> : {};
+      if (!fileObj && inputObj.file) {
+        if (typeof inputObj.file === 'object') {
+          fileObj = inputObj.file as { name: string; type: string; size: number; binary: string };
+        }
+      }
+
+      if (!fileObj) {
+        throw new Error("File Metadata Extractor: File object is required");
+      }
+
+      const fileName = fileObj.name || 'unknown';
+      const fileType = fileObj.type || 'application/octet-stream';
+      const fileSize = fileObj.size || 0;
+
+      // Calculate checksum from binary data if available
+      let checksum = '';
+      if (fileObj.binary) {
+        try {
+          // Simple hash calculation (in production, use proper hashing like SHA-256)
+          const binaryString = atob(fileObj.binary);
+          let hash = 0;
+          for (let i = 0; i < Math.min(binaryString.length, 1000); i++) {
+            const char = binaryString.charCodeAt(i);
+            hash = ((hash << 5) - hash) + char;
+            hash = hash & hash; // Convert to 32-bit integer
+          }
+          checksum = Math.abs(hash).toString(16);
+        } catch {
+          checksum = '';
+        }
+      }
+
+      // Extract MIME type from file type or extension
+      let mimeType = fileType;
+      if (!mimeType.includes('/')) {
+        // Try to infer from extension
+        const ext = fileName.split('.').pop()?.toLowerCase() || '';
+        const mimeMap: Record<string, string> = {
+          'pdf': 'application/pdf',
+          'jpg': 'image/jpeg',
+          'jpeg': 'image/jpeg',
+          'png': 'image/png',
+          'gif': 'image/gif',
+          'doc': 'application/msword',
+          'docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+          'xls': 'application/vnd.ms-excel',
+          'xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          'txt': 'text/plain',
+          'json': 'application/json',
+          'xml': 'application/xml',
+          'csv': 'text/csv'
+        };
+        mimeType = mimeMap[ext] || 'application/octet-stream';
+      }
+
+      // In a real implementation, this would:
+      // 1. Extract EXIF data from images
+      // 2. Extract metadata from PDFs (author, creation date, etc.)
+      // 3. Compute proper checksums (SHA-256, MD5)
+      // 4. Extract creation/modification dates from file system
+
+      return {
+        fileName,
+        mimeType,
+        sizeBytes: fileSize,
+        checksum,
+        createdAt: null,
+        modifiedAt: null,
+        exif: null,
+        note: "Full metadata extraction requires file system access and specialized parsers. This is a basic implementation."
+      };
     }
 
     case "rss_feed_read": {
@@ -8982,6 +10782,355 @@ async function executeNode(
       }
     }
 
+    case "alert_correlation_engine": {
+      // Alert Correlation Engine: Group related alerts into incidents
+      const alertsConfig = config.alerts;
+      const correlationWindowMinutes = getNumberProperty(config, 'correlationWindowMinutes', 5);
+      const correlationRulesConfig = config.correlationRules || {};
+
+      if (correlationWindowMinutes < 0) {
+        throw new Error("Alert Correlation Engine: Correlation window must be non-negative");
+      }
+
+      let alerts: Array<{ alertId: string; source: string; service: string; severity: 'low' | 'medium' | 'high' | 'critical'; message: string; timestamp: string }> = [];
+      if (alertsConfig) {
+        if (typeof alertsConfig === 'string') {
+          try {
+            alerts = JSON.parse(alertsConfig);
+          } catch {
+            throw new Error("Alert Correlation Engine: Invalid alerts JSON format");
+          }
+        } else if (Array.isArray(alertsConfig)) {
+          alerts = alertsConfig;
+        }
+      }
+
+      if (alerts.length === 0) {
+        throw new Error("Alert Correlation Engine: At least one alert is required");
+      }
+
+      // Group alerts by service and time window
+      const incidentGroups: Array<{ incidentId: string; service: string; severity: string; alerts: string[]; startTime: string; endTime: string | null }> = [];
+      const suppressedAlerts: string[] = [];
+      const processedAlerts = new Set<string>();
+
+      // Sort alerts by timestamp
+      alerts.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+
+      const correlationWindowMs = correlationWindowMinutes * 60 * 1000;
+
+      // Group alerts by service and time proximity
+      const serviceGroups: Record<string, Array<{ alertId: string; severity: string; timestamp: string }>> = {};
+
+      for (const alert of alerts) {
+        if (processedAlerts.has(alert.alertId)) {
+          suppressedAlerts.push(alert.alertId);
+          continue;
+        }
+
+        if (!serviceGroups[alert.service]) {
+          serviceGroups[alert.service] = [];
+        }
+
+        serviceGroups[alert.service].push({
+          alertId: alert.alertId,
+          severity: alert.severity,
+          timestamp: alert.timestamp
+        });
+      }
+
+      // Create incident groups
+      for (const [service, serviceAlerts] of Object.entries(serviceGroups)) {
+        if (serviceAlerts.length === 0) continue;
+
+        // Find highest severity
+        const severityMap: Record<string, number> = { critical: 4, high: 3, medium: 2, low: 1 };
+        const highestSeverity = serviceAlerts.reduce((max, alert) => {
+          return severityMap[alert.severity] > severityMap[max] ? alert.severity : max;
+        }, 'low');
+
+        const firstAlert = serviceAlerts[0];
+        const lastAlert = serviceAlerts[serviceAlerts.length - 1];
+
+        const incidentId = `incident_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        
+        incidentGroups.push({
+          incidentId,
+          service,
+          severity: highestSeverity,
+          alerts: serviceAlerts.map(a => a.alertId),
+          startTime: firstAlert.timestamp,
+          endTime: null // Would be set when incident is resolved
+        });
+
+        serviceAlerts.forEach(a => processedAlerts.add(a.alertId));
+      }
+
+      return {
+        incidentGroups,
+        suppressedAlerts,
+        totalAlerts: alerts.length,
+        totalIncidents: incidentGroups.length
+      };
+    }
+
+    case "incident_classifier": {
+      // Incident Classifier: Classify incidents for severity and impact
+      const incidentConfig = config.incident;
+      const classificationRulesConfig = config.classificationRules || {};
+
+      let incident: { incidentId: string; service: string; symptoms: string[]; affectedUsers: number; alerts: string[] } | null = null;
+      if (incidentConfig) {
+        if (typeof incidentConfig === 'string') {
+          try {
+            incident = JSON.parse(incidentConfig);
+          } catch {
+            throw new Error("Incident Classifier: Invalid incident JSON format");
+          }
+        } else if (typeof incidentConfig === 'object') {
+          incident = incidentConfig as { incidentId: string; service: string; symptoms: string[]; affectedUsers: number; alerts: string[] };
+        }
+      }
+
+      const inputObj = input && typeof input === 'object' ? input as Record<string, unknown> : {};
+      if (!incident && inputObj.incident) {
+        if (typeof inputObj.incident === 'object') {
+          incident = inputObj.incident as { incidentId: string; service: string; symptoms: string[]; affectedUsers: number; alerts: string[] };
+        }
+      }
+
+      if (!incident || !incident.incidentId || !incident.service) {
+        throw new Error("Incident Classifier: Incident with incidentId and service is required");
+      }
+
+      // Default classification rules
+      const defaultSeverityThresholds: Record<string, number> = {
+        sev1: 10000,
+        sev2: 1000,
+        sev3: 100,
+        sev4: 0
+      };
+
+      const defaultImpactThresholds: Record<string, number> = {
+        high: 1000,
+        medium: 100,
+        low: 0
+      };
+
+      const severityThresholds = (classificationRulesConfig.severityThresholds as Record<string, number>) || defaultSeverityThresholds;
+      const impactThresholds = (classificationRulesConfig.impactThresholds as Record<string, number>) || defaultImpactThresholds;
+
+      // Determine severity based on affected users
+      const affectedUsers = incident.affectedUsers || 0;
+      let severity: 'sev1' | 'sev2' | 'sev3' | 'sev4' = 'sev4';
+      
+      if (affectedUsers >= severityThresholds.sev1) {
+        severity = 'sev1';
+      } else if (affectedUsers >= severityThresholds.sev2) {
+        severity = 'sev2';
+      } else if (affectedUsers >= severityThresholds.sev3) {
+        severity = 'sev3';
+      }
+
+      // Determine impact level
+      let impactLevel: 'low' | 'medium' | 'high' = 'low';
+      if (affectedUsers >= impactThresholds.high) {
+        impactLevel = 'high';
+      } else if (affectedUsers >= impactThresholds.medium) {
+        impactLevel = 'medium';
+      }
+
+      // Assign category based on service and symptoms
+      const category = incident.service || 'General';
+
+      // Assign owner team based on service
+      const ownerTeam = `${incident.service}_team` || 'ops_team';
+
+      return {
+        incidentId: incident.incidentId,
+        severity,
+        impactLevel,
+        category,
+        ownerTeam,
+        affectedUsers,
+        alertsCount: incident.alerts?.length || 0
+      };
+    }
+
+    case "auto_remediation_planner": {
+      // Auto-Remediation Planner: Plan safe automated remediation
+      const incidentConfig = config.incident;
+      const runbooksConfig = config.runbooks;
+      const automationLevel = getStringProperty(config, 'automationLevel', 'suggest') as 'suggest' | 'execute';
+
+      let incident: { incidentId: string; service: string; rootCause: string | null } | null = null;
+      if (incidentConfig) {
+        if (typeof incidentConfig === 'string') {
+          try {
+            incident = JSON.parse(incidentConfig);
+          } catch {
+            throw new Error("Auto-Remediation Planner: Invalid incident JSON format");
+          }
+        } else if (typeof incidentConfig === 'object') {
+          incident = incidentConfig as { incidentId: string; service: string; rootCause: string | null };
+        }
+      }
+
+      const inputObj = input && typeof input === 'object' ? input as Record<string, unknown> : {};
+      if (!incident && inputObj.incident) {
+        if (typeof inputObj.incident === 'object') {
+          incident = inputObj.incident as { incidentId: string; service: string; rootCause: string | null };
+        }
+      }
+
+      if (!incident || !incident.incidentId || !incident.service) {
+        throw new Error("Auto-Remediation Planner: Incident with incidentId and service is required");
+      }
+
+      let runbooks: Array<{ service: string; issuePattern: string; steps: string[] }> = [];
+      if (runbooksConfig) {
+        if (typeof runbooksConfig === 'string') {
+          try {
+            runbooks = JSON.parse(runbooksConfig);
+          } catch {
+            throw new Error("Auto-Remediation Planner: Invalid runbooks JSON format");
+          }
+        } else if (Array.isArray(runbooksConfig)) {
+          runbooks = runbooksConfig;
+        }
+      }
+
+      // Match incident to runbooks
+      const matchedRunbook = runbooks.find(rb => 
+        rb.service === incident!.service && 
+        (incident!.rootCause ? rb.issuePattern.toLowerCase().includes(incident!.rootCause.toLowerCase()) : true)
+      );
+
+      let remediationPlan: string[] = [];
+      let automationApproved = false;
+      let requiresHumanApproval = false;
+
+      if (matchedRunbook) {
+        remediationPlan = matchedRunbook.steps || [];
+
+        // Check for destructive actions (simplified check)
+        const destructiveKeywords = ['delete', 'destroy', 'drop', 'remove all', 'clear all'];
+        const hasDestructiveActions = remediationPlan.some(step =>
+          destructiveKeywords.some(keyword => step.toLowerCase().includes(keyword))
+        );
+
+        if (hasDestructiveActions) {
+          requiresHumanApproval = true;
+          automationApproved = false;
+        } else if (automationLevel === 'execute') {
+          automationApproved = true;
+          requiresHumanApproval = false;
+        } else {
+          automationApproved = false;
+          requiresHumanApproval = true;
+        }
+      } else {
+        // No matching runbook found
+        remediationPlan = ['No automated remediation available. Manual intervention required.'];
+        requiresHumanApproval = true;
+        automationApproved = false;
+      }
+
+      return {
+        incidentId: incident.incidentId,
+        remediationPlan,
+        automationApproved,
+        requiresHumanApproval,
+        automationLevel,
+        matchedRunbook: matchedRunbook ? matchedRunbook.issuePattern : null
+      };
+    }
+
+    case "postmortem_generator": {
+      // Postmortem Generator: Generate structured post-incident reports
+      const incidentConfig = config.incident;
+      const timelineConfig = config.timeline;
+      const actionItemsConfig = config.actionItems;
+
+      let incident: { incidentId: string; service: string; severity: string; startTime: string; endTime: string; rootCause: string; resolution: string } | null = null;
+      if (incidentConfig) {
+        if (typeof incidentConfig === 'string') {
+          try {
+            incident = JSON.parse(incidentConfig);
+          } catch {
+            throw new Error("Postmortem Generator: Invalid incident JSON format");
+          }
+        } else if (typeof incidentConfig === 'object') {
+          incident = incidentConfig as { incidentId: string; service: string; severity: string; startTime: string; endTime: string; rootCause: string; resolution: string };
+        }
+      }
+
+      const inputObj = input && typeof input === 'object' ? input as Record<string, unknown> : {};
+      if (!incident && inputObj.incident) {
+        if (typeof inputObj.incident === 'object') {
+          incident = inputObj.incident as { incidentId: string; service: string; severity: string; startTime: string; endTime: string; rootCause: string; resolution: string };
+        }
+      }
+
+      if (!incident || !incident.incidentId || !incident.service) {
+        throw new Error("Postmortem Generator: Incident with incidentId and service is required");
+      }
+
+      let timeline: Array<{ timestamp: string; event: string }> = [];
+      if (timelineConfig) {
+        if (typeof timelineConfig === 'string') {
+          try {
+            timeline = JSON.parse(timelineConfig);
+          } catch {
+            throw new Error("Postmortem Generator: Invalid timeline JSON format");
+          }
+        } else if (Array.isArray(timelineConfig)) {
+          timeline = timelineConfig;
+        }
+      }
+
+      let actionItems: string[] = [];
+      if (actionItemsConfig) {
+        if (typeof actionItemsConfig === 'string') {
+          try {
+            actionItems = JSON.parse(actionItemsConfig);
+          } catch {
+            actionItems = [actionItemsConfig];
+          }
+        } else if (Array.isArray(actionItemsConfig)) {
+          actionItems = actionItemsConfig;
+        }
+      }
+
+      // Calculate incident duration
+      const startTime = new Date(incident.startTime);
+      const endTime = new Date(incident.endTime);
+      const durationMinutes = Math.floor((endTime.getTime() - startTime.getTime()) / (1000 * 60));
+
+      // Generate summary
+      const summary = `${incident.severity} incident in ${incident.service} service. Duration: ${durationMinutes} minutes. Root cause: ${incident.rootCause || 'Unknown'}.`;
+
+      // Generate impact description
+      const impact = `Service ${incident.service} experienced a ${incident.severity} incident from ${startTime.toISOString()} to ${endTime.toISOString()}. This resulted in service degradation affecting users.`;
+
+      const rootCause = incident.rootCause || 'Root cause analysis pending';
+
+      return {
+        postmortem: {
+          summary,
+          impact,
+          rootCause,
+          timeline,
+          actionItems
+        },
+        incidentId: incident.incidentId,
+        generatedAt: new Date().toISOString(),
+        durationMinutes,
+        service: incident.service,
+        severity: incident.severity
+      };
+    }
+
     // ============================================
     // SOCIAL MEDIA NODES
     // ============================================
@@ -10772,6 +12921,354 @@ async function executeNode(
       }
     }
 
+    case "crm_lead_router": {
+      // CRM Lead Router: Route incoming leads to correct owner/team
+      const leadConfig = config.lead;
+      const routingRulesConfig = config.routingRules;
+      const fallbackOwner = getStringProperty(config, 'fallbackOwner', '');
+
+      if (!fallbackOwner) {
+        throw new Error("CRM Lead Router: Fallback owner is required");
+      }
+
+      let lead: { id: string; name: string; email: string; source: string; location: string; industry: string; companySize: number; score: number | null } | null = null;
+      if (leadConfig) {
+        if (typeof leadConfig === 'string') {
+          try {
+            lead = JSON.parse(leadConfig);
+          } catch {
+            throw new Error("CRM Lead Router: Invalid lead JSON format");
+          }
+        } else if (typeof leadConfig === 'object') {
+          lead = leadConfig as { id: string; name: string; email: string; source: string; location: string; industry: string; companySize: number; score: number | null };
+        }
+      }
+
+      const inputObj = input && typeof input === 'object' ? input as Record<string, unknown> : {};
+      if (!lead && inputObj.lead) {
+        if (typeof inputObj.lead === 'object') {
+          lead = inputObj.lead as { id: string; name: string; email: string; source: string; location: string; industry: string; companySize: number; score: number | null };
+        }
+      }
+
+      if (!lead || !lead.id || !lead.email) {
+        throw new Error("CRM Lead Router: Lead with id and email is required");
+      }
+
+      let routingRules: Array<{ condition: string; assignTo: string }> = [];
+      if (routingRulesConfig) {
+        if (typeof routingRulesConfig === 'string') {
+          try {
+            routingRules = JSON.parse(routingRulesConfig);
+          } catch {
+            throw new Error("CRM Lead Router: Invalid routing rules JSON format");
+          }
+        } else if (Array.isArray(routingRulesConfig)) {
+          routingRules = routingRulesConfig;
+        }
+      }
+
+      if (routingRules.length === 0) {
+        throw new Error("CRM Lead Router: At least one routing rule is required");
+      }
+
+      // Evaluate routing rules in order
+      let assignedTo = fallbackOwner;
+      let routingRuleApplied: string | null = null;
+
+      for (const rule of routingRules) {
+        if (!rule.condition || !rule.assignTo) {
+          continue;
+        }
+
+        try {
+          // Evaluate condition using expression evaluator
+          const conditionMet = evaluateCondition(rule.condition, lead);
+          
+          if (conditionMet) {
+            assignedTo = rule.assignTo;
+            routingRuleApplied = rule.condition;
+            break;
+          }
+        } catch (conditionError) {
+          console.warn(`CRM Lead Router: Error evaluating condition "${rule.condition}":`, conditionError);
+          // Continue to next rule
+        }
+      }
+
+      return {
+        leadId: lead.id,
+        assignedTo,
+        routingRuleApplied,
+        status: 'assigned',
+        metadata: {
+          leadSource: lead.source
+        }
+      };
+    }
+
+    case "crm_ticket_prioritizer": {
+      // CRM Ticket Prioritizer: Determine ticket priority
+      const ticketConfig = config.ticket;
+      const priorityMatrixConfig = config.priorityMatrix;
+
+      let ticket: { id: string; category: string; customerTier: 'free' | 'standard' | 'premium'; impact: 'low' | 'medium' | 'high'; urgency: 'low' | 'medium' | 'high'; createdAt: string } | null = null;
+      if (ticketConfig) {
+        if (typeof ticketConfig === 'string') {
+          try {
+            ticket = JSON.parse(ticketConfig);
+          } catch {
+            throw new Error("CRM Ticket Prioritizer: Invalid ticket JSON format");
+          }
+        } else if (typeof ticketConfig === 'object') {
+          ticket = ticketConfig as { id: string; category: string; customerTier: 'free' | 'standard' | 'premium'; impact: 'low' | 'medium' | 'high'; urgency: 'low' | 'medium' | 'high'; createdAt: string };
+        }
+      }
+
+      const inputObj = input && typeof input === 'object' ? input as Record<string, unknown> : {};
+      if (!ticket && inputObj.ticket) {
+        if (typeof inputObj.ticket === 'object') {
+          ticket = inputObj.ticket as { id: string; category: string; customerTier: 'free' | 'standard' | 'premium'; impact: 'low' | 'medium' | 'high'; urgency: 'low' | 'medium' | 'high'; createdAt: string };
+        }
+      }
+
+      if (!ticket || !ticket.id) {
+        throw new Error("CRM Ticket Prioritizer: Ticket with id is required");
+      }
+
+      // Determine priority based on impact, urgency, and customer tier
+      const impact = ticket.impact;
+      const urgency = ticket.urgency;
+      const customerTier = ticket.customerTier;
+
+      let priority: 'low' | 'medium' | 'high' | 'critical' = 'medium';
+      let reasoning = '';
+
+      if (impact === 'high' && urgency === 'high') {
+        priority = customerTier === 'premium' ? 'critical' : 'high';
+        reasoning = `${impact} impact and ${urgency} urgency`;
+      } else if (impact === 'high' || urgency === 'high') {
+        priority = customerTier === 'premium' ? 'high' : 'medium';
+        reasoning = `${impact} impact or ${urgency} urgency`;
+      } else if (impact === 'medium' && urgency === 'medium') {
+        priority = customerTier === 'premium' ? 'medium' : 'low';
+        reasoning = `${impact} impact and ${urgency} urgency`;
+      } else {
+        priority = 'low';
+        reasoning = `${impact} impact and ${urgency} urgency`;
+      }
+
+      if (customerTier === 'premium') {
+        reasoning += ` (premium customer boost)`;
+      }
+
+      const responseTimeTargets: Record<string, string> = {
+        critical: '15 minutes',
+        high: '1 hour',
+        medium: '4 hours',
+        low: '24 hours'
+      };
+
+      return {
+        ticketId: ticket.id,
+        priority,
+        responseTimeTarget: responseTimeTargets[priority],
+        reasoning
+      };
+    }
+
+    case "crm_sla_monitor": {
+      // CRM SLA Monitor: Monitor SLA compliance
+      const ticketId = getStringProperty(config, 'ticketId', '');
+      const priority = getStringProperty(config, 'priority', 'medium') as 'low' | 'medium' | 'high' | 'critical';
+      const createdAtStr = getStringProperty(config, 'createdAt', '');
+      const lastResponseAtStr = getStringProperty(config, 'lastResponseAt', '');
+      const slaPoliciesConfig = config.slaPolicies;
+
+      if (!ticketId) {
+        throw new Error("CRM SLA Monitor: Ticket ID is required");
+      }
+      if (!createdAtStr) {
+        throw new Error("CRM SLA Monitor: Created At timestamp is required");
+      }
+
+      let createdAt: Date;
+      let lastResponseAt: Date | null = null;
+
+      try {
+        createdAt = new Date(createdAtStr);
+        if (isNaN(createdAt.getTime())) {
+          throw new Error("Invalid date format");
+        }
+      } catch {
+        throw new Error("CRM SLA Monitor: Invalid Created At timestamp format. Use ISO 8601 format");
+      }
+
+      if (lastResponseAtStr) {
+        try {
+          lastResponseAt = new Date(lastResponseAtStr);
+          if (isNaN(lastResponseAt.getTime())) {
+            lastResponseAt = null;
+          }
+        } catch {
+          lastResponseAt = null;
+        }
+      }
+
+      const defaultSlaPolicies: Record<string, number> = {
+        low: 1440,
+        medium: 480,
+        high: 120,
+        critical: 30
+      };
+
+      let slaPolicies = defaultSlaPolicies;
+      if (slaPoliciesConfig && typeof slaPoliciesConfig === 'object') {
+        slaPolicies = { ...defaultSlaPolicies, ...slaPoliciesConfig as Record<string, number> };
+      }
+
+      const slaMinutes = slaPolicies[priority] || defaultSlaPolicies[priority];
+      const now = new Date();
+      const referenceTime = lastResponseAt || createdAt;
+      const timeElapsedMinutes = Math.floor((now.getTime() - referenceTime.getTime()) / (1000 * 60));
+
+      let slaStatus: 'within_sla' | 'at_risk' | 'breached';
+      const timeRemainingMinutes = slaMinutes - timeElapsedMinutes;
+      const riskThreshold = slaMinutes * 0.8;
+
+      if (timeElapsedMinutes >= slaMinutes) {
+        slaStatus = 'breached';
+      } else if (timeElapsedMinutes >= riskThreshold) {
+        slaStatus = 'at_risk';
+      } else {
+        slaStatus = 'within_sla';
+      }
+
+      const escalationRequired = slaStatus === 'breached' || (slaStatus === 'at_risk' && priority === 'critical');
+
+      return {
+        ticketId,
+        slaStatus,
+        timeElapsedMinutes,
+        timeRemainingMinutes: timeRemainingMinutes > 0 ? timeRemainingMinutes : null,
+        escalationRequired,
+        priority,
+        slaTargetMinutes: slaMinutes
+      };
+    }
+
+    case "crm_duplicate_detector": {
+      // CRM Duplicate Detector: Detect duplicate records
+      const recordConfig = config.record;
+      const existingRecordsConfig = config.existingRecords;
+      const matchThreshold = getNumberProperty(config, 'matchThreshold', 0.8);
+
+      if (matchThreshold < 0 || matchThreshold > 1) {
+        throw new Error("CRM Duplicate Detector: Match threshold must be between 0 and 1");
+      }
+
+      let record: { id: string; email: string | null; phone: string | null; company: string | null } | null = null;
+      if (recordConfig) {
+        if (typeof recordConfig === 'string') {
+          try {
+            record = JSON.parse(recordConfig);
+          } catch {
+            throw new Error("CRM Duplicate Detector: Invalid record JSON format");
+          }
+        } else if (typeof recordConfig === 'object') {
+          record = recordConfig as { id: string; email: string | null; phone: string | null; company: string | null };
+        }
+      }
+
+      const inputObj = input && typeof input === 'object' ? input as Record<string, unknown> : {};
+      if (!record && inputObj.record) {
+        if (typeof inputObj.record === 'object') {
+          record = inputObj.record as { id: string; email: string | null; phone: string | null; company: string | null };
+        }
+      }
+
+      if (!record || !record.id) {
+        throw new Error("CRM Duplicate Detector: Record with id is required");
+      }
+
+      if (!record.email && !record.phone && !record.company) {
+        throw new Error("CRM Duplicate Detector: Record must have at least one of: email, phone, or company");
+      }
+
+      let existingRecords: Array<{ id: string; email: string | null; phone: string | null; company: string | null }> = [];
+      if (existingRecordsConfig) {
+        if (typeof existingRecordsConfig === 'string') {
+          try {
+            existingRecords = JSON.parse(existingRecordsConfig);
+          } catch {
+            throw new Error("CRM Duplicate Detector: Invalid existing records JSON format");
+          }
+        } else if (Array.isArray(existingRecordsConfig)) {
+          existingRecords = existingRecordsConfig;
+        }
+      }
+
+      let bestMatch: { id: string; score: number } | null = null;
+      let bestScore = 0;
+
+      for (const existing of existingRecords) {
+        let score = 0;
+        let comparisons = 0;
+
+        if (record.email && existing.email) {
+          if (record.email.toLowerCase() === existing.email.toLowerCase()) {
+            score += 1.0;
+            comparisons++;
+          }
+        }
+
+        if (record.phone && existing.phone) {
+          const normalizePhone = (p: string) => p.replace(/\D/g, '');
+          if (normalizePhone(record.phone) === normalizePhone(existing.phone)) {
+            score += 1.0;
+            comparisons++;
+          }
+        }
+
+        if (record.company && existing.company) {
+          const normalizeCompany = (c: string) => c.toLowerCase().trim();
+          if (normalizeCompany(record.company) === normalizeCompany(existing.company)) {
+            score += 0.8;
+            comparisons++;
+          }
+        }
+
+        const avgScore = comparisons > 0 ? score / comparisons : 0;
+
+        if (avgScore > bestScore) {
+          bestScore = avgScore;
+          bestMatch = { id: existing.id, score: avgScore };
+        }
+      }
+
+      const isDuplicate = bestMatch !== null && bestScore >= matchThreshold;
+      let recommendedAction: 'merge' | 'ignore' | 'create_new';
+
+      if (isDuplicate) {
+        if (bestScore >= 0.9) {
+          recommendedAction = 'merge';
+        } else if (bestScore >= matchThreshold) {
+          recommendedAction = 'ignore';
+        } else {
+          recommendedAction = 'create_new';
+        }
+      } else {
+        recommendedAction = 'create_new';
+      }
+
+      return {
+        isDuplicate,
+        matchedRecordId: bestMatch?.id || null,
+        matchScore: bestScore,
+        recommendedAction
+      };
+    }
+
     case "notion": {
       const apiKey = getStringProperty(config, 'apiKey', '');
       const operation = getStringProperty(config, 'operation', 'create_page');
@@ -12000,6 +14497,286 @@ async function executeNode(
       }
     }
 
+    case "knowledge_base_search": {
+      // Knowledge Base Search: Search internal documentation
+      const query = getStringProperty(config, 'query', '');
+      const knowledgeSourcesConfig = config.knowledgeSources;
+      const topK = getNumberProperty(config, 'topK', 5);
+      const filtersConfig = config.filters;
+
+      if (!query || !query.trim()) {
+        throw new Error("Knowledge Base Search: Query is required");
+      }
+
+      let knowledgeSources: Array<{ sourceId: string; type: 'wiki' | 'doc' | 'pdf' | 'faq' }> = [];
+      if (knowledgeSourcesConfig) {
+        if (typeof knowledgeSourcesConfig === 'string') {
+          try {
+            knowledgeSources = JSON.parse(knowledgeSourcesConfig);
+          } catch {
+            throw new Error("Knowledge Base Search: Invalid knowledge sources JSON format");
+          }
+        } else if (Array.isArray(knowledgeSourcesConfig)) {
+          knowledgeSources = knowledgeSourcesConfig;
+        }
+      }
+
+      if (knowledgeSources.length === 0) {
+        throw new Error("Knowledge Base Search: At least one knowledge source is required");
+      }
+
+      let filters: Record<string, unknown> | null = null;
+      if (filtersConfig) {
+        if (typeof filtersConfig === 'string') {
+          try {
+            filters = JSON.parse(filtersConfig);
+          } catch {
+            filters = null;
+          }
+        } else if (typeof filtersConfig === 'object') {
+          filters = filtersConfig as Record<string, unknown>;
+        }
+      }
+
+      // In a real implementation, this would:
+      // 1. Perform semantic search across knowledge sources
+      // 2. Rank results by relevance using vector similarity
+      // 3. Apply filters
+      // 4. Return top K results with citations
+
+      // Simulate search results (placeholder)
+      const results: Array<{ sourceId: string; title: string; snippet: string; relevanceScore: number; reference: string }> = [];
+
+      for (let i = 0; i < Math.min(topK, knowledgeSources.length); i++) {
+        const source = knowledgeSources[i];
+        results.push({
+          sourceId: source.sourceId,
+          title: `Search Result from ${source.type}`,
+          snippet: `Relevant content matching "${query}" from ${source.type} source.`,
+          relevanceScore: 0.9 - (i * 0.1),
+          reference: `ref://${source.type}/${source.sourceId}`
+        });
+      }
+
+      return {
+        results,
+        totalResults: results.length,
+        query,
+        note: "Knowledge base search requires vector database integration (e.g., Pinecone, Weaviate, or Supabase Vector) and semantic search. This is a placeholder implementation."
+      };
+    }
+
+    case "onboarding_flow_generator": {
+      // Onboarding Flow Generator: Generate onboarding workflows
+      const role = getStringProperty(config, 'role', '');
+      const department = getStringProperty(config, 'department', '');
+      const location = getStringProperty(config, 'location', '');
+      const startDateStr = getStringProperty(config, 'startDate', '');
+      const companyPoliciesConfig = config.companyPolicies;
+
+      if (!role || !department || !location || !startDateStr) {
+        throw new Error("Onboarding Flow Generator: Role, department, location, and start date are required");
+      }
+
+      // Validate start date
+      let startDate: Date;
+      try {
+        startDate = new Date(startDateStr);
+        if (isNaN(startDate.getTime())) {
+          throw new Error("Invalid date format");
+        }
+      } catch {
+        throw new Error("Onboarding Flow Generator: Invalid start date format. Use ISO format (YYYY-MM-DD)");
+      }
+
+      let companyPolicies: string[] = [];
+      if (companyPoliciesConfig) {
+        if (typeof companyPoliciesConfig === 'string') {
+          try {
+            companyPolicies = JSON.parse(companyPoliciesConfig);
+          } catch {
+            companyPolicies = [companyPoliciesConfig];
+          }
+        } else if (Array.isArray(companyPoliciesConfig)) {
+          companyPolicies = companyPoliciesConfig;
+        }
+      }
+
+      // Generate onboarding flow based on role, department, and location
+      const onboardingFlow: Array<{ step: number; task: string; owner: string; dueBy: string }> = [];
+      
+      // Calculate due dates from start date
+      const addDays = (date: Date, days: number): string => {
+        const result = new Date(date);
+        result.setDate(result.getDate() + days);
+        return result.toISOString().split('T')[0];
+      };
+
+      // Standard onboarding steps
+      onboardingFlow.push(
+        { step: 1, task: 'Welcome email and access credentials', owner: 'IT', dueBy: startDateStr },
+        { step: 2, task: 'Company policy review and acknowledgment', owner: 'HR', dueBy: addDays(startDate, 1) },
+        { step: 3, task: 'Setup workspace and equipment', owner: 'IT', dueBy: addDays(startDate, 1) },
+        { step: 4, task: 'Department introduction and team meeting', owner: department, dueBy: addDays(startDate, 2) },
+        { step: 5, task: 'Role-specific training and documentation', owner: department, dueBy: addDays(startDate, 5) }
+      );
+
+      // Add location-specific tasks if needed
+      if (location.toLowerCase() !== 'us') {
+        onboardingFlow.push({
+          step: onboardingFlow.length + 1,
+          task: `Location-specific compliance training (${location})`,
+          owner: 'HR',
+          dueBy: addDays(startDate, 3)
+        });
+      }
+
+      // Add policy-specific tasks
+      companyPolicies.forEach((policy, index) => {
+        onboardingFlow.push({
+          step: onboardingFlow.length + 1,
+          task: `Review and acknowledge: ${policy}`,
+          owner: 'HR',
+          dueBy: addDays(startDate, index + 2)
+        });
+      });
+
+      const durationDays = Math.ceil((new Date(onboardingFlow[onboardingFlow.length - 1].dueBy).getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
+
+      return {
+        onboardingFlow,
+        durationDays,
+        metadata: {
+          role,
+          department
+        }
+      };
+    }
+
+    case "policy_sync_node": {
+      // Policy Sync Node: Synchronize policies across systems
+      const policyId = getStringProperty(config, 'policyId', '');
+      const policyContent = getStringProperty(config, 'policyContent', '');
+      const sourceSystem = getStringProperty(config, 'sourceSystem', '');
+      const targetSystemsConfig = config.targetSystems;
+      const version = getStringProperty(config, 'version', '1.0.0');
+
+      if (!policyId || !policyContent || !sourceSystem) {
+        throw new Error("Policy Sync Node: Policy ID, content, and source system are required");
+      }
+
+      let targetSystems: string[] = [];
+      if (targetSystemsConfig) {
+        if (typeof targetSystemsConfig === 'string') {
+          try {
+            targetSystems = JSON.parse(targetSystemsConfig);
+          } catch {
+            targetSystems = [targetSystemsConfig];
+          }
+        } else if (Array.isArray(targetSystemsConfig)) {
+          targetSystems = targetSystemsConfig;
+        }
+      }
+
+      if (targetSystems.length === 0) {
+        throw new Error("Policy Sync Node: At least one target system is required");
+      }
+
+      // In a real implementation, this would:
+      // 1. Detect policy changes by comparing with previous version
+      // 2. Sync updates to all target systems via their APIs
+      // 3. Maintain version history
+      // 4. Detect conflicts if policies were modified in target systems
+
+      // Simulate sync operation
+      const updatedSystems: string[] = [];
+      const conflicts: string[] = [];
+      let syncStatus: 'success' | 'partial' | 'failed' = 'success';
+
+      for (const target of targetSystems) {
+        // Simulate sync success/failure (90% success rate)
+        const syncSuccess = Math.random() > 0.1;
+        if (syncSuccess) {
+          updatedSystems.push(target);
+        } else {
+          conflicts.push(target);
+          syncStatus = 'partial';
+        }
+      }
+
+      if (updatedSystems.length === 0) {
+        syncStatus = 'failed';
+      }
+
+      return {
+        policyId,
+        version,
+        syncStatus,
+        updatedSystems,
+        conflicts: conflicts.length > 0 ? conflicts : null,
+        sourceSystem,
+        note: "Policy sync requires integration with target system APIs. This is a placeholder implementation."
+      };
+    }
+
+    case "employee_faq_indexer": {
+      // Employee FAQ Indexer: Index FAQs for fast retrieval
+      const faqItemsConfig = config.faqItems;
+      const indexMode = getStringProperty(config, 'indexMode', 'create') as 'create' | 'update' | 'delete';
+      const language = getStringProperty(config, 'language', 'en');
+
+      let faqItems: Array<{ question: string; answer: string; category: string }> = [];
+      if (faqItemsConfig) {
+        if (typeof faqItemsConfig === 'string') {
+          try {
+            faqItems = JSON.parse(faqItemsConfig);
+          } catch {
+            throw new Error("Employee FAQ Indexer: Invalid FAQ items JSON format");
+          }
+        } else if (Array.isArray(faqItemsConfig)) {
+          faqItems = faqItemsConfig;
+        }
+      }
+
+      if (faqItems.length === 0 && indexMode !== 'delete') {
+        throw new Error("Employee FAQ Indexer: At least one FAQ item is required for create/update mode");
+      }
+
+      // In a real implementation, this would:
+      // 1. Normalize questions (remove punctuation, lowercase, etc.)
+      // 2. Categorize FAQs automatically or use provided categories
+      // 3. Index for semantic search using vector embeddings
+      // 4. Support updates and deletions
+      // 5. Maintain search index (Pinecone, Weaviate, etc.)
+
+      // Extract unique categories
+      const categoriesSet = new Set<string>();
+      faqItems.forEach(item => {
+        if (item.category) {
+          categoriesSet.add(item.category);
+        }
+      });
+      const categories = Array.from(categoriesSet);
+
+      // Simulate indexing
+      let indexedCount = 0;
+      if (indexMode === 'create' || indexMode === 'update') {
+        indexedCount = faqItems.length;
+      } else if (indexMode === 'delete') {
+        // In delete mode, count would be number of items deleted
+        indexedCount = faqItems.length;
+      }
+
+      return {
+        indexedCount,
+        categories,
+        indexStatus: 'completed',
+        indexMode,
+        language,
+        note: "FAQ indexing requires vector database integration for semantic search. This is a placeholder implementation."
+      };
+    }
+
     // ============================================
     // AUTHENTICATION & IDENTITY NODES
     // ============================================
@@ -13044,6 +15821,447 @@ async function executeNode(
       }
     }
 
+    case "expense_categorizer": {
+      // Expense Categorizer: Automatically classify expenses
+      const expenseConfig = config.expense;
+      const categoryRulesConfig = config.categoryRules;
+      const defaultCategory = getStringProperty(config, 'defaultCategory', 'Uncategorized');
+
+      let expense: { id: string; description: string; amount: number; currency: string; merchant: string | null; date: string } | null = null;
+      if (expenseConfig) {
+        if (typeof expenseConfig === 'string') {
+          try {
+            expense = JSON.parse(expenseConfig);
+          } catch {
+            throw new Error("Expense Categorizer: Invalid expense JSON format");
+          }
+        } else if (typeof expenseConfig === 'object') {
+          expense = expenseConfig as { id: string; description: string; amount: number; currency: string; merchant: string | null; date: string };
+        }
+      }
+
+      const inputObj = input && typeof input === 'object' ? input as Record<string, unknown> : {};
+      if (!expense && inputObj.expense) {
+        if (typeof inputObj.expense === 'object') {
+          expense = inputObj.expense as { id: string; description: string; amount: number; currency: string; merchant: string | null; date: string };
+        }
+      }
+
+      if (!expense || !expense.id || !expense.description) {
+        throw new Error("Expense Categorizer: Expense with id and description is required");
+      }
+
+      let categoryRules: Array<{ keywords: string[]; category: string }> = [];
+      if (categoryRulesConfig) {
+        if (typeof categoryRulesConfig === 'string') {
+          try {
+            categoryRules = JSON.parse(categoryRulesConfig);
+          } catch {
+            throw new Error("Expense Categorizer: Invalid category rules JSON format");
+          }
+        } else if (Array.isArray(categoryRulesConfig)) {
+          categoryRules = categoryRulesConfig;
+        }
+      }
+
+      // Match expense against category rules
+      const descriptionLower = expense.description.toLowerCase();
+      const merchantLower = expense.merchant ? expense.merchant.toLowerCase() : '';
+      const searchText = `${descriptionLower} ${merchantLower}`.trim();
+
+      let matchedCategory = defaultCategory;
+      let confidence = 0.5;
+      let ruleApplied: string | null = null;
+
+      for (const rule of categoryRules) {
+        if (!rule.keywords || !Array.isArray(rule.keywords) || !rule.category) {
+          continue;
+        }
+
+        // Check if any keyword matches
+        const matchingKeywords = rule.keywords.filter(keyword => 
+          searchText.includes(keyword.toLowerCase())
+        );
+
+        if (matchingKeywords.length > 0) {
+          // Calculate confidence based on number of matching keywords
+          const matchRatio = matchingKeywords.length / rule.keywords.length;
+          if (matchRatio > confidence) {
+            matchedCategory = rule.category;
+            confidence = Math.min(matchRatio, 1.0);
+            ruleApplied = rule.keywords.join(', ');
+          }
+        }
+      }
+
+      return {
+        expenseId: expense.id,
+        category: matchedCategory,
+        confidence,
+        ruleApplied
+      };
+    }
+
+    case "payment_reminder_engine": {
+      // Payment Reminder Engine: Ensure timely payments
+      const invoiceId = getStringProperty(config, 'invoiceId', '');
+      const recipient = getStringProperty(config, 'recipient', '');
+      const amount = getNumberProperty(config, 'amount', 0);
+      const currency = getStringProperty(config, 'currency', 'USD');
+      const dueDateStr = getStringProperty(config, 'dueDate', '');
+      const reminderScheduleConfig = config.reminderSchedule;
+
+      if (!invoiceId || !recipient || !dueDateStr) {
+        throw new Error("Payment Reminder Engine: Invoice ID, recipient, and due date are required");
+      }
+
+      if (amount <= 0) {
+        throw new Error("Payment Reminder Engine: Amount must be greater than 0");
+      }
+
+      // Parse due date
+      let dueDate: Date;
+      try {
+        dueDate = new Date(dueDateStr);
+        if (isNaN(dueDate.getTime())) {
+          throw new Error("Invalid date format");
+        }
+      } catch {
+        throw new Error("Payment Reminder Engine: Invalid due date format. Use ISO format (YYYY-MM-DD)");
+      }
+
+      let reminderSchedule: Array<{ daysBeforeOrAfterDue: number; message: string }> = [];
+      if (reminderScheduleConfig) {
+        if (typeof reminderScheduleConfig === 'string') {
+          try {
+            reminderSchedule = JSON.parse(reminderScheduleConfig);
+          } catch {
+            throw new Error("Payment Reminder Engine: Invalid reminder schedule JSON format");
+          }
+        } else if (Array.isArray(reminderScheduleConfig)) {
+          reminderSchedule = reminderScheduleConfig;
+        }
+      }
+
+      if (reminderSchedule.length === 0) {
+        throw new Error("Payment Reminder Engine: At least one reminder schedule entry is required");
+      }
+
+      // Calculate reminder dates
+      const now = new Date();
+      const remindersScheduled = reminderSchedule.length;
+      let nextReminderAt: string | null = null;
+
+      // Find the next reminder that hasn't been sent yet
+      for (const reminder of reminderSchedule) {
+        const reminderDate = new Date(dueDate);
+        reminderDate.setDate(reminderDate.getDate() + reminder.daysBeforeOrAfterDue);
+
+        if (reminderDate > now) {
+          nextReminderAt = reminderDate.toISOString();
+          break;
+        }
+      }
+
+      const status = nextReminderAt ? 'active' : 'completed';
+
+      return {
+        invoiceId,
+        remindersScheduled,
+        nextReminderAt,
+        status,
+        recipient,
+        amount,
+        currency,
+        dueDate: dueDate.toISOString(),
+        note: "Payment reminders require scheduling system integration. This is a placeholder implementation."
+      };
+    }
+
+    case "audit_trail_generator": {
+      // Audit Trail Generator: Create immutable audit logs
+      const entityType = getStringProperty(config, 'entityType', 'expense') as 'expense' | 'invoice' | 'payment' | 'refund';
+      const entityId = getStringProperty(config, 'entityId', '');
+      const action = getStringProperty(config, 'action', '');
+      const performedBy = getStringProperty(config, 'performedBy', '');
+      const timestampStr = getStringProperty(config, 'timestamp', '');
+      const beforeStateConfig = config.beforeState;
+      const afterStateConfig = config.afterState;
+
+      if (!entityId || !action || !performedBy) {
+        throw new Error("Audit Trail Generator: Entity ID, action, and performed by are required");
+      }
+
+      // Parse timestamp or use current time
+      let timestamp: Date;
+      if (timestampStr) {
+        try {
+          timestamp = new Date(timestampStr);
+          if (isNaN(timestamp.getTime())) {
+            timestamp = new Date();
+          }
+        } catch {
+          timestamp = new Date();
+        }
+      } else {
+        timestamp = new Date();
+      }
+
+      let beforeState: Record<string, unknown> | null = null;
+      if (beforeStateConfig) {
+        if (typeof beforeStateConfig === 'string') {
+          try {
+            beforeState = JSON.parse(beforeStateConfig);
+          } catch {
+            beforeState = null;
+          }
+        } else if (typeof beforeStateConfig === 'object') {
+          beforeState = beforeStateConfig as Record<string, unknown>;
+        }
+      }
+
+      let afterState: Record<string, unknown> | null = null;
+      if (afterStateConfig) {
+        if (typeof afterStateConfig === 'string') {
+          try {
+            afterState = JSON.parse(afterStateConfig);
+          } catch {
+            afterState = null;
+          }
+        } else if (typeof afterStateConfig === 'object') {
+          afterState = afterStateConfig as Record<string, unknown>;
+        }
+      }
+
+      // Generate audit ID
+      const auditId = `audit_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+      // Create hash for immutability (simplified - in production use SHA-256)
+      const auditData = JSON.stringify({
+        entityType,
+        entityId,
+        action,
+        performedBy,
+        timestamp: timestamp.toISOString(),
+        beforeState,
+        afterState
+      });
+
+      // Simple hash (in production, use proper cryptographic hash)
+      let hash = 0;
+      for (let i = 0; i < auditData.length; i++) {
+        const char = auditData.charCodeAt(i);
+        hash = ((hash << 5) - hash) + char;
+        hash = hash & hash; // Convert to 32-bit integer
+      }
+      const hashString = Math.abs(hash).toString(16);
+
+      return {
+        auditId,
+        entityType,
+        entityId,
+        action,
+        loggedAt: timestamp.toISOString(),
+        hash: hashString,
+        performedBy,
+        beforeState,
+        afterState,
+        note: "Audit trail requires database storage and proper cryptographic hashing (SHA-256) for immutability. This is a placeholder implementation."
+      };
+    }
+
+    case "tax_rule_engine": {
+      // Tax Rule Engine: Apply correct tax rules
+      const transactionConfig = config.transaction;
+      const taxRulesConfig = config.taxRules;
+
+      let transaction: { amount: number; currency: string; location: string; category: string; date: string } | null = null;
+      if (transactionConfig) {
+        if (typeof transactionConfig === 'string') {
+          try {
+            transaction = JSON.parse(transactionConfig);
+          } catch {
+            throw new Error("Tax Rule Engine: Invalid transaction JSON format");
+          }
+        } else if (typeof transactionConfig === 'object') {
+          transaction = transactionConfig as { amount: number; currency: string; location: string; category: string; date: string };
+        }
+      }
+
+      const inputObj = input && typeof input === 'object' ? input as Record<string, unknown> : {};
+      if (!transaction && inputObj.transaction) {
+        if (typeof inputObj.transaction === 'object') {
+          transaction = inputObj.transaction as { amount: number; currency: string; location: string; category: string; date: string };
+        }
+      }
+
+      if (!transaction || !transaction.amount || !transaction.location || !transaction.category) {
+        throw new Error("Tax Rule Engine: Transaction with amount, location, and category is required");
+      }
+
+      let taxRules: Array<{ location: string; category: string; rate: number }> = [];
+      if (taxRulesConfig) {
+        if (typeof taxRulesConfig === 'string') {
+          try {
+            taxRules = JSON.parse(taxRulesConfig);
+          } catch {
+            throw new Error("Tax Rule Engine: Invalid tax rules JSON format");
+          }
+        } else if (Array.isArray(taxRulesConfig)) {
+          taxRules = taxRulesConfig;
+        }
+      }
+
+      if (taxRules.length === 0) {
+        throw new Error("Tax Rule Engine: At least one tax rule is required");
+      }
+
+      // Find matching tax rule
+      let matchedRule: { location: string; category: string; rate: number } | null = null;
+      for (const rule of taxRules) {
+        if (rule.location === transaction.location && rule.category === transaction.category) {
+          matchedRule = rule;
+          break;
+        }
+      }
+
+      // If no exact match, try location-only match
+      if (!matchedRule) {
+        for (const rule of taxRules) {
+          if (rule.location === transaction.location && !rule.category) {
+            matchedRule = rule;
+            break;
+          }
+        }
+      }
+
+      if (!matchedRule) {
+        throw new Error(`Tax Rule Engine: No tax rule found for location "${transaction.location}" and category "${transaction.category}"`);
+      }
+
+      const taxRate = matchedRule.rate;
+      const taxableAmount = transaction.amount;
+      const taxAmount = taxableAmount * taxRate;
+      const totalAmount = taxableAmount + taxAmount;
+
+      return {
+        taxableAmount,
+        taxRate,
+        taxAmount,
+        totalAmount,
+        ruleApplied: `${matchedRule.location}/${matchedRule.category || 'default'}`,
+        currency: transaction.currency
+      };
+    }
+
+    case "fraud_detection_node": {
+      // Fraud Detection Node: Detect potentially fraudulent activity
+      const transactionConfig = config.transaction;
+      const historicalPatternsConfig = config.historicalPatterns;
+      const riskThreshold = getNumberProperty(config, 'riskThreshold', 0.7);
+
+      if (riskThreshold < 0 || riskThreshold > 1) {
+        throw new Error("Fraud Detection Node: Risk threshold must be between 0 and 1");
+      }
+
+      let transaction: { id: string; amount: number; currency: string; merchant: string; location: string; timestamp: string } | null = null;
+      if (transactionConfig) {
+        if (typeof transactionConfig === 'string') {
+          try {
+            transaction = JSON.parse(transactionConfig);
+          } catch {
+            throw new Error("Fraud Detection Node: Invalid transaction JSON format");
+          }
+        } else if (typeof transactionConfig === 'object') {
+          transaction = transactionConfig as { id: string; amount: number; currency: string; merchant: string; location: string; timestamp: string };
+        }
+      }
+
+      const inputObj = input && typeof input === 'object' ? input as Record<string, unknown> : {};
+      if (!transaction && inputObj.transaction) {
+        if (typeof inputObj.transaction === 'object') {
+          transaction = inputObj.transaction as { id: string; amount: number; currency: string; merchant: string; location: string; timestamp: string };
+        }
+      }
+
+      if (!transaction || !transaction.id || !transaction.amount) {
+        throw new Error("Fraud Detection Node: Transaction with id and amount is required");
+      }
+
+      let historicalPatterns: Record<string, unknown> = {};
+      if (historicalPatternsConfig) {
+        if (typeof historicalPatternsConfig === 'string') {
+          try {
+            historicalPatterns = JSON.parse(historicalPatternsConfig);
+          } catch {
+            historicalPatterns = {};
+          }
+        } else if (typeof historicalPatternsConfig === 'object') {
+          historicalPatterns = historicalPatternsConfig as Record<string, unknown>;
+        }
+      }
+
+      // Calculate fraud risk score
+      let riskScore = 0;
+      const flags: string[] = [];
+
+      // Check amount anomaly
+      const averageAmount = (historicalPatterns.averageAmount as number) || 0;
+      if (averageAmount > 0) {
+        const amountRatio = transaction.amount / averageAmount;
+        if (amountRatio > 5) {
+          riskScore += 0.3;
+          flags.push('amount_anomaly');
+        } else if (amountRatio > 2) {
+          riskScore += 0.15;
+          flags.push('high_amount');
+        }
+      }
+
+      // Check merchant anomaly
+      const commonMerchants = (historicalPatterns.commonMerchants as string[]) || [];
+      if (commonMerchants.length > 0 && !commonMerchants.includes(transaction.merchant)) {
+        riskScore += 0.2;
+        flags.push('unknown_merchant');
+      }
+
+      // Check location anomaly
+      const commonLocations = (historicalPatterns.commonLocations as string[]) || [];
+      if (commonLocations.length > 0 && !commonLocations.includes(transaction.location)) {
+        riskScore += 0.25;
+        flags.push('unusual_location');
+      }
+
+      // Normalize risk score to 0-1
+      riskScore = Math.min(riskScore, 1.0);
+
+      // Determine risk level
+      let riskLevel: 'low' | 'medium' | 'high';
+      if (riskScore >= 0.7) {
+        riskLevel = 'high';
+      } else if (riskScore >= 0.4) {
+        riskLevel = 'medium';
+      } else {
+        riskLevel = 'low';
+      }
+
+      // Determine action
+      let action: 'allow' | 'review' | 'block';
+      if (riskScore >= riskThreshold) {
+        action = riskScore >= 0.8 ? 'block' : 'review';
+      } else {
+        action = 'allow';
+      }
+
+      return {
+        transactionId: transaction.id,
+        fraudRiskScore: riskScore,
+        riskLevel,
+        flags: flags.length > 0 ? flags : [],
+        action
+      };
+    }
+
     // ============================================
     // E-COMMERCE NODES
     // ============================================
@@ -13850,6 +17068,363 @@ async function executeNode(
       } catch (error) {
         throw new Error(`Elasticsearch: ${error instanceof Error ? error.message : String(error)}`);
       }
+    }
+
+    case "agent_performance_tracker": {
+      const inputObj = extractInputObject(input);
+      const agentName = getStringProperty(config, 'agentName', '') || getStringProperty(inputObj, 'agentName', '');
+      const task = getStringProperty(config, 'task', '') || getStringProperty(inputObj, 'task', '');
+      const expectedThresholdMs = getNumberProperty(config, 'expectedThresholdMs', 5000);
+      const trackStartTime = config.trackStartTime !== false; // Default true
+      const trackEndTime = config.trackEndTime !== false; // Default true
+
+      if (!agentName) {
+        throw new Error('Agent Performance Tracker: Agent name is required.');
+      }
+
+      if (!task) {
+        throw new Error('Agent Performance Tracker: Task description is required.');
+      }
+
+      // Get timestamps from input or generate them
+      const startTime = getStringProperty(inputObj, 'startTime', trackStartTime ? new Date().toISOString() : '');
+      const endTime = getStringProperty(inputObj, 'endTime', trackEndTime ? new Date().toISOString() : '');
+      const status = getStringProperty(inputObj, 'status', 'SUCCESS') as 'SUCCESS' | 'FAILURE' | 'TIMEOUT';
+      const errorMessage = getStringProperty(inputObj, 'error', '');
+
+      // Calculate execution time
+      let executionTimeMs = 0;
+      if (startTime && endTime) {
+        const start = new Date(startTime).getTime();
+        const end = new Date(endTime).getTime();
+        executionTimeMs = end - start;
+      } else if (startTime && !endTime) {
+        // If end time not provided, calculate from now
+        const start = new Date(startTime).getTime();
+        executionTimeMs = Date.now() - start;
+      }
+
+      // Detect performance anomalies
+      const performanceFlags: string[] = [];
+      if (executionTimeMs > expectedThresholdMs) {
+        performanceFlags.push(`EXECUTION_TIME_EXCEEDED_THRESHOLD: ${executionTimeMs}ms > ${expectedThresholdMs}ms`);
+      }
+      if (status === 'FAILURE') {
+        performanceFlags.push('EXECUTION_FAILED');
+      }
+      if (status === 'TIMEOUT') {
+        performanceFlags.push('EXECUTION_TIMED_OUT');
+      }
+
+      return {
+        agent_name: agentName,
+        task: task,
+        start_time: startTime || null,
+        end_time: endTime || null,
+        execution_time_ms: executionTimeMs,
+        status: status,
+        error: errorMessage || null,
+        performance_flags: performanceFlags,
+      };
+    }
+
+    case "cost_monitor": {
+      const inputObj = extractInputObject(input);
+      const model = getStringProperty(config, 'model', 'gpt-4') || getStringProperty(inputObj, 'model', 'gpt-4');
+      const promptTokens = getNumberProperty(config, 'promptTokens', getNumberProperty(inputObj, 'promptTokens', 0));
+      const completionTokens = getNumberProperty(config, 'completionTokens', getNumberProperty(inputObj, 'completionTokens', 0));
+      const totalTokens = promptTokens + completionTokens;
+      const costThresholdUsd = getNumberProperty(config, 'costThresholdUsd', 100.0);
+      const customPricingStr = getStringProperty(config, 'pricingModel', '{}');
+      const customPricing = parseJSONSafe(customPricingStr, 'pricingModel') as { promptPer1k?: number; completionPer1k?: number } | null;
+
+      // Default pricing per 1k tokens (conservative estimates)
+      const defaultPricing: Record<string, { prompt: number; completion: number }> = {
+        'gpt-4': { prompt: 0.03, completion: 0.06 },
+        'gpt-4-turbo': { prompt: 0.01, completion: 0.03 },
+        'gpt-3.5-turbo': { prompt: 0.0015, completion: 0.002 },
+        'claude-3-opus': { prompt: 0.015, completion: 0.075 },
+        'claude-3-sonnet': { prompt: 0.003, completion: 0.015 },
+        'claude-3-haiku': { prompt: 0.00025, completion: 0.00125 },
+        'gemini-pro': { prompt: 0.0005, completion: 0.0015 },
+        'llama-3': { prompt: 0.0003, completion: 0.0003 },
+      };
+
+      const pricing = customPricing ? {
+        prompt: (customPricing.promptPer1k || 0.01) / 1000,
+        completion: (customPricing.completionPer1k || 0.03) / 1000,
+      } : defaultPricing[model.toLowerCase()] || { prompt: 0.01, completion: 0.03 };
+
+      const estimatedCostUsd = (promptTokens * pricing.prompt / 1000) + (completionTokens * pricing.completion / 1000);
+      const costThresholdExceeded = estimatedCostUsd > costThresholdUsd;
+
+      let notes = '';
+      if (!customPricing && !defaultPricing[model.toLowerCase()]) {
+        notes = `Unknown pricing for model "${model}". Using conservative estimate.`;
+      }
+      if (costThresholdExceeded) {
+        notes += notes ? ' ' : '';
+        notes += `Cost threshold exceeded: $${estimatedCostUsd.toFixed(4)} > $${costThresholdUsd.toFixed(2)}`;
+      }
+
+      return {
+        model: model,
+        prompt_tokens: promptTokens,
+        completion_tokens: completionTokens,
+        total_tokens: totalTokens,
+        estimated_cost_usd: parseFloat(estimatedCostUsd.toFixed(4)),
+        cost_threshold_exceeded: costThresholdExceeded,
+        notes: notes || null,
+      };
+    }
+
+    case "accuracy_evaluator": {
+      const inputObj = extractInputObject(input);
+      const taskSummary = getStringProperty(config, 'taskSummary', '') || getStringProperty(inputObj, 'taskSummary', '');
+      const expectedOutputStr = getStringProperty(config, 'expectedOutput', '{}');
+      const expectedOutput = parseJSONSafe(expectedOutputStr, 'expectedOutput');
+      const constraintsStr = getStringProperty(config, 'constraints', '[]');
+      const constraints = parseJSONSafe(constraintsStr, 'constraints') as string[] || [];
+      const minConfidenceScore = getNumberProperty(config, 'minConfidenceScore', 70);
+      const checkFactualCorrectness = config.checkFactualCorrectness !== false; // Default true
+      const checkCompleteness = config.checkCompleteness !== false; // Default true
+      const checkInstructionAdherence = config.checkInstructionAdherence !== false; // Default true
+
+      if (!taskSummary) {
+        throw new Error('Accuracy Evaluator: Task summary is required.');
+      }
+
+      // Get the actual output from input
+      const actualOutput = inputObj.output || inputObj.result || inputObj.data || inputObj;
+
+      // Evaluate accuracy (simplified scoring mechanism)
+      const issuesDetected: string[] = [];
+      let accuracyScore = 100; // Start with perfect score
+
+      // Check completeness
+      if (checkCompleteness && expectedOutput && typeof expectedOutput === 'object') {
+        const expectedKeys = Object.keys(expectedOutput);
+        const actualKeys = typeof actualOutput === 'object' && actualOutput !== null ? Object.keys(actualOutput) : [];
+        const missingKeys = expectedKeys.filter(key => !actualKeys.includes(key));
+        if (missingKeys.length > 0) {
+          issuesDetected.push(`Missing fields: ${missingKeys.join(', ')}`);
+          accuracyScore -= (missingKeys.length / expectedKeys.length) * 30;
+        }
+      }
+
+      // Check constraints
+      if (Array.isArray(constraints) && constraints.length > 0) {
+        constraints.forEach((constraint: string) => {
+          const constraintLower = constraint.toLowerCase();
+          // Simple constraint checking logic
+          if (constraintLower.includes('numeric') && typeof actualOutput !== 'number') {
+            issuesDetected.push(`Constraint violation: ${constraint}`);
+            accuracyScore -= 10;
+          } else if (constraintLower.includes('between') || constraintLower.includes('range')) {
+            // Extract range from constraint if possible
+            const rangeMatch = constraint.match(/(\d+)-(\d+)/);
+            if (rangeMatch && typeof actualOutput === 'number') {
+              const min = parseInt(rangeMatch[1]);
+              const max = parseInt(rangeMatch[2]);
+              if (actualOutput < min || actualOutput > max) {
+                issuesDetected.push(`Constraint violation: ${constraint}`);
+                accuracyScore -= 15;
+              }
+            }
+          }
+        });
+      }
+
+      // Check factual correctness (placeholder - would require actual fact-checking in production)
+      if (checkFactualCorrectness) {
+        // This would typically involve fact-checking against a knowledge base
+        // For now, we check if output is null or empty
+        if (actualOutput === null || actualOutput === undefined || actualOutput === '') {
+          issuesDetected.push('Output is empty or null');
+          accuracyScore -= 20;
+        }
+      }
+
+      // Check instruction adherence (placeholder)
+      if (checkInstructionAdherence && taskSummary) {
+        // This would typically involve checking if output aligns with task requirements
+        // For now, we ensure output exists
+        if (!actualOutput || (typeof actualOutput === 'object' && Object.keys(actualOutput).length === 0)) {
+          issuesDetected.push('Output does not appear to follow instructions');
+          accuracyScore -= 15;
+        }
+      }
+
+      // Normalize score to 0-100
+      accuracyScore = Math.max(0, Math.min(100, Math.round(accuracyScore)));
+
+      // Detect hallucinations (simplified - would require more sophisticated detection)
+      const hallucinationDetected = accuracyScore < minConfidenceScore && issuesDetected.length > 2;
+
+      let recommendation = '';
+      if (accuracyScore >= minConfidenceScore) {
+        recommendation = 'Output meets minimum quality standards';
+      } else if (hallucinationDetected) {
+        recommendation = 'Potential hallucinations detected. Review output carefully.';
+      } else {
+        recommendation = `Accuracy below threshold. Consider reviewing task requirements and constraints.`;
+      }
+
+      return {
+        task_summary: taskSummary,
+        accuracy_score: accuracyScore,
+        issues_detected: issuesDetected,
+        hallucination_detected: hallucinationDetected,
+        recommendation: recommendation,
+      };
+    }
+
+    case "feedback_loop_collector": {
+      const inputObj = extractInputObject(input);
+      const feedbackSource = getStringProperty(config, 'feedbackSource', 'user_input') || getStringProperty(inputObj, 'feedbackSource', 'user_input');
+      const feedbackType = getStringProperty(config, 'feedbackType', 'neutral') || getStringProperty(inputObj, 'feedbackType', 'neutral') as 'positive' | 'negative' | 'neutral';
+      const feedbackSummary = getStringProperty(config, 'feedbackSummary', '') || getStringProperty(inputObj, 'feedbackSummary', '');
+      const actionItemsStr = getStringProperty(config, 'actionItems', '[]');
+      const actionItems = parseJSONSafe(actionItemsStr, 'actionItems') as string[] || [];
+      const priorityLevel = getStringProperty(config, 'priorityLevel', 'MEDIUM') || getStringProperty(inputObj, 'priorityLevel', 'MEDIUM') as 'LOW' | 'MEDIUM' | 'HIGH';
+      const metadataStr = getStringProperty(config, 'metadata', '{}');
+      const metadata = parseJSONSafe(metadataStr, 'metadata') || {};
+
+      if (!feedbackSummary) {
+        throw new Error('Feedback Loop Collector: Feedback summary is required.');
+      }
+
+      // Validate feedback source
+      const validSources = ['user_input', 'downstream_validation', 'system_failure', 'external_api'];
+      if (!validSources.includes(feedbackSource)) {
+        throw new Error(`Feedback Loop Collector: Invalid feedback source "${feedbackSource}". Valid sources: ${validSources.join(', ')}`);
+      }
+
+      // Validate feedback type
+      const validTypes = ['positive', 'negative', 'neutral'];
+      if (!validTypes.includes(feedbackType)) {
+        throw new Error(`Feedback Loop Collector: Invalid feedback type "${feedbackType}". Valid types: ${validTypes.join(', ')}`);
+      }
+
+      // Validate priority level
+      const validPriorities = ['LOW', 'MEDIUM', 'HIGH'];
+      if (!validPriorities.includes(priorityLevel)) {
+        throw new Error(`Feedback Loop Collector: Invalid priority level "${priorityLevel}". Valid priorities: ${validPriorities.join(', ')}`);
+      }
+
+      // Extract action items from feedback if not provided
+      let extractedActionItems = actionItems;
+      if (actionItems.length === 0 && feedbackSummary) {
+        // Simple extraction logic (in production, would use NLP)
+        const feedbackLower = feedbackSummary.toLowerCase();
+        if (feedbackLower.includes('improve') || feedbackLower.includes('fix') || feedbackLower.includes('error')) {
+          extractedActionItems.push('Review and improve error handling');
+        }
+        if (feedbackLower.includes('slow') || feedbackLower.includes('timeout')) {
+          extractedActionItems.push('Optimize performance');
+        }
+        if (feedbackLower.includes('wrong') || feedbackLower.includes('incorrect')) {
+          extractedActionItems.push('Verify output accuracy');
+        }
+      }
+
+      return {
+        feedback_source: feedbackSource,
+        feedback_type: feedbackType,
+        feedback_summary: feedbackSummary,
+        action_items: extractedActionItems,
+        priority_level: priorityLevel,
+        metadata: metadata,
+        collected_at: new Date().toISOString(),
+      };
+    }
+
+    case "compliance_log_writer": {
+      const inputObj = extractInputObject(input);
+      const workflowId = getStringProperty(config, 'workflowId', '') || getStringProperty(inputObj, 'workflowId', '') || getStringProperty(inputObj, '_workflow_id', '');
+      const agentId = getStringProperty(config, 'agentId', '') || getStringProperty(inputObj, 'agentId', '');
+      const action = getStringProperty(config, 'action', '') || getStringProperty(inputObj, 'action', '');
+      const inputMetadataStr = getStringProperty(config, 'inputMetadata', '{}');
+      const inputMetadata = parseJSONSafe(inputMetadataStr, 'inputMetadata') || {};
+      const outputMetadataStr = getStringProperty(config, 'outputMetadata', '{}');
+      const outputMetadata = parseJSONSafe(outputMetadataStr, 'outputMetadata') || {};
+      const complianceStatus = getStringProperty(config, 'complianceStatus', 'COMPLIANT') || getStringProperty(inputObj, 'complianceStatus', 'COMPLIANT') as 'COMPLIANT' | 'WARNING' | 'VIOLATION';
+      const notes = getStringProperty(config, 'notes', '') || getStringProperty(inputObj, 'notes', '');
+      const ensureImmutability = config.ensureImmutability !== false; // Default true
+
+      if (!workflowId) {
+        throw new Error('Compliance Log Writer: Workflow ID is required.');
+      }
+
+      if (!agentId) {
+        throw new Error('Compliance Log Writer: Agent ID is required.');
+      }
+
+      if (!action) {
+        throw new Error('Compliance Log Writer: Action description is required.');
+      }
+
+      // Validate compliance status
+      const validStatuses = ['COMPLIANT', 'WARNING', 'VIOLATION'];
+      if (!validStatuses.includes(complianceStatus)) {
+        throw new Error(`Compliance Log Writer: Invalid compliance status "${complianceStatus}". Valid statuses: ${validStatuses.join(', ')}`);
+      }
+
+      // Sanitize metadata to ensure no sensitive data
+      // In production, this would include more sophisticated sanitization
+      const sanitizeMetadata = (meta: unknown): Record<string, unknown> => {
+        if (typeof meta !== 'object' || meta === null) {
+          return {};
+        }
+        const sanitized: Record<string, unknown> = {};
+        const sensitiveKeys = ['password', 'token', 'key', 'secret', 'credit', 'ssn', 'social'];
+        for (const [key, value] of Object.entries(meta)) {
+          const keyLower = key.toLowerCase();
+          if (sensitiveKeys.some(sensitive => keyLower.includes(sensitive))) {
+            sanitized[key] = '[REDACTED]';
+          } else {
+            sanitized[key] = value;
+          }
+        }
+        return sanitized;
+      };
+
+      const sanitizedInputMetadata = sanitizeMetadata(inputMetadata);
+      const sanitizedOutputMetadata = sanitizeMetadata(outputMetadata);
+
+      // Generate hash for immutability (simplified)
+      const timestamp = new Date().toISOString();
+      const logContent = JSON.stringify({
+        workflow_id: workflowId,
+        agent_id: agentId,
+        action: action,
+        input_metadata: sanitizedInputMetadata,
+        output_metadata: sanitizedOutputMetadata,
+        timestamp: timestamp,
+        compliance_status: complianceStatus,
+      });
+      
+      // Simple hash generation (in production, use crypto library)
+      let hash = 0;
+      for (let i = 0; i < logContent.length; i++) {
+        const char = logContent.charCodeAt(i);
+        hash = ((hash << 5) - hash) + char;
+        hash = hash & hash; // Convert to 32-bit integer
+      }
+      const hashString = Math.abs(hash).toString(16);
+
+      return {
+        workflow_id: workflowId,
+        agent_id: agentId,
+        action: action,
+        input_metadata: sanitizedInputMetadata,
+        output_metadata: sanitizedOutputMetadata,
+        timestamp: timestamp,
+        compliance_status: complianceStatus,
+        notes: notes || null,
+        hash: hashString,
+        immutable: ensureImmutability,
+      };
     }
 
     default:

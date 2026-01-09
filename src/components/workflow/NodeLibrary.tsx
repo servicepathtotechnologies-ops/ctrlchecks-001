@@ -83,24 +83,24 @@ export default function NodeLibrary({ onDragStart, onClose }: NodeLibraryProps) 
       </div>
 
       <ScrollArea className="flex-1">
-        <Accordion type="multiple" className="px-3 py-2">
+        <Accordion type="multiple" className="px-3 py-2 w-full min-w-0 overflow-hidden">
           {sortedCategories.map((category) => {
             const nodes = getNodesByCategory(category.id);
             if (nodes.length === 0) return null;
 
             return (
-              <AccordionItem key={category.id} value={category.id} className="border-b border-border/50 mb-1">
-                <AccordionTrigger className="py-2.5 px-1 hover:no-underline hover:bg-muted/50 rounded-md transition-colors">
-                  <div className="flex items-center gap-2.5">
+              <AccordionItem key={category.id} value={category.id} className="border-b border-border/50 mb-1 w-full min-w-0 overflow-hidden">
+                <AccordionTrigger className="py-2.5 px-1 hover:no-underline hover:bg-muted/50 rounded-md transition-colors w-full min-w-0 overflow-hidden">
+                  <div className="flex items-center gap-2.5 min-w-0 overflow-hidden w-full">
                     <div
                       className="w-2 h-2 rounded-full flex-shrink-0"
                       style={{ backgroundColor: category.color }}
                     />
-                    <span className="text-sm font-medium">{category.label}</span>
-                    <span className="text-xs text-muted-foreground">({nodes.length})</span>
+                    <span className="text-sm font-medium truncate min-w-0 flex-1">{category.label}</span>
+                    <span className="text-xs text-muted-foreground flex-shrink-0">({nodes.length})</span>
                   </div>
                 </AccordionTrigger>
-                <AccordionContent className="pt-2 pb-3 px-1">
+                <AccordionContent className="pt-2 pb-3 px-1 overflow-hidden">
                   <div className="space-y-1.5">
                     {nodes.map((node) => {
                       const IconComponent = iconMap[node.icon] || Box;
@@ -110,7 +110,7 @@ export default function NodeLibrary({ onDragStart, onClose }: NodeLibraryProps) 
                           key={node.type}
                           draggable
                           onDragStart={(e) => onDragStart(e, node)}
-                          className="flex items-start gap-2.5 p-2 rounded-md cursor-grab hover:bg-muted/70 transition-colors active:cursor-grabbing group"
+                          className="flex items-start gap-2.5 p-2 rounded-md cursor-grab hover:bg-muted/70 transition-colors active:cursor-grabbing group w-full min-w-0 overflow-hidden"
                         >
                           <div
                             className="flex h-7 w-7 items-center justify-center rounded flex-shrink-0 mt-0.5"
@@ -118,9 +118,9 @@ export default function NodeLibrary({ onDragStart, onClose }: NodeLibraryProps) 
                           >
                             <IconComponent className="h-3.5 w-3.5" />
                           </div>
-                          <div className="flex-1 min-w-0 pt-0.5">
-                            <div className="text-sm font-medium truncate leading-tight">{node.label}</div>
-                            <div className="text-xs text-muted-foreground truncate leading-tight mt-0.5">{node.description}</div>
+                          <div className="flex-1 min-w-0 pt-0.5 overflow-hidden">
+                            <div className="text-sm font-medium truncate leading-tight block">{node.label}</div>
+                            <div className="text-xs text-muted-foreground truncate leading-tight mt-0.5 block">{node.description}</div>
                           </div>
                         </div>
                       );
