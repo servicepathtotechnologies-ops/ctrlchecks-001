@@ -60,7 +60,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'Chat Trigger',
     category: 'triggers',
     icon: 'MessageSquare',
-    description: 'Trigger from chat / AI / UI',
+    description: 'Chat trigger',
     defaultConfig: {},
     configFields: [],
   },
@@ -69,7 +69,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'Error Trigger',
     category: 'triggers',
     icon: 'ShieldAlert',
-    description: 'Automatically fire when any node fails',
+    description: 'Error trigger',
     defaultConfig: {},
     configFields: [],
   },
@@ -78,7 +78,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'Interval',
     category: 'triggers',
     icon: 'Timer',
-    description: 'Run workflow at fixed intervals',
+    description: 'Interval trigger',
     defaultConfig: { interval: '10m' },
     configFields: [
       { key: 'interval', label: 'Interval', type: 'text', placeholder: '10m', required: true, helpText: 'Interval in seconds (s), minutes (m), or hours (h). Examples: 30s, 5m, 1h' },
@@ -89,7 +89,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'Manual Trigger',
     category: 'triggers',
     icon: 'Play',
-    description: 'Start workflow manually',
+    description: 'Manual trigger',
     defaultConfig: {},
     configFields: [],
   },
@@ -98,7 +98,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'Schedule Trigger (Cron)',
     category: 'triggers',
     icon: 'Clock',
-    description: 'Execute workflows on cron schedules',
+    description: 'Schedule trigger',
     defaultConfig: { time: '09:00', timezone: 'Asia/Kolkata' },
     configFields: [
       { 
@@ -145,7 +145,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'Webhook',
     category: 'triggers',
     icon: 'Webhook',
-    description: 'Trigger workflow from HTTP requests',
+    description: 'Webhook trigger',
     defaultConfig: { method: 'POST' },
     configFields: [
       { key: 'method', label: 'Method', type: 'select', options: [
@@ -160,7 +160,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'Workflow Trigger',
     category: 'triggers',
     icon: 'Link',
-    description: 'Trigger workflow from another',
+    description: 'Workflow trigger',
     defaultConfig: { source_workflow_id: '' },
     configFields: [
       { key: 'source_workflow_id', label: 'Source Workflow ID', type: 'text', placeholder: '', required: true, helpText: 'ID of the workflow that will trigger this workflow' },
@@ -171,7 +171,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'Form',
     category: 'triggers',
     icon: 'FileText',
-    description: 'Trigger workflow from form submissions (blocks until submission)',
+    description: 'Form trigger',
     defaultConfig: {
       formTitle: 'Form Submission',
       formDescription: '',
@@ -219,7 +219,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'Error Handler',
     category: 'logic',
     icon: 'ShieldAlert',
-    description: 'Handle errors gracefully',
+    description: 'Error handler',
     defaultConfig: { retries: 3, retryDelay: 1000 },
     configFields: [
       { key: 'retries', label: 'Max Retries', type: 'number', defaultValue: 3 },
@@ -232,7 +232,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'Filter',
     category: 'logic',
     icon: 'Filter',
-    description: 'Filter array items',
+    description: 'Filter items',
     defaultConfig: { condition: '' },
     configFields: [
       { key: 'array', label: 'Array Expression', type: 'text', placeholder: '{{input.items}}', required: true },
@@ -244,7 +244,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'If/Else',
     category: 'logic',
     icon: 'GitBranch',
-    description: 'Conditional branching',
+    description: 'If/Else',
     defaultConfig: { condition: '' },
     configFields: [
       { key: 'condition', label: 'Condition', type: 'text', placeholder: '{{input.value}} > 10', required: true },
@@ -255,7 +255,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'Loop',
     category: 'logic',
     icon: 'Repeat',
-    description: 'Iterate over items',
+    description: 'Loop items',
     defaultConfig: { maxIterations: 100 },
     configFields: [
       { key: 'array', label: 'Array Expression', type: 'text', placeholder: '{{input.items}}', required: true },
@@ -267,7 +267,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'Merge',
     category: 'logic',
     icon: 'GitMerge',
-    description: 'Merge multiple inputs',
+    description: 'Merge inputs',
     defaultConfig: { mode: 'merge' },
     configFields: [
       { key: 'mode', label: 'Mode', type: 'select', options: [
@@ -285,7 +285,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'NoOp (Pass Through)',
     category: 'logic',
     icon: 'Box',
-    description: 'Pass input through unchanged',
+    description: 'No operation',
     defaultConfig: {},
     configFields: [],
   },
@@ -294,7 +294,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'Split In Batches',
     category: 'logic',
     icon: 'Layers',
-    description: 'Split array into batches',
+    description: 'Split batches',
     defaultConfig: { batchSize: 10 },
     configFields: [
       { key: 'array', label: 'Array Expression', type: 'text', placeholder: '{{input.items}}', required: true },
@@ -306,7 +306,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'Stop And Error',
     category: 'logic',
     icon: 'XCircle',
-    description: 'Stop workflow and trigger error',
+    description: 'Stop error',
     defaultConfig: { errorMessage: 'Workflow stopped', errorCode: 'STOPPED' },
     configFields: [
       { key: 'errorMessage', label: 'Error Message', type: 'text', placeholder: 'Workflow stopped', required: true },
@@ -318,7 +318,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'Switch',
     category: 'logic',
     icon: 'GitMerge',
-    description: 'Multiple case branching',
+    description: 'Switch cases',
     defaultConfig: { cases: [] },
     configFields: [
       { key: 'expression', label: 'Expression', type: 'text', placeholder: '{{input.status}}', required: true },
@@ -330,10 +330,179 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'Wait/Delay',
     category: 'logic',
     icon: 'Timer',
-    description: 'Pause execution',
+    description: 'Wait',
     defaultConfig: { duration: 1000 },
     configFields: [
       { key: 'duration', label: 'Duration (ms)', type: 'number', defaultValue: 1000, required: true },
+    ],
+  },
+  {
+    type: 'human_approval',
+    label: 'Human Approval',
+    category: 'logic',
+    icon: 'CheckCircle',
+    description: 'Human approval',
+    defaultConfig: { 
+      approvers: [],
+      approvalType: 'single',
+      timeout: 3600,
+      defaultAction: 'none'
+    },
+    configFields: [
+      { key: 'approvers', label: 'Approvers (JSON Array)', type: 'json', placeholder: '["user1@example.com", "user2@example.com"]', required: true, helpText: 'Array of approver email addresses or user IDs' },
+      { key: 'approvalType', label: 'Approval Type', type: 'select', options: [
+        { label: 'Single Approval', value: 'single' },
+        { label: 'Multiple Approvals', value: 'multiple' }
+      ], defaultValue: 'single', required: true },
+      { key: 'timeout', label: 'Timeout (seconds)', type: 'number', defaultValue: 3600, required: true, helpText: 'Maximum time to wait for approval in seconds' },
+      { key: 'defaultAction', label: 'Default Action on Timeout', type: 'select', options: [
+        { label: 'None (Fail)', value: 'none' },
+        { label: 'Approve', value: 'approve' },
+        { label: 'Reject', value: 'reject' }
+      ], defaultValue: 'none', required: true },
+    ],
+  },
+  {
+    type: 'escalation_router',
+    label: 'Escalation Router',
+    category: 'logic',
+    icon: 'TrendingUp',
+    description: 'Escalation router',
+    defaultConfig: { 
+      severity: 'medium',
+      rules: {
+        low: '',
+        medium: '',
+        high: '',
+        critical: ''
+      }
+    },
+    configFields: [
+      { key: 'severity', label: 'Severity', type: 'select', options: [
+        { label: 'Low', value: 'low' },
+        { label: 'Medium', value: 'medium' },
+        { label: 'High', value: 'high' },
+        { label: 'Critical', value: 'critical' }
+      ], defaultValue: 'medium', required: true },
+      { key: 'rules', label: 'Routing Rules (JSON)', type: 'json', placeholder: '{"low": "handler1", "medium": "handler2", "high": "handler3", "critical": "handler4"}', required: true, helpText: 'Map severity levels to handler node IDs or labels' },
+    ],
+  },
+  {
+    type: 'fallback_router',
+    label: 'Fallback Router',
+    category: 'logic',
+    icon: 'ArrowUpDown',
+    description: 'Fallback router',
+    defaultConfig: { 
+      fallbackPaths: []
+    },
+    configFields: [
+      { key: 'fallbackPaths', label: 'Fallback Paths (JSON Array)', type: 'json', placeholder: '["fallback_node_1", "fallback_node_2"]', required: true, helpText: 'Array of node IDs or labels to try as fallback options' },
+    ],
+  },
+  {
+    type: 'retry_with_backoff',
+    label: 'Retry With Backoff',
+    category: 'logic',
+    icon: 'Repeat',
+    description: 'Retry backoff',
+    defaultConfig: { 
+      maxRetries: 3,
+      initialDelay: 1000,
+      backoffMultiplier: 2
+    },
+    configFields: [
+      { key: 'maxRetries', label: 'Max Retries', type: 'number', defaultValue: 3, required: true },
+      { key: 'initialDelay', label: 'Initial Delay (ms)', type: 'number', defaultValue: 1000, required: true },
+      { key: 'backoffMultiplier', label: 'Backoff Multiplier', type: 'number', defaultValue: 2, required: true, helpText: 'Multiplier for exponential backoff (e.g., 2 means delays double each retry)' },
+    ],
+  },
+  {
+    type: 'timeout_guard',
+    label: 'Timeout Guard',
+    category: 'logic',
+    icon: 'Timer',
+    description: 'Timeout guard',
+    defaultConfig: { 
+      timeout: 30000
+    },
+    configFields: [
+      { key: 'timeout', label: 'Timeout (ms)', type: 'number', defaultValue: 30000, required: true, helpText: 'Maximum execution time in milliseconds' },
+    ],
+  },
+  {
+    type: 'circuit_breaker',
+    label: 'Circuit Breaker',
+    category: 'logic',
+    icon: 'Shield',
+    description: 'Circuit breaker',
+    defaultConfig: { 
+      serviceName: '',
+      failureThreshold: 5,
+      cooldownPeriod: 60000
+    },
+    configFields: [
+      { key: 'serviceName', label: 'Service Name', type: 'text', placeholder: 'api_service', required: true, helpText: 'Identifier for the service being protected' },
+      { key: 'failureThreshold', label: 'Failure Threshold', type: 'number', defaultValue: 5, required: true, helpText: 'Number of failures before opening circuit' },
+      { key: 'cooldownPeriod', label: 'Cooldown Period (ms)', type: 'number', defaultValue: 60000, required: true, helpText: 'Time to wait before retrying after circuit opens' },
+    ],
+  },
+  {
+    type: 'workflow_state_manager',
+    label: 'Workflow State Manager',
+    category: 'logic',
+    icon: 'Database',
+    description: 'State manager',
+    defaultConfig: { 
+      mode: 'save',
+      workflowId: ''
+    },
+    configFields: [
+      { key: 'mode', label: 'Mode', type: 'select', options: [
+        { label: 'Save State', value: 'save' },
+        { label: 'Load State', value: 'load' },
+        { label: 'Update State', value: 'update' }
+      ], defaultValue: 'save', required: true },
+      { key: 'workflowId', label: 'Workflow ID', type: 'text', placeholder: '{{_workflow_id}}', helpText: 'Workflow identifier (defaults to current workflow if not specified)' },
+    ],
+  },
+  {
+    type: 'execution_context_store',
+    label: 'Execution Context Store',
+    category: 'logic',
+    icon: 'Variable',
+    description: 'Context store',
+    defaultConfig: { 
+      contextKey: '',
+      action: 'set'
+    },
+    configFields: [
+      { key: 'action', label: 'Action', type: 'select', options: [
+        { label: 'Set Value', value: 'set' },
+        { label: 'Get Value', value: 'get' },
+        { label: 'Delete Value', value: 'delete' }
+      ], defaultValue: 'set', required: true },
+      { key: 'contextKey', label: 'Context Key', type: 'text', placeholder: 'user_id', required: true, helpText: 'Key to store/retrieve the value' },
+    ],
+  },
+  {
+    type: 'session_manager',
+    label: 'Session Manager',
+    category: 'logic',
+    icon: 'Key',
+    description: 'Session manager',
+    defaultConfig: { 
+      action: 'create',
+      ttl: 3600
+    },
+    configFields: [
+      { key: 'action', label: 'Action', type: 'select', options: [
+        { label: 'Create Session', value: 'create' },
+        { label: 'Validate Session', value: 'validate' },
+        { label: 'Terminate Session', value: 'terminate' }
+      ], defaultValue: 'create', required: true },
+      { key: 'sessionId', label: 'Session ID', type: 'text', placeholder: '{{input.sessionId}}', helpText: 'Session identifier (required for validate/terminate, auto-generated for create)' },
+      { key: 'ttl', label: 'TTL (seconds)', type: 'number', defaultValue: 3600, helpText: 'Time to live in seconds (only for create action)' },
     ],
   },
 
@@ -345,7 +514,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'Aggregate',
     category: 'data',
     icon: 'Code2',
-    description: 'Aggregate operations on arrays',
+    description: 'Aggregate data',
     defaultConfig: { operation: 'sum' },
     configFields: [
       { key: 'operation', label: 'Operation', type: 'select', options: [
@@ -364,7 +533,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'CSV Processor',
     category: 'data',
     icon: 'Table',
-    description: 'Process CSV data',
+    description: 'CSV processor',
     defaultConfig: { delimiter: ',' },
     configFields: [
       { key: 'delimiter', label: 'Delimiter', type: 'text', defaultValue: ',' },
@@ -376,7 +545,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'Edit Fields',
     category: 'data',
     icon: 'Edit3',
-    description: 'Edit fields with operations',
+    description: 'Edit fields',
     defaultConfig: { operations: '[]' },
     configFields: [
       { key: 'operations', label: 'Operations (JSON)', type: 'json', placeholder: '[{"operation": "set", "field": "name", "value": "John"}]', required: true, helpText: 'Array of operations: set, delete, rename' },
@@ -387,7 +556,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'Execute Command',
     category: 'data',
     icon: 'Terminal',
-    description: 'Execute system command',
+    description: 'System command',
     defaultConfig: { command: '', enabled: false, timeout: 30000 },
     configFields: [
       { key: 'command', label: 'Command', type: 'text', placeholder: 'echo "Hello"', required: true },
@@ -400,7 +569,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'Function',
     category: 'data',
     icon: 'Code2',
-    description: 'Dataset-level code execution',
+    description: 'Function node',
     defaultConfig: { code: 'return input;', timeout: 10000 },
     configFields: [
       { key: 'code', label: 'Function Code', type: 'textarea', placeholder: 'return input;', required: true, helpText: 'Code receives: input, data' },
@@ -412,7 +581,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'Function Item',
     category: 'data',
     icon: 'Repeat',
-    description: 'Per-item code execution',
+    description: 'Function item',
     defaultConfig: { code: 'return item;', timeout: 5000 },
     configFields: [
       { key: 'code', label: 'Function Code', type: 'textarea', placeholder: 'return item;', required: true, helpText: 'Code receives: item, index, input' },
@@ -424,7 +593,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'Item Lists',
     category: 'data',
     icon: 'List',
-    description: 'Convert object to key-value list',
+    description: 'Item lists',
     defaultConfig: {},
     configFields: [],
   },
@@ -433,7 +602,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'JavaScript',
     category: 'data',
     icon: 'Code',
-    description: 'Run custom code',
+    description: 'JavaScript code',
     defaultConfig: { code: 'return input;', timeout: 5000 },
     configFields: [
       { key: 'code', label: 'JavaScript Code', type: 'textarea', placeholder: 'return input;', required: true },
@@ -445,7 +614,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'JSON Parser',
     category: 'data',
     icon: 'Braces',
-    description: 'Parse/transform JSON',
+    description: 'JSON parser',
     defaultConfig: { expression: '' },
     configFields: [
       { key: 'expression', label: 'JSONPath Expression', type: 'text', placeholder: '$.data.items[*]' },
@@ -456,7 +625,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'Limit',
     category: 'data',
     icon: 'ListChecks',
-    description: 'Limit array size',
+    description: 'Limit items',
     defaultConfig: { limit: 10 },
     configFields: [
       { key: 'limit', label: 'Limit', type: 'number', defaultValue: 10, required: true, helpText: 'Maximum number of items to return' },
@@ -467,7 +636,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'Merge Data',
     category: 'data',
     icon: 'Combine',
-    description: 'Combine multiple inputs',
+    description: 'Merge data',
     defaultConfig: { mode: 'merge' },
     configFields: [
       { key: 'mode', label: 'Mode', type: 'select', options: [
@@ -482,7 +651,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'Rename Keys',
     category: 'data',
     icon: 'Tag',
-    description: 'Rename object keys',
+    description: 'Rename keys',
     defaultConfig: { mappings: '{}' },
     configFields: [
       { key: 'mappings', label: 'Key Mappings (JSON)', type: 'json', placeholder: '{"oldName": "newName"}', required: true, helpText: 'JSON object mapping old keys to new keys' },
@@ -493,7 +662,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'Set',
     category: 'data',
     icon: 'Edit',
-    description: 'Set field values in object',
+    description: 'Set fields',
     defaultConfig: { fields: '{}' },
     configFields: [
       { key: 'fields', label: 'Fields (JSON)', type: 'json', placeholder: '{"name": "{{input.name}}", "age": 25}', required: true, helpText: 'JSON object with field names and values (supports templates)' },
@@ -504,7 +673,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'Set Variable',
     category: 'data',
     icon: 'Variable',
-    description: 'Store value in variable',
+    description: 'Set variable',
     defaultConfig: {},
     configFields: [
       { key: 'name', label: 'Variable Name', type: 'text', placeholder: 'myVariable', required: true },
@@ -516,7 +685,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'Sort',
     category: 'data',
     icon: 'ArrowUpDown',
-    description: 'Sort array items',
+    description: 'Sort items',
     defaultConfig: { direction: 'asc' },
     configFields: [
       { key: 'field', label: 'Field (optional)', type: 'text', placeholder: 'name', helpText: 'Field to sort by (leave empty to sort items directly)' },
@@ -537,7 +706,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'Text Formatter',
     category: 'data',
     icon: 'Type',
-    description: 'Format text content',
+    description: 'Text formatter',
     defaultConfig: { template: '' },
     configFields: [
       { key: 'template', label: 'Template', type: 'textarea', placeholder: 'Hello {{name}}!', required: true },
@@ -552,7 +721,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'Google BigQuery',
     category: 'google',
     icon: 'DatabaseZap',
-    description: 'Execute SQL queries',
+    description: 'SQL queries',
     defaultConfig: {
       projectId: '',
       datasetId: '',
@@ -597,7 +766,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'Google Calendar',
     category: 'google',
     icon: 'Calendar',
-    description: 'Manage calendar events',
+    description: 'Calendar events',
     defaultConfig: {
       operation: 'list',
       calendarId: 'primary',
@@ -669,7 +838,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'Google Contacts',
     category: 'google',
     icon: 'Users',
-    description: 'Manage contacts',
+    description: 'Contacts',
     defaultConfig: {
       operation: 'list',
       contactId: '',
@@ -732,7 +901,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'Google Doc',
     category: 'google',
     icon: 'FileText',
-    description: 'Read/create/update Docs',
+    description: 'Google Docs',
     defaultConfig: {
       operation: 'read',
       documentId: '',
@@ -779,7 +948,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'Google Drive',
     category: 'google',
     icon: 'Box',
-    description: 'Manage Drive files',
+    description: 'Google Drive',
     defaultConfig: {
       operation: 'list',
       folderId: '',
@@ -835,7 +1004,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'Google Gmail',
     category: 'google',
     icon: 'Mail',
-    description: 'Send/search Gmail',
+    description: 'Gmail',
     defaultConfig: {
       operation: 'send',
       to: '',
@@ -906,7 +1075,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'Google Sheets',
     category: 'google',
     icon: 'Table',
-    description: 'Read/write Google Sheets',
+    description: 'Google Sheets',
     defaultConfig: {
       operation: 'read',
       spreadsheetId: '',
@@ -1062,7 +1231,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'AI Agent',
     category: 'ai',
     icon: 'Bot',
-    description: 'Autonomous AI agent with tool usage',
+    description: 'AI agent',
     defaultConfig: { model: 'gpt-4o', maxIterations: 5 },
     configFields: [
       { key: 'apiKey', label: 'API Key', type: 'text', placeholder: 'Your API key (required)', required: true, helpText: 'How to get API Key: For OpenAI: 1) Go to platform.openai.com/api-keys 2) Create new secret key. For Anthropic: 1) Go to console.anthropic.com/settings/keys 2) Create key. For Gemini: 1) Go to aistudio.google.com/apikey 2) Create key' },
@@ -1086,7 +1255,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'Anthropic Claude',
     category: 'ai',
     icon: 'Sparkles',
-    description: 'Process with Claude models',
+    description: 'Claude AI',
     defaultConfig: { model: 'claude-3-sonnet', temperature: 0.7, memory: 10 },
     configFields: [
       { key: 'apiKey', label: 'API Key', type: 'text', placeholder: 'sk-ant-... (required)', required: true, helpText: 'How to get Anthropic API Key: 1) Go to console.anthropic.com/settings/keys 2) Sign in or create an account 3) Click "Create Key" 4) Give it a name (e.g., "Workflow Integration") 5) Copy the key immediately (starts with sk-ant-) - you won\'t see it again! 6) Paste it here securely' },
@@ -1105,7 +1274,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'Google Gemini',
     category: 'ai',
     icon: 'Gem',
-    description: 'Process with Gemini models',
+    description: 'Gemini AI',
     defaultConfig: { model: 'gemini-2.5-flash', temperature: 0.7, memory: 10 },
     configFields: [
       { key: 'apiKey', label: 'API Key', type: 'text', placeholder: 'AIza... (required)', required: true, helpText: 'How to get Google Gemini API Key: 1) Go to aistudio.google.com/apikey 2) Sign in with your Google account 3) Click "Create API Key" 4) Select or create a Google Cloud project 5) Copy the API key immediately (starts with AIza) - you won\'t see it again! 6) Paste it here securely' },
@@ -1124,7 +1293,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'Text Summarizer',
     category: 'ai',
     icon: 'FileText',
-    description: 'Summarize text using AI',
+    description: 'Text summarizer',
     defaultConfig: { apiKey: '', memory: 10 },
     configFields: [
       { key: 'apiKey', label: 'API Key', type: 'text', placeholder: 'sk-... (required)', required: true, helpText: 'How to get OpenAI API Key: 1) Go to platform.openai.com/api-keys 2) Sign in or create an account 3) Click "Create new secret key" 4) Give it a name (e.g., "Workflow Integration") 5) Copy the key immediately (starts with sk-) - you won\'t see it again! 6) Paste it here securely' },
@@ -1136,7 +1305,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'Sentiment Analysis',
     category: 'ai',
     icon: 'Heart',
-    description: 'Analyze text sentiment',
+    description: 'Sentiment analyzer',
     defaultConfig: { apiKey: '', memory: 10 },
     configFields: [
       { key: 'apiKey', label: 'API Key', type: 'text', placeholder: 'sk-... (required)', required: true, helpText: 'How to get OpenAI API Key: 1) Go to platform.openai.com/api-keys 2) Sign in or create an account 3) Click "Create new secret key" 4) Give it a name (e.g., "Workflow Integration") 5) Copy the key immediately (starts with sk-) - you won\'t see it again! 6) Paste it here securely' },
@@ -1148,7 +1317,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'Memory',
     category: 'ai',
     icon: 'Database',
-    description: 'Store/retrieve conversation memory',
+    description: 'Memory store',
     defaultConfig: {
       operation: 'store',
       memoryType: 'both',
@@ -1202,7 +1371,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'LLM Chain',
     category: 'ai',
     icon: 'Link',
-    description: 'Chain multiple AI prompts together',
+    description: 'LLM chain',
     defaultConfig: { steps: '[]', model: 'gpt-4o' },
     configFields: [
       { key: 'apiKey', label: 'API Key', type: 'text', placeholder: 'sk-... (required)', required: true, helpText: 'How to get OpenAI API Key: 1) Go to platform.openai.com/api-keys 2) Sign in or create an account 3) Click "Create new secret key" 4) Give it a name (e.g., "Workflow Integration") 5) Copy the key immediately (starts with sk-) - you won\'t see it again! 6) Paste it here securely' },
@@ -1220,7 +1389,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'Azure OpenAI',
     category: 'ai',
     icon: 'Brain',
-    description: 'Process with Azure OpenAI models',
+    description: 'Azure OpenAI',
     defaultConfig: { endpoint: '', deploymentName: 'gpt-4', temperature: 0.7, apiVersion: '2024-02-15-preview' },
     configFields: [
       { key: 'endpoint', label: 'Azure Endpoint', type: 'text', placeholder: 'https://your-resource.openai.azure.com', required: true, helpText: 'Your Azure OpenAI endpoint URL' },
@@ -1237,7 +1406,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'Hugging Face',
     category: 'ai',
     icon: 'Sparkles',
-    description: 'Hugging Face Inference API',
+    description: 'Hugging Face',
     defaultConfig: { model: '', task: 'text-generation' },
     configFields: [
       { key: 'apiKey', label: 'API Key (Hugging Face Token)', type: 'text', placeholder: 'hf_... (required)', required: true, helpText: 'How to get Hugging Face Token: 1) Go to huggingface.co/settings/tokens 2) Sign in or create an account 3) Click "New token" 4) Give it a name (e.g., "Workflow Integration") 5) Select token type (Read or Write) 6) Copy the token immediately (starts with hf_) - you won\'t see it again! 7) Paste it here securely' },
@@ -1257,7 +1426,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'Cohere',
     category: 'ai',
     icon: 'MessageSquare',
-    description: 'Process with Cohere language models',
+    description: 'Cohere AI',
     defaultConfig: { model: 'command', temperature: 0.7 },
     configFields: [
       { key: 'apiKey', label: 'API Key', type: 'text', placeholder: 'Your Cohere API key (required)', required: true, helpText: 'How to get Cohere API Key: 1) Go to dashboard.cohere.com 2) Sign in or create an account 3) Navigate to API Keys section 4) Click "Create API Key" 5) Give it a name (e.g., "Workflow Integration") 6) Copy the key immediately - you won\'t see it again! 7) Paste it here securely' },
@@ -1276,7 +1445,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'Ollama',
     category: 'ai',
     icon: 'Server',
-    description: 'Run local LLMs via Ollama',
+    description: 'Ollama AI',
     defaultConfig: { serverUrl: 'http://localhost:11434', model: 'llama2' },
     configFields: [
       { key: 'serverUrl', label: 'Ollama Server URL', type: 'text', placeholder: 'http://localhost:11434', defaultValue: 'http://localhost:11434', required: true, helpText: 'URL of your Ollama server' },
@@ -1290,7 +1459,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'OpenAI GPT',
     category: 'ai',
     icon: 'Brain',
-    description: 'Process with GPT models',
+    description: 'OpenAI GPT',
     defaultConfig: { model: 'gpt-4o', temperature: 0.7, memory: 10 },
     configFields: [
       { key: 'apiKey', label: 'API Key', type: 'text', placeholder: 'sk-... (required)', required: true, helpText: 'How to get OpenAI API Key: 1) Go to platform.openai.com/api-keys 2) Sign in or create an account 3) Click "Create new secret key" 4) Give it a name (e.g., "Workflow Integration") 5) Copy the key immediately (starts with sk-) - you won\'t see it again! 6) Paste it here securely' },
@@ -1309,7 +1478,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'Embeddings',
     category: 'ai',
     icon: 'Layers',
-    description: 'Generate text embeddings/vectors',
+    description: 'Embeddings',
     defaultConfig: { provider: 'openai', model: 'text-embedding-ada-002' },
     configFields: [
       { key: 'provider', label: 'Provider', type: 'select', options: [
@@ -1327,7 +1496,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'Vector Store',
     category: 'ai',
     icon: 'Database',
-    description: 'Store and search vectors (embeddings)',
+    description: 'Vector store',
     defaultConfig: { provider: 'pinecone', operation: 'upsert' },
     configFields: [
       { key: 'provider', label: 'Provider', type: 'select', options: [
@@ -1351,7 +1520,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'Chat Model',
     category: 'ai',
     icon: 'MessageCircle',
-    description: 'Unified LLM provider interface',
+    description: 'Chat model',
     defaultConfig: { provider: 'openai', model: 'gpt-4o', temperature: 0.7 },
     configFields: [
       { key: 'provider', label: 'Provider', type: 'select', options: [
@@ -1368,6 +1537,457 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
       { key: 'temperature', label: 'Temperature', type: 'number', defaultValue: 0.7 },
     ],
   },
+  {
+    type: 'intent_classification_agent',
+    label: 'Intent Classification Agent',
+    category: 'ai',
+    icon: 'Target',
+    description: 'Intent analyzer',
+    defaultConfig: { apiKey: '', model: 'gpt-4o', confidenceThreshold: 0.7 },
+    configFields: [
+      { key: 'apiKey', label: 'API Key', type: 'text', placeholder: 'Your API key (required)', required: true, helpText: 'How to get API Key: For OpenAI: 1) Go to platform.openai.com/api-keys 2) Create new secret key. For Anthropic: 1) Go to console.anthropic.com/settings/keys 2) Create key. For Gemini: 1) Go to aistudio.google.com/apikey 2) Create key' },
+      { key: 'model', label: 'Model', type: 'select', options: [
+        { label: 'GPT-4o', value: 'gpt-4o' },
+        { label: 'GPT-4o Mini', value: 'gpt-4o-mini' },
+        { label: 'Claude 3.5 Sonnet', value: 'claude-3-5-sonnet' },
+        { label: 'Gemini 2.5 Flash', value: 'gemini-2.5-flash' },
+      ], defaultValue: 'gpt-4o', required: true },
+      { key: 'prompt', label: 'System Prompt', type: 'textarea', defaultValue: 'You are an autonomous workflow node inside a no-code automation platform (similar to n8n).\n\nStrict rules:\n- Never hallucinate.\n- Never change input structure unless explicitly required.\n- Always return valid JSON.\n- Do not add explanations outside JSON.\n- If input is insufficient, return a structured clarification request.\n- Include confidence scores where applicable.\n- Include reasoning only when requested.\n- Preserve original input in metadata.\n\nYou are an Intent Classification Agent.\n\nINPUT:\n{\n  "text": string,\n  "availableIntents": string[] (optional),\n  "confidenceThreshold": number (0–1, optional)\n}\n\nTASKS:\n- Analyze the text\n- Classify the primary intent\n- Detect secondary intents if present\n- Calculate confidence score\n- Handle ambiguity\n\nOUTPUT:\n{\n  "primaryIntent": string,\n  "secondaryIntents": string[],\n  "confidence": number,\n  "isAmbiguous": boolean,\n  "requiresClarification": boolean,\n  "clarificationQuestions": string[],\n  "metadata": {\n    "inputText": string,\n    "tokensAnalyzed": number\n  }\n}\n\nERROR HANDLING:\n- If text is empty → return requiresClarification = true', required: true },
+      { key: 'confidenceThreshold', label: 'Confidence Threshold', type: 'number', defaultValue: 0.7, helpText: 'Confidence threshold (0-1) for intent classification' },
+      { key: 'temperature', label: 'Temperature', type: 'number', defaultValue: 0.3 },
+    ],
+  },
+  {
+    type: 'sentiment_analysis_agent',
+    label: 'Sentiment Analysis Agent',
+    category: 'ai',
+    icon: 'Heart',
+    description: 'Emotion detector',
+    defaultConfig: { apiKey: '', model: 'gpt-4o', granularity: 'overall' },
+    configFields: [
+      { key: 'apiKey', label: 'API Key', type: 'text', placeholder: 'Your API key (required)', required: true, helpText: 'How to get API Key: For OpenAI: 1) Go to platform.openai.com/api-keys 2) Create new secret key. For Anthropic: 1) Go to console.anthropic.com/settings/keys 2) Create key. For Gemini: 1) Go to aistudio.google.com/apikey 2) Create key' },
+      { key: 'model', label: 'Model', type: 'select', options: [
+        { label: 'GPT-4o', value: 'gpt-4o' },
+        { label: 'GPT-4o Mini', value: 'gpt-4o-mini' },
+        { label: 'Claude 3.5 Sonnet', value: 'claude-3-5-sonnet' },
+        { label: 'Gemini 2.5 Flash', value: 'gemini-2.5-flash' },
+      ], defaultValue: 'gpt-4o', required: true },
+      { key: 'prompt', label: 'System Prompt', type: 'textarea', defaultValue: 'You are an autonomous workflow node inside a no-code automation platform (similar to n8n).\n\nStrict rules:\n- Never hallucinate.\n- Never change input structure unless explicitly required.\n- Always return valid JSON.\n- Do not add explanations outside JSON.\n- If input is insufficient, return a structured clarification request.\n- Include confidence scores where applicable.\n- Include reasoning only when requested.\n- Preserve original input in metadata.\n\nYou are a Sentiment Analysis Agent.\n\nINPUT:\n{\n  "text": string,\n  "granularity": "overall" | "sentence" | "aspect"\n}\n\nTASKS:\n- Detect sentiment polarity\n- Detect emotional tone\n- Detect intensity\n- Handle sarcasm if possible\n\nOUTPUT:\n{\n  "sentiment": "positive" | "negative" | "neutral" | "mixed",\n  "confidence": number,\n  "emotions": {\n    "joy": number,\n    "anger": number,\n    "sadness": number,\n    "fear": number,\n    "surprise": number\n  },\n  "intensity": "low" | "medium" | "high",\n  "metadata": {\n    "textLength": number\n  }\n}', required: true },
+      { key: 'granularity', label: 'Granularity', type: 'select', options: [
+        { label: 'Overall', value: 'overall' },
+        { label: 'Sentence', value: 'sentence' },
+        { label: 'Aspect', value: 'aspect' },
+      ], defaultValue: 'overall', required: true },
+      { key: 'temperature', label: 'Temperature', type: 'number', defaultValue: 0.3 },
+    ],
+  },
+  {
+    type: 'confidence_scoring_agent',
+    label: 'Confidence Scoring Agent',
+    category: 'ai',
+    icon: 'BarChart',
+    description: 'Confidence score',
+    defaultConfig: { apiKey: '', model: 'gpt-4o' },
+    configFields: [
+      { key: 'apiKey', label: 'API Key', type: 'text', placeholder: 'Your API key (required)', required: true, helpText: 'How to get API Key: For OpenAI: 1) Go to platform.openai.com/api-keys 2) Create new secret key. For Anthropic: 1) Go to console.anthropic.com/settings/keys 2) Create key. For Gemini: 1) Go to aistudio.google.com/apikey 2) Create key' },
+      { key: 'model', label: 'Model', type: 'select', options: [
+        { label: 'GPT-4o', value: 'gpt-4o' },
+        { label: 'GPT-4o Mini', value: 'gpt-4o-mini' },
+        { label: 'Claude 3.5 Sonnet', value: 'claude-3-5-sonnet' },
+        { label: 'Gemini 2.5 Flash', value: 'gemini-2.5-flash' },
+      ], defaultValue: 'gpt-4o', required: true },
+      { key: 'prompt', label: 'System Prompt', type: 'textarea', defaultValue: 'You are an autonomous workflow node inside a no-code automation platform (similar to n8n).\n\nStrict rules:\n- Never hallucinate.\n- Never change input structure unless explicitly required.\n- Always return valid JSON.\n- Do not add explanations outside JSON.\n- If input is insufficient, return a structured clarification request.\n- Include confidence scores where applicable.\n- Include reasoning only when requested.\n- Preserve original input in metadata.\n\nYou are a Confidence Scoring Agent.\n\nINPUT:\n{\n  "responseText": string,\n  "context": string (optional)\n}\n\nTASKS:\n- Evaluate certainty, clarity, completeness\n- Penalize vague or speculative language\n\nOUTPUT:\n{\n  "confidenceScore": number,\n  "confidenceLevel": "low" | "medium" | "high",\n  "riskFactors": string[],\n  "metadata": {\n    "evaluatedText": string\n  }\n}', required: true },
+      { key: 'temperature', label: 'Temperature', type: 'number', defaultValue: 0.3 },
+    ],
+  },
+  {
+    type: 'lead_qualification_agent',
+    label: 'Lead Qualification Agent',
+    category: 'ai',
+    icon: 'Users',
+    description: 'Lead qualifier',
+    defaultConfig: { apiKey: '', model: 'gpt-4o', framework: 'BANT' },
+    configFields: [
+      { key: 'apiKey', label: 'API Key', type: 'text', placeholder: 'Your API key (required)', required: true, helpText: 'How to get API Key: For OpenAI: 1) Go to platform.openai.com/api-keys 2) Create new secret key. For Anthropic: 1) Go to console.anthropic.com/settings/keys 2) Create key. For Gemini: 1) Go to aistudio.google.com/apikey 2) Create key' },
+      { key: 'model', label: 'Model', type: 'select', options: [
+        { label: 'GPT-4o', value: 'gpt-4o' },
+        { label: 'GPT-4o Mini', value: 'gpt-4o-mini' },
+        { label: 'Claude 3.5 Sonnet', value: 'claude-3-5-sonnet' },
+        { label: 'Gemini 2.5 Flash', value: 'gemini-2.5-flash' },
+      ], defaultValue: 'gpt-4o', required: true },
+      { key: 'prompt', label: 'System Prompt', type: 'textarea', defaultValue: 'You are an autonomous workflow node inside a no-code automation platform (similar to n8n).\n\nStrict rules:\n- Never hallucinate.\n- Never change input structure unless explicitly required.\n- Always return valid JSON.\n- Do not add explanations outside JSON.\n- If input is insufficient, return a structured clarification request.\n- Include confidence scores where applicable.\n- Include reasoning only when requested.\n- Preserve original input in metadata.\n\nYou are a Lead Qualification Agent.\n\nINPUT:\n{\n  "leadData": {\n    "name": string,\n    "email": string,\n    "company": string,\n    "role": string,\n    "budget": number,\n    "timeline": string,\n    "need": string\n  }\n}\n\nTASKS:\n- Apply BANT / MEDDIC logic\n- Validate lead readiness\n\nOUTPUT:\n{\n  "qualified": boolean,\n  "qualificationStage": "cold" | "warm" | "hot",\n  "missingInformation": string[],\n  "reasoning": string,\n  "metadata": {\n    "frameworkUsed": "BANT"\n  }\n}', required: true },
+      { key: 'framework', label: 'Qualification Framework', type: 'select', options: [
+        { label: 'BANT', value: 'BANT' },
+        { label: 'MEDDIC', value: 'MEDDIC' },
+      ], defaultValue: 'BANT' },
+      { key: 'temperature', label: 'Temperature', type: 'number', defaultValue: 0.3 },
+    ],
+  },
+  {
+    type: 'lead_scoring_agent',
+    label: 'Lead Scoring Agent',
+    category: 'ai',
+    icon: 'TrendingUp',
+    description: 'Lead scorer',
+    defaultConfig: { apiKey: '', model: 'gpt-4o' },
+    configFields: [
+      { key: 'apiKey', label: 'API Key', type: 'text', placeholder: 'Your API key (required)', required: true, helpText: 'How to get API Key: For OpenAI: 1) Go to platform.openai.com/api-keys 2) Create new secret key. For Anthropic: 1) Go to console.anthropic.com/settings/keys 2) Create key. For Gemini: 1) Go to aistudio.google.com/apikey 2) Create key' },
+      { key: 'model', label: 'Model', type: 'select', options: [
+        { label: 'GPT-4o', value: 'gpt-4o' },
+        { label: 'GPT-4o Mini', value: 'gpt-4o-mini' },
+        { label: 'Claude 3.5 Sonnet', value: 'claude-3-5-sonnet' },
+        { label: 'Gemini 2.5 Flash', value: 'gemini-2.5-flash' },
+      ], defaultValue: 'gpt-4o', required: true },
+      { key: 'prompt', label: 'System Prompt', type: 'textarea', defaultValue: 'You are an autonomous workflow node inside a no-code automation platform (similar to n8n).\n\nStrict rules:\n- Never hallucinate.\n- Never change input structure unless explicitly required.\n- Always return valid JSON.\n- Do not add explanations outside JSON.\n- If input is insufficient, return a structured clarification request.\n- Include confidence scores where applicable.\n- Include reasoning only when requested.\n- Preserve original input in metadata.\n\nYou are a Lead Scoring Agent.\n\nINPUT:\n{\n  "leadAttributes": object,\n  "scoringRules": object (optional)\n}\n\nTASKS:\n- Assign weighted scores\n- Normalize score to 0–100\n\nOUTPUT:\n{\n  "leadScore": number,\n  "scoreCategory": "low" | "medium" | "high",\n  "scoreBreakdown": object,\n  "recommendedAction": string\n}', required: true },
+      { key: 'scoringRules', label: 'Scoring Rules (JSON)', type: 'json', placeholder: '{"attribute1": 10, "attribute2": 20}', helpText: 'Optional: Custom scoring weights (JSON object)' },
+      { key: 'temperature', label: 'Temperature', type: 'number', defaultValue: 0.3 },
+    ],
+  },
+  {
+    type: 'skill_matching_agent',
+    label: 'Skill Matching Agent',
+    category: 'ai',
+    icon: 'CheckCircle',
+    description: 'Skill matcher',
+    defaultConfig: { apiKey: '', model: 'gpt-4o' },
+    configFields: [
+      { key: 'apiKey', label: 'API Key', type: 'text', placeholder: 'Your API key (required)', required: true, helpText: 'How to get API Key: For OpenAI: 1) Go to platform.openai.com/api-keys 2) Create new secret key. For Anthropic: 1) Go to console.anthropic.com/settings/keys 2) Create key. For Gemini: 1) Go to aistudio.google.com/apikey 2) Create key' },
+      { key: 'model', label: 'Model', type: 'select', options: [
+        { label: 'GPT-4o', value: 'gpt-4o' },
+        { label: 'GPT-4o Mini', value: 'gpt-4o-mini' },
+        { label: 'Claude 3.5 Sonnet', value: 'claude-3-5-sonnet' },
+        { label: 'Gemini 2.5 Flash', value: 'gemini-2.5-flash' },
+      ], defaultValue: 'gpt-4o', required: true },
+      { key: 'prompt', label: 'System Prompt', type: 'textarea', defaultValue: 'You are an autonomous workflow node inside a no-code automation platform (similar to n8n).\n\nStrict rules:\n- Never hallucinate.\n- Never change input structure unless explicitly required.\n- Always return valid JSON.\n- Do not add explanations outside JSON.\n- If input is insufficient, return a structured clarification request.\n- Include confidence scores where applicable.\n- Include reasoning only when requested.\n- Preserve original input in metadata.\n\nYou are a Skill Matching Agent.\n\nINPUT:\n{\n  "candidateSkills": string[],\n  "requiredSkills": string[],\n  "experienceLevel": string\n}\n\nTASKS:\n- Match skills\n- Identify gaps\n- Score relevance\n\nOUTPUT:\n{\n  "matchPercentage": number,\n  "matchedSkills": string[],\n  "missingSkills": string[],\n  "recommendations": string[]\n}', required: true },
+      { key: 'temperature', label: 'Temperature', type: 'number', defaultValue: 0.3 },
+    ],
+  },
+  {
+    type: 'document_qa_agent',
+    label: 'Document QA Agent',
+    category: 'ai',
+    icon: 'FileText',
+    description: 'Document Q&A',
+    defaultConfig: { apiKey: '', model: 'gpt-4o' },
+    configFields: [
+      { key: 'apiKey', label: 'API Key', type: 'text', placeholder: 'Your API key (required)', required: true, helpText: 'How to get API Key: For OpenAI: 1) Go to platform.openai.com/api-keys 2) Create new secret key. For Anthropic: 1) Go to console.anthropic.com/settings/keys 2) Create key. For Gemini: 1) Go to aistudio.google.com/apikey 2) Create key' },
+      { key: 'model', label: 'Model', type: 'select', options: [
+        { label: 'GPT-4o', value: 'gpt-4o' },
+        { label: 'GPT-4o Mini', value: 'gpt-4o-mini' },
+        { label: 'Claude 3.5 Sonnet', value: 'claude-3-5-sonnet' },
+        { label: 'Gemini 2.5 Flash', value: 'gemini-2.5-flash' },
+      ], defaultValue: 'gpt-4o', required: true },
+      { key: 'prompt', label: 'System Prompt', type: 'textarea', defaultValue: 'You are an autonomous workflow node inside a no-code automation platform (similar to n8n).\n\nStrict rules:\n- Never hallucinate.\n- Never change input structure unless explicitly required.\n- Always return valid JSON.\n- Do not add explanations outside JSON.\n- If input is insufficient, return a structured clarification request.\n- Include confidence scores where applicable.\n- Include reasoning only when requested.\n- Preserve original input in metadata.\n\nYou are a Document QA Agent.\n\nINPUT:\n{\n  "documentText": string,\n  "question": string\n}\n\nTASKS:\n- Answer strictly from document\n- Cite reference section\n- Reject hallucination\n\nOUTPUT:\n{\n  "answer": string,\n  "confidence": number,\n  "sourceExcerpt": string,\n  "found": boolean\n}', required: true },
+      { key: 'temperature', label: 'Temperature', type: 'number', defaultValue: 0.3 },
+    ],
+  },
+  {
+    type: 'policy_reasoning_agent',
+    label: 'Policy Reasoning Agent',
+    category: 'ai',
+    icon: 'Shield',
+    description: 'Policy interpreter',
+    defaultConfig: { apiKey: '', model: 'gpt-4o' },
+    configFields: [
+      { key: 'apiKey', label: 'API Key', type: 'text', placeholder: 'Your API key (required)', required: true, helpText: 'How to get API Key: For OpenAI: 1) Go to platform.openai.com/api-keys 2) Create new secret key. For Anthropic: 1) Go to console.anthropic.com/settings/keys 2) Create key. For Gemini: 1) Go to aistudio.google.com/apikey 2) Create key' },
+      { key: 'model', label: 'Model', type: 'select', options: [
+        { label: 'GPT-4o', value: 'gpt-4o' },
+        { label: 'GPT-4o Mini', value: 'gpt-4o-mini' },
+        { label: 'Claude 3.5 Sonnet', value: 'claude-3-5-sonnet' },
+        { label: 'Gemini 2.5 Flash', value: 'gemini-2.5-flash' },
+      ], defaultValue: 'gpt-4o', required: true },
+      { key: 'prompt', label: 'System Prompt', type: 'textarea', defaultValue: 'You are an autonomous workflow node inside a no-code automation platform (similar to n8n).\n\nStrict rules:\n- Never hallucinate.\n- Never change input structure unless explicitly required.\n- Always return valid JSON.\n- Do not add explanations outside JSON.\n- If input is insufficient, return a structured clarification request.\n- Include confidence scores where applicable.\n- Include reasoning only when requested.\n- Preserve original input in metadata.\n\nYou are a Policy Reasoning Agent.\n\nINPUT:\n{\n  "policyText": string,\n  "scenario": string\n}\n\nTASKS:\n- Interpret policy\n- Apply to scenario\n- Explain compliance or violation\n\nOUTPUT:\n{\n  "decision": "allowed" | "restricted" | "forbidden",\n  "policySections": string[],\n  "reasoning": string\n}', required: true },
+      { key: 'temperature', label: 'Temperature', type: 'number', defaultValue: 0.3 },
+    ],
+  },
+  {
+    type: 'compliance_check_agent',
+    label: 'Compliance Check Agent',
+    category: 'ai',
+    icon: 'ShieldAlert',
+    description: 'Compliance check',
+    defaultConfig: { apiKey: '', model: 'gpt-4o' },
+    configFields: [
+      { key: 'apiKey', label: 'API Key', type: 'text', placeholder: 'Your API key (required)', required: true, helpText: 'How to get API Key: For OpenAI: 1) Go to platform.openai.com/api-keys 2) Create new secret key. For Anthropic: 1) Go to console.anthropic.com/settings/keys 2) Create key. For Gemini: 1) Go to aistudio.google.com/apikey 2) Create key' },
+      { key: 'model', label: 'Model', type: 'select', options: [
+        { label: 'GPT-4o', value: 'gpt-4o' },
+        { label: 'GPT-4o Mini', value: 'gpt-4o-mini' },
+        { label: 'Claude 3.5 Sonnet', value: 'claude-3-5-sonnet' },
+        { label: 'Gemini 2.5 Flash', value: 'gemini-2.5-flash' },
+      ], defaultValue: 'gpt-4o', required: true },
+      { key: 'prompt', label: 'System Prompt', type: 'textarea', defaultValue: 'You are an autonomous workflow node inside a no-code automation platform (similar to n8n).\n\nStrict rules:\n- Never hallucinate.\n- Never change input structure unless explicitly required.\n- Always return valid JSON.\n- Do not add explanations outside JSON.\n- If input is insufficient, return a structured clarification request.\n- Include confidence scores where applicable.\n- Include reasoning only when requested.\n- Preserve original input in metadata.\n\nYou are a Compliance Check Agent.\n\nINPUT:\n{\n  "data": object,\n  "rules": string[]\n}\n\nTASKS:\n- Validate against rules\n- Detect violations\n\nOUTPUT:\n{\n  "compliant": boolean,\n  "violations": string[],\n  "riskLevel": "low" | "medium" | "high"\n}', required: true },
+      { key: 'rules', label: 'Compliance Rules (JSON array)', type: 'json', placeholder: '["rule1", "rule2"]', helpText: 'Array of compliance rules to check against' },
+      { key: 'temperature', label: 'Temperature', type: 'number', defaultValue: 0.3 },
+    ],
+  },
+  {
+    type: 'anomaly_detection_agent',
+    label: 'Anomaly Detection Agent',
+    category: 'ai',
+    icon: 'AlertCircle',
+    description: 'Anomaly detector',
+    defaultConfig: { apiKey: '', model: 'gpt-4o' },
+    configFields: [
+      { key: 'apiKey', label: 'API Key', type: 'text', placeholder: 'Your API key (required)', required: true, helpText: 'How to get API Key: For OpenAI: 1) Go to platform.openai.com/api-keys 2) Create new secret key. For Anthropic: 1) Go to console.anthropic.com/settings/keys 2) Create key. For Gemini: 1) Go to aistudio.google.com/apikey 2) Create key' },
+      { key: 'model', label: 'Model', type: 'select', options: [
+        { label: 'GPT-4o', value: 'gpt-4o' },
+        { label: 'GPT-4o Mini', value: 'gpt-4o-mini' },
+        { label: 'Claude 3.5 Sonnet', value: 'claude-3-5-sonnet' },
+        { label: 'Gemini 2.5 Flash', value: 'gemini-2.5-flash' },
+      ], defaultValue: 'gpt-4o', required: true },
+      { key: 'prompt', label: 'System Prompt', type: 'textarea', defaultValue: 'You are an autonomous workflow node inside a no-code automation platform (similar to n8n).\n\nStrict rules:\n- Never hallucinate.\n- Never change input structure unless explicitly required.\n- Always return valid JSON.\n- Do not add explanations outside JSON.\n- If input is insufficient, return a structured clarification request.\n- Include confidence scores where applicable.\n- Include reasoning only when requested.\n- Preserve original input in metadata.\n\nYou are an Anomaly Detection Agent.\n\nINPUT:\n{\n  "dataset": number[],\n  "baseline": object (optional)\n}\n\nTASKS:\n- Detect outliers\n- Explain deviation\n\nOUTPUT:\n{\n  "anomalies": number[],\n  "anomalyScore": number,\n  "pattern": string\n}', required: true },
+      { key: 'temperature', label: 'Temperature', type: 'number', defaultValue: 0.3 },
+    ],
+  },
+  {
+    type: 'root_cause_analysis_agent',
+    label: 'Root Cause Analysis Agent',
+    category: 'ai',
+    icon: 'Activity',
+    description: 'Root cause analyzer',
+    defaultConfig: { apiKey: '', model: 'gpt-4o' },
+    configFields: [
+      { key: 'apiKey', label: 'API Key', type: 'text', placeholder: 'Your API key (required)', required: true, helpText: 'How to get API Key: For OpenAI: 1) Go to platform.openai.com/api-keys 2) Create new secret key. For Anthropic: 1) Go to console.anthropic.com/settings/keys 2) Create key. For Gemini: 1) Go to aistudio.google.com/apikey 2) Create key' },
+      { key: 'model', label: 'Model', type: 'select', options: [
+        { label: 'GPT-4o', value: 'gpt-4o' },
+        { label: 'GPT-4o Mini', value: 'gpt-4o-mini' },
+        { label: 'Claude 3.5 Sonnet', value: 'claude-3-5-sonnet' },
+        { label: 'Gemini 2.5 Flash', value: 'gemini-2.5-flash' },
+      ], defaultValue: 'gpt-4o', required: true },
+      { key: 'prompt', label: 'System Prompt', type: 'textarea', defaultValue: 'You are an autonomous workflow node inside a no-code automation platform (similar to n8n).\n\nStrict rules:\n- Never hallucinate.\n- Never change input structure unless explicitly required.\n- Always return valid JSON.\n- Do not add explanations outside JSON.\n- If input is insufficient, return a structured clarification request.\n- Include confidence scores where applicable.\n- Include reasoning only when requested.\n- Preserve original input in metadata.\n\nYou are a Root Cause Analysis Agent.\n\nINPUT:\n{\n  "incident": string,\n  "logs": string[]\n}\n\nTASKS:\n- Identify root cause\n- Correlate events\n\nOUTPUT:\n{\n  "rootCause": string,\n  "contributingFactors": string[],\n  "confidence": number\n}', required: true },
+      { key: 'temperature', label: 'Temperature', type: 'number', defaultValue: 0.3 },
+    ],
+  },
+  {
+    type: 'conversation_summarizer',
+    label: 'Conversation Summarizer',
+    category: 'ai',
+    icon: 'MessageSquare',
+    description: 'Conversation summary',
+    defaultConfig: { apiKey: '', model: 'gpt-4o', summaryLength: 'medium' },
+    configFields: [
+      { key: 'apiKey', label: 'API Key', type: 'text', placeholder: 'Your API key (required)', required: true, helpText: 'How to get API Key: For OpenAI: 1) Go to platform.openai.com/api-keys 2) Create new secret key. For Anthropic: 1) Go to console.anthropic.com/settings/keys 2) Create key. For Gemini: 1) Go to aistudio.google.com/apikey 2) Create key' },
+      { key: 'model', label: 'Model', type: 'select', options: [
+        { label: 'GPT-4o', value: 'gpt-4o' },
+        { label: 'GPT-4o Mini', value: 'gpt-4o-mini' },
+        { label: 'Claude 3.5 Sonnet', value: 'claude-3-5-sonnet' },
+        { label: 'Gemini 2.5 Flash', value: 'gemini-2.5-flash' },
+      ], defaultValue: 'gpt-4o', required: true },
+      { key: 'prompt', label: 'System Prompt', type: 'textarea', defaultValue: 'You are an autonomous workflow node inside a no-code automation platform (similar to n8n).\n\nStrict rules:\n- Never hallucinate.\n- Never change input structure unless explicitly required.\n- Always return valid JSON.\n- Do not add explanations outside JSON.\n- If input is insufficient, return a structured clarification request.\n- Include confidence scores where applicable.\n- Include reasoning only when requested.\n- Preserve original input in metadata.\n\nYou are a Conversation Summarizer Agent.\n\nINPUT:\n{\n  "conversation": string[],\n  "summaryLength": "short" | "medium" | "long"\n}\n\nOUTPUT:\n{\n  "summary": string,\n  "keyTopics": string[],\n  "sentimentTrend": string\n}', required: true },
+      { key: 'summaryLength', label: 'Summary Length', type: 'select', options: [
+        { label: 'Short', value: 'short' },
+        { label: 'Medium', value: 'medium' },
+        { label: 'Long', value: 'long' },
+      ], defaultValue: 'medium', required: true },
+      { key: 'temperature', label: 'Temperature', type: 'number', defaultValue: 0.5 },
+    ],
+  },
+  {
+    type: 'meeting_notes_agent',
+    label: 'Meeting Notes Agent',
+    category: 'ai',
+    icon: 'FileText',
+    description: 'Meeting notes',
+    defaultConfig: { apiKey: '', model: 'gpt-4o' },
+    configFields: [
+      { key: 'apiKey', label: 'API Key', type: 'text', placeholder: 'Your API key (required)', required: true, helpText: 'How to get API Key: For OpenAI: 1) Go to platform.openai.com/api-keys 2) Create new secret key. For Anthropic: 1) Go to console.anthropic.com/settings/keys 2) Create key. For Gemini: 1) Go to aistudio.google.com/apikey 2) Create key' },
+      { key: 'model', label: 'Model', type: 'select', options: [
+        { label: 'GPT-4o', value: 'gpt-4o' },
+        { label: 'GPT-4o Mini', value: 'gpt-4o-mini' },
+        { label: 'Claude 3.5 Sonnet', value: 'claude-3-5-sonnet' },
+        { label: 'Gemini 2.5 Flash', value: 'gemini-2.5-flash' },
+      ], defaultValue: 'gpt-4o', required: true },
+      { key: 'prompt', label: 'System Prompt', type: 'textarea', defaultValue: 'You are an autonomous workflow node inside a no-code automation platform (similar to n8n).\n\nStrict rules:\n- Never hallucinate.\n- Never change input structure unless explicitly required.\n- Always return valid JSON.\n- Do not add explanations outside JSON.\n- If input is insufficient, return a structured clarification request.\n- Include confidence scores where applicable.\n- Include reasoning only when requested.\n- Preserve original input in metadata.\n\nYou are a Meeting Notes Agent.\n\nINPUT:\n{\n  "meetingTranscript": string\n}\n\nOUTPUT:\n{\n  "agenda": string[],\n  "decisions": string[],\n  "notes": string\n}', required: true },
+      { key: 'temperature', label: 'Temperature', type: 'number', defaultValue: 0.5 },
+    ],
+  },
+  {
+    type: 'action_items_extractor',
+    label: 'Action Items Extractor',
+    category: 'ai',
+    icon: 'ListChecks',
+    description: 'Action extractor',
+    defaultConfig: { apiKey: '', model: 'gpt-4o' },
+    configFields: [
+      { key: 'apiKey', label: 'API Key', type: 'text', placeholder: 'Your API key (required)', required: true, helpText: 'How to get API Key: For OpenAI: 1) Go to platform.openai.com/api-keys 2) Create new secret key. For Anthropic: 1) Go to console.anthropic.com/settings/keys 2) Create key. For Gemini: 1) Go to aistudio.google.com/apikey 2) Create key' },
+      { key: 'model', label: 'Model', type: 'select', options: [
+        { label: 'GPT-4o', value: 'gpt-4o' },
+        { label: 'GPT-4o Mini', value: 'gpt-4o-mini' },
+        { label: 'Claude 3.5 Sonnet', value: 'claude-3-5-sonnet' },
+        { label: 'Gemini 2.5 Flash', value: 'gemini-2.5-flash' },
+      ], defaultValue: 'gpt-4o', required: true },
+      { key: 'prompt', label: 'System Prompt', type: 'textarea', defaultValue: 'You are an autonomous workflow node inside a no-code automation platform (similar to n8n).\n\nStrict rules:\n- Never hallucinate.\n- Never change input structure unless explicitly required.\n- Always return valid JSON.\n- Do not add explanations outside JSON.\n- If input is insufficient, return a structured clarification request.\n- Include confidence scores where applicable.\n- Include reasoning only when requested.\n- Preserve original input in metadata.\n\nYou are an Action Items Extractor.\n\nINPUT:\n{\n  "text": string\n}\n\nOUTPUT:\n{\n  "actionItems": [\n    {\n      "task": string,\n      "owner": string,\n      "deadline": string | null\n    }\n  ]\n}', required: true },
+      { key: 'temperature', label: 'Temperature', type: 'number', defaultValue: 0.5 },
+    ],
+  },
+  {
+    type: 'workflow_planner_agent',
+    label: 'Workflow Planner Agent',
+    category: 'ai',
+    icon: 'GitBranch',
+    description: 'Workflow planner',
+    defaultConfig: { apiKey: '', model: 'gpt-4o' },
+    configFields: [
+      { key: 'apiKey', label: 'API Key', type: 'text', placeholder: 'Your API key (required)', required: true, helpText: 'How to get API Key: For OpenAI: 1) Go to platform.openai.com/api-keys 2) Create new secret key. For Anthropic: 1) Go to console.anthropic.com/settings/keys 2) Create key. For Gemini: 1) Go to aistudio.google.com/apikey 2) Create key' },
+      { key: 'model', label: 'Model', type: 'select', options: [
+        { label: 'GPT-4o', value: 'gpt-4o' },
+        { label: 'GPT-4o Mini', value: 'gpt-4o-mini' },
+        { label: 'Claude 3.5 Sonnet', value: 'claude-3-5-sonnet' },
+        { label: 'Gemini 2.5 Flash', value: 'gemini-2.5-flash' },
+      ], defaultValue: 'gpt-4o', required: true },
+      { key: 'prompt', label: 'System Prompt', type: 'textarea', defaultValue: 'You are an autonomous workflow node inside a no-code automation platform (similar to n8n).\n\nStrict rules:\n- Never hallucinate.\n- Never change input structure unless explicitly required.\n- Always return valid JSON.\n- Do not add explanations outside JSON.\n- If input is insufficient, return a structured clarification request.\n- Include confidence scores where applicable.\n- Include reasoning only when requested.\n- Preserve original input in metadata.\n\nYou are a Workflow Planner Agent.\n\nINPUT:\n{\n  "userGoal": string,\n  "availableNodes": string[]\n}\n\nTASKS:\n- Decompose goal\n- Select nodes\n- Order execution\n\nOUTPUT:\n{\n  "workflowSteps": [\n    {\n      "step": number,\n      "node": string,\n      "purpose": string\n    }\n  ]\n}', required: true },
+      { key: 'availableNodes', label: 'Available Nodes (JSON array)', type: 'json', placeholder: '["node1", "node2"]', helpText: 'Optional: Array of available node types for planning' },
+      { key: 'temperature', label: 'Temperature', type: 'number', defaultValue: 0.5 },
+    ],
+  },
+  {
+    type: 'decision_recommendation_agent',
+    label: 'Decision Recommendation Agent',
+    category: 'ai',
+    icon: 'CheckCircle',
+    description: 'Decision helper',
+    defaultConfig: { apiKey: '', model: 'gpt-4o' },
+    configFields: [
+      { key: 'apiKey', label: 'API Key', type: 'text', placeholder: 'Your API key (required)', required: true, helpText: 'How to get API Key: For OpenAI: 1) Go to platform.openai.com/api-keys 2) Create new secret key. For Anthropic: 1) Go to console.anthropic.com/settings/keys 2) Create key. For Gemini: 1) Go to aistudio.google.com/apikey 2) Create key' },
+      { key: 'model', label: 'Model', type: 'select', options: [
+        { label: 'GPT-4o', value: 'gpt-4o' },
+        { label: 'GPT-4o Mini', value: 'gpt-4o-mini' },
+        { label: 'Claude 3.5 Sonnet', value: 'claude-3-5-sonnet' },
+        { label: 'Gemini 2.5 Flash', value: 'gemini-2.5-flash' },
+      ], defaultValue: 'gpt-4o', required: true },
+      { key: 'prompt', label: 'System Prompt', type: 'textarea', defaultValue: 'You are an autonomous workflow node inside a no-code automation platform (similar to n8n).\n\nStrict rules:\n- Never hallucinate.\n- Never change input structure unless explicitly required.\n- Always return valid JSON.\n- Do not add explanations outside JSON.\n- If input is insufficient, return a structured clarification request.\n- Include confidence scores where applicable.\n- Include reasoning only when requested.\n- Preserve original input in metadata.\n\nYou are a Decision Recommendation Agent.\n\nINPUT:\n{\n  "options": string[],\n  "criteria": object\n}\n\nTASKS:\n- Evaluate trade-offs\n- Rank options\n\nOUTPUT:\n{\n  "recommendedOption": string,\n  "ranking": string[],\n  "justification": string\n}', required: true },
+      { key: 'criteria', label: 'Criteria (JSON object)', type: 'json', placeholder: '{"cost": 30, "quality": 50, "speed": 20}', helpText: 'Optional: Evaluation criteria with weights' },
+      { key: 'temperature', label: 'Temperature', type: 'number', defaultValue: 0.5 },
+    ],
+  },
+  {
+    type: 'workflow_generator_agent',
+    label: 'Workflow Generator Agent',
+    category: 'ai',
+    icon: 'GitBranch',
+    description: 'Workflow generator',
+    defaultConfig: { 
+      constraints: { time: null, budget: null, compliance: null },
+      availableNodes: []
+    },
+    configFields: [
+      { key: 'userGoal', label: 'User Goal', type: 'textarea', placeholder: 'Send daily reports to stakeholders', required: true, helpText: 'Description of what the workflow should accomplish' },
+      { key: 'constraints', label: 'Constraints (JSON)', type: 'json', placeholder: '{"time": "must complete in 5 minutes", "budget": "free tier only", "compliance": ["GDPR"]}', defaultValue: { time: null, budget: null, compliance: null }, helpText: 'Optional constraints: time, budget, compliance requirements' },
+      { key: 'availableNodes', label: 'Available Nodes (JSON Array)', type: 'json', placeholder: '["webhook", "openai_gpt", "slack_message"]', defaultValue: [], helpText: 'Optional: Array of available node types (empty = all nodes available)' },
+    ],
+  },
+  {
+    type: 'node_selector_agent',
+    label: 'Node Selector Agent',
+    category: 'ai',
+    icon: 'Target',
+    description: 'Node selector',
+    defaultConfig: { 
+      availableNodes: []
+    },
+    configFields: [
+      { key: 'taskDescription', label: 'Task Description', type: 'textarea', placeholder: 'Send email notifications when order is placed', required: true, helpText: 'Description of the task that needs to be accomplished' },
+      { key: 'availableNodes', label: 'Available Nodes (JSON Array)', type: 'json', placeholder: '[{"nodeName": "slack_message", "capabilities": ["send_notification", "team_communication"]}, {"nodeName": "email", "capabilities": ["send_email", "attachments"]}]', required: true, helpText: 'Array of available nodes with nodeName and capabilities array' },
+    ],
+  },
+  {
+    type: 'prompt_synthesizer',
+    label: 'Prompt Synthesizer',
+    category: 'ai',
+    icon: 'Code2',
+    description: 'Prompt synthesizer',
+    defaultConfig: { 
+      constraints: []
+    },
+    configFields: [
+      { key: 'nodeType', label: 'Node Type', type: 'text', placeholder: 'openai_gpt', required: true, helpText: 'Type of node the prompt is for' },
+      { key: 'objective', label: 'Objective', type: 'textarea', placeholder: 'Summarize customer feedback', required: true, helpText: 'What the node should accomplish' },
+      { key: 'inputSchema', label: 'Input Schema (JSON)', type: 'json', placeholder: '{"feedback": "string", "length": "number"}', required: true, helpText: 'Expected input structure and types' },
+      { key: 'outputSchema', label: 'Output Schema (JSON)', type: 'json', placeholder: '{"summary": "string", "sentiment": "string"}', required: true, helpText: 'Expected output structure and types' },
+      { key: 'constraints', label: 'Constraints (JSON Array)', type: 'json', placeholder: '["No hallucinations", "Maximum 100 words", "JSON only"]', defaultValue: [], helpText: 'Array of constraints or requirements for the prompt' },
+    ],
+  },
+  {
+    type: 'multi_agent_coordinator',
+    label: 'Multi-Agent Coordinator',
+    category: 'ai',
+    icon: 'Users',
+    description: 'Agent coordinator',
+    defaultConfig: { 
+      coordinationStrategy: 'parallel'
+    },
+    configFields: [
+      { key: 'agents', label: 'Agents (JSON Array)', type: 'json', placeholder: '[{"agentId": "agent_1", "role": "data_processor"}, {"agentId": "agent_2", "role": "validator"}]', required: true, helpText: 'Array of agents with agentId and role' },
+      { key: 'task', label: 'Task', type: 'textarea', placeholder: 'Process and validate customer data', required: true, helpText: 'Overall task to be accomplished by agents' },
+      { key: 'coordinationStrategy', label: 'Coordination Strategy', type: 'select', options: [
+        { label: 'Parallel', value: 'parallel' },
+        { label: 'Sequential', value: 'sequential' },
+        { label: 'Hierarchical', value: 'hierarchical' }
+      ], defaultValue: 'parallel', required: true, helpText: 'Strategy for coordinating agent execution' },
+    ],
+  },
+  {
+    type: 'agent_role_assigner',
+    label: 'Agent Role Assigner',
+    category: 'ai',
+    icon: 'Users',
+    description: 'Role assigner',
+    defaultConfig: { 
+      requiredRoles: []
+    },
+    configFields: [
+      { key: 'agents', label: 'Agents (JSON Array)', type: 'json', placeholder: '[{"agentId": "agent_1", "skills": ["data_processing", "validation"]}, {"agentId": "agent_2", "skills": ["analysis", "reporting"]}]', required: true, helpText: 'Array of agents with agentId and skills array' },
+      { key: 'requiredRoles', label: 'Required Roles (JSON Array)', type: 'json', placeholder: '["data_processor", "validator", "reporter"]', required: true, helpText: 'Array of roles that need to be assigned' },
+    ],
+  },
+  {
+    type: 'agent_voting_consensus',
+    label: 'Agent Voting / Consensus Node',
+    category: 'ai',
+    icon: 'CheckCircle',
+    description: 'Consensus node',
+    defaultConfig: { 
+      consensusRule: 'majority'
+    },
+    configFields: [
+      { key: 'proposal', label: 'Proposal', type: 'textarea', placeholder: 'Approve deployment to production', required: true, helpText: 'Proposal to be voted on' },
+      { key: 'votes', label: 'Votes (JSON Array)', type: 'json', placeholder: '[{"agentId": "agent_1", "vote": "approve", "confidence": 0.9}, {"agentId": "agent_2", "vote": "reject", "confidence": 0.7}]', required: true, helpText: 'Array of votes with agentId, vote (approve/reject), and confidence (0-1)' },
+      { key: 'consensusRule', label: 'Consensus Rule', type: 'select', options: [
+        { label: 'Majority', value: 'majority' },
+        { label: 'Weighted', value: 'weighted' },
+        { label: 'Unanimous', value: 'unanimous' }
+      ], defaultValue: 'majority', required: true, helpText: 'Rule for determining consensus' },
+    ],
+  },
+  {
+    type: 'execution_explainer',
+    label: 'Execution Explainer',
+    category: 'ai',
+    icon: 'FileText',
+    description: 'Execution explainer',
+    defaultConfig: {},
+    configFields: [
+      { key: 'workflowId', label: 'Workflow ID', type: 'text', placeholder: 'wf_123', required: true, helpText: 'Identifier of the workflow to explain' },
+      { key: 'executionLog', label: 'Execution Log (JSON Array)', type: 'json', placeholder: '[{"nodeId": "node_1", "status": "success", "timestamp": "2024-01-15T12:00:00Z"}, {"nodeId": "node_2", "status": "failed", "timestamp": "2024-01-15T12:01:00Z"}]', required: true, helpText: 'Array of execution log entries with nodeId, status, and timestamp' },
+    ],
+  },
+  {
+    type: 'workflow_summary_generator',
+    label: 'Workflow Summary Generator',
+    category: 'ai',
+    icon: 'FileText',
+    description: 'Summary generator',
+    defaultConfig: { 
+      targetAudience: 'technical'
+    },
+    configFields: [
+      { key: 'workflow', label: 'Workflow (JSON)', type: 'json', placeholder: '{"nodes": [...], "edges": [...]}', required: true, helpText: 'Workflow object with nodes and edges structure' },
+      { key: 'targetAudience', label: 'Target Audience', type: 'select', options: [
+        { label: 'Technical', value: 'technical' },
+        { label: 'Non-Technical', value: 'non_technical' }
+      ], defaultValue: 'technical', required: true, helpText: 'Target audience for the summary' },
+    ],
+  },
 
   // ============================================
   // 6. HTTP & API NODES (3/3)
@@ -1377,7 +1997,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'HTTP Request',
     category: 'http_api',
     icon: 'Globe',
-    description: 'Make HTTP API call',
+    description: 'HTTP request',
     defaultConfig: { method: 'GET', url: '' },
     configFields: [
       { key: 'url', label: 'URL', type: 'text', placeholder: 'https://api.example.com/data', required: true },
@@ -1398,7 +2018,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'GraphQL',
     category: 'http_api',
     icon: 'Braces',
-    description: 'Execute GraphQL query',
+    description: 'GraphQL query',
     defaultConfig: { url: '', query: '', operationName: '' },
     configFields: [
       { key: 'url', label: 'GraphQL Endpoint', type: 'text', placeholder: 'https://api.example.com/graphql', required: true },
@@ -1414,7 +2034,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'Respond to Webhook',
     category: 'http_api',
     icon: 'Send',
-    description: 'Send response to webhook caller',
+    description: 'Webhook response',
     defaultConfig: { statusCode: 200, responseBody: '' },
     configFields: [
       { key: 'statusCode', label: 'Status Code', type: 'number', defaultValue: 200, required: true },
@@ -1431,7 +2051,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'HTTP POST',
     category: 'output',
     icon: 'Send',
-    description: 'Send HTTP POST request',
+    description: 'HTTP POST',
     defaultConfig: { url: '', method: 'POST' },
     configFields: [
       { key: 'url', label: 'URL', type: 'text', placeholder: 'https://api.example.com/webhook', required: true },
@@ -1444,7 +2064,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'Slack Message',
     category: 'output',
     icon: 'MessageSquare',
-    description: 'Send Slack notification',
+    description: 'Slack message',
     defaultConfig: {},
     configFields: [
       { key: 'webhookUrl', label: 'Webhook URL', type: 'text', placeholder: 'https://hooks.slack.com/services/...', required: true },
@@ -1460,7 +2080,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'Slack Incoming Webhook',
     category: 'output',
     icon: 'Hash',
-    description: 'Simple Slack webhook',
+    description: 'Slack webhook',
     defaultConfig: {},
     configFields: [
       { key: 'webhookUrl', label: 'Webhook URL', type: 'text', placeholder: 'https://hooks.slack.com/services/...', required: true },
@@ -1472,7 +2092,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'Discord Webhook',
     category: 'output',
     icon: 'MessageCircle',
-    description: 'Send Discord message',
+    description: 'Discord message',
     defaultConfig: {},
     configFields: [
       { key: 'webhookUrl', label: 'Webhook URL', type: 'text', placeholder: 'https://discord.com/api/webhooks/...', required: true },
@@ -1486,7 +2106,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'Microsoft Teams',
     category: 'output',
     icon: 'MessageSquare',
-    description: 'Send message to Microsoft Teams',
+    description: 'Teams message',
     defaultConfig: {},
     configFields: [
       { key: 'webhookUrl', label: 'Webhook URL', type: 'text', placeholder: 'https://outlook.office.com/webhook/...', required: true, helpText: 'Get from Teams channel Connectors' },
@@ -1499,7 +2119,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'Telegram',
     category: 'output',
     icon: 'Send',
-    description: 'Send message via Telegram Bot',
+    description: 'Telegram message',
     defaultConfig: {},
     configFields: [
       { key: 'botToken', label: 'Bot Token', type: 'text', placeholder: '123456:ABC-DEF...', required: true, helpText: 'Get from @BotFather on Telegram' },
@@ -1512,7 +2132,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'WhatsApp Cloud API',
     category: 'output',
     icon: 'MessageCircle',
-    description: 'Send WhatsApp Business message',
+    description: 'WhatsApp message',
     defaultConfig: {},
     configFields: [
       { key: 'phoneNumberId', label: 'Phone Number ID', type: 'text', placeholder: '123456789012345', required: true, helpText: 'How to get Phone Number ID: 1) Go to developers.facebook.com 2) Create or select a Meta App 3) Go to WhatsApp Business API 4) Find your Phone Number ID in the app dashboard 5) Copy and paste it here' },
@@ -1526,7 +2146,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'Twilio SMS',
     category: 'output',
     icon: 'Send',
-    description: 'Send SMS via Twilio',
+    description: 'Twilio SMS',
     defaultConfig: {},
     configFields: [
       { key: 'accountSid', label: 'Account SID', type: 'text', placeholder: 'AC...', required: true, helpText: 'How to get Twilio Account SID: 1) Go to console.twilio.com 2) Sign in or create an account 3) Your Account SID is displayed on the dashboard (starts with AC) 4) Copy and paste it here' },
@@ -1560,7 +2180,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'Log Output',
     category: 'output',
     icon: 'FileOutput',
-    description: 'Log data for debugging',
+    description: 'Log output',
     defaultConfig: {},
     configFields: [
       { key: 'message', label: 'Log Message', type: 'textarea', placeholder: 'Debug: {{input}}', required: true },
@@ -1572,6 +2192,104 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
       ], defaultValue: 'info' },
     ],
   },
+  {
+    type: 'email_sequence_sender',
+    label: 'Email Sequence Sender',
+    category: 'output',
+    icon: 'Mail',
+    description: 'Email sequence',
+    defaultConfig: { 
+      stopOnReply: false,
+      tracking: { openTracking: true, clickTracking: true }
+    },
+    configFields: [
+      { key: 'recipient', label: 'Recipient (JSON)', type: 'json', placeholder: '{"email": "user@example.com", "name": "John Doe"}', required: true, helpText: 'Recipient object with email and optional name' },
+      { key: 'sequence', label: 'Sequence Steps (JSON Array)', type: 'json', placeholder: '[{"step": 1, "subject": "Welcome", "body": "Hello!", "delayAfter": 86400, "sendCondition": null}]', required: true, helpText: 'Array of email steps with step number, subject, body, delayAfter (seconds), and optional sendCondition' },
+      { key: 'stopOnReply', label: 'Stop on Reply', type: 'boolean', defaultValue: false, helpText: 'Stop sequence if recipient replies' },
+      { key: 'tracking', label: 'Tracking Settings (JSON)', type: 'json', placeholder: '{"openTracking": true, "clickTracking": true}', defaultValue: { openTracking: true, clickTracking: true } },
+    ],
+  },
+  {
+    type: 'auto_followup_sender',
+    label: 'Auto Follow-up Sender',
+    category: 'output',
+    icon: 'Repeat',
+    description: 'Auto follow-up',
+    defaultConfig: { 
+      waitTime: 86400,
+      maxAttempts: 3
+    },
+    configFields: [
+      { key: 'originalMessageId', label: 'Original Message ID', type: 'text', placeholder: 'msg_123', required: true, helpText: 'ID of the original message to monitor' },
+      { key: 'recipient', label: 'Recipient', type: 'text', placeholder: 'user@example.com', required: true },
+      { key: 'followUpMessage', label: 'Follow-up Message (JSON)', type: 'json', placeholder: '{"subject": "Follow-up", "body": "Just checking in..."}', required: true, helpText: 'Follow-up message with subject and body' },
+      { key: 'waitTime', label: 'Wait Time (seconds)', type: 'number', defaultValue: 86400, required: true, helpText: 'Time to wait before sending follow-up (default: 24 hours)' },
+      { key: 'maxAttempts', label: 'Max Attempts', type: 'number', defaultValue: 3, required: true, helpText: 'Maximum number of follow-up attempts' },
+    ],
+  },
+  {
+    type: 'human_handoff_notification',
+    label: 'Human Handoff Notification',
+    category: 'output',
+    icon: 'Users',
+    description: 'Human handoff',
+    defaultConfig: { 
+      channel: 'email',
+      priority: 'medium'
+    },
+    configFields: [
+      { key: 'channel', label: 'Channel', type: 'select', options: [
+        { label: 'Email', value: 'email' },
+        { label: 'Slack', value: 'slack' },
+        { label: 'SMS', value: 'sms' }
+      ], defaultValue: 'email', required: true },
+      { key: 'recipient', label: 'Recipient', type: 'text', placeholder: 'agent@example.com or @username', required: true, helpText: 'Email address, Slack user ID, or phone number' },
+      { key: 'context', label: 'Context (JSON)', type: 'json', placeholder: '{"workflowId": "wf_123", "reason": "Manual review needed"}', required: true, helpText: 'Context object with workflow details and reason for handoff' },
+      { key: 'priority', label: 'Priority', type: 'select', options: [
+        { label: 'Low', value: 'low' },
+        { label: 'Medium', value: 'medium' },
+        { label: 'High', value: 'high' }
+      ], defaultValue: 'medium', required: true },
+    ],
+  },
+  {
+    type: 'approval_request_sender',
+    label: 'Approval Request Sender',
+    category: 'output',
+    icon: 'CheckCircle',
+    description: 'Approval sender',
+    defaultConfig: { 
+      timeout: 86400,
+      approvalOptions: ['approve', 'reject']
+    },
+    configFields: [
+      { key: 'approver', label: 'Approver', type: 'text', placeholder: 'manager@example.com', required: true, helpText: 'Email address or user ID of approver' },
+      { key: 'approvalMessage', label: 'Approval Message', type: 'textarea', placeholder: 'Please approve this request...', required: true, helpText: 'Message explaining what needs approval' },
+      { key: 'approvalOptions', label: 'Approval Options (JSON Array)', type: 'json', placeholder: '["approve", "reject"]', defaultValue: ['approve', 'reject'], helpText: 'Array of available approval actions' },
+      { key: 'timeout', label: 'Timeout (seconds)', type: 'number', defaultValue: 86400, required: true, helpText: 'Time to wait for approval before timing out (default: 24 hours)' },
+    ],
+  },
+  {
+    type: 'reminder_scheduler',
+    label: 'Reminder Scheduler',
+    category: 'output',
+    icon: 'Bell',
+    description: 'Reminder scheduler',
+    defaultConfig: { 
+      channel: 'email',
+      schedule: { type: 'one_time', time: '', cron: null }
+    },
+    configFields: [
+      { key: 'recipient', label: 'Recipient', type: 'text', placeholder: 'user@example.com', required: true, helpText: 'Email address, phone number, or user ID' },
+      { key: 'message', label: 'Reminder Message', type: 'textarea', placeholder: 'Don\'t forget to...', required: true },
+      { key: 'channel', label: 'Channel', type: 'select', options: [
+        { label: 'Email', value: 'email' },
+        { label: 'SMS', value: 'sms' },
+        { label: 'Push Notification', value: 'push' }
+      ], defaultValue: 'email', required: true },
+      { key: 'schedule', label: 'Schedule (JSON)', type: 'json', placeholder: '{"type": "one_time", "time": "2024-12-31T12:00:00Z", "cron": null}', required: true, helpText: 'Schedule object with type (one_time/recurring), time (ISO string), and optional cron expression' },
+    ],
+  },
 
   // ============================================
   // 8. DATABASE NODES (7/7)
@@ -1581,7 +2299,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'Database Read',
     category: 'database',
     icon: 'DatabaseZap',
-    description: 'Read from database',
+    description: 'Database read',
     defaultConfig: { table: '' },
     configFields: [
       { key: 'table', label: 'Table Name', type: 'text', placeholder: 'my_table', required: true },
@@ -1597,7 +2315,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'PostgreSQL',
     category: 'database',
     icon: 'Database',
-    description: 'Query PostgreSQL database',
+    description: 'PostgreSQL',
     defaultConfig: { operation: 'select' },
     configFields: [
       { key: 'operation', label: 'Operation', type: 'select', options: [
@@ -1617,7 +2335,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'Supabase',
     category: 'database',
     icon: 'Database',
-    description: 'Query Supabase database',
+    description: 'Supabase',
     defaultConfig: { operation: 'select' },
     configFields: [
       { key: 'operation', label: 'Operation', type: 'select', options: [
@@ -1637,7 +2355,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'MySQL',
     category: 'database',
     icon: 'Database',
-    description: 'Query MySQL database',
+    description: 'MySQL',
     defaultConfig: { operation: 'select' },
     configFields: [
       { key: 'operation', label: 'Operation', type: 'select', options: [
@@ -1653,7 +2371,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'MongoDB',
     category: 'database',
     icon: 'Database',
-    description: 'Query MongoDB database',
+    description: 'MongoDB',
     defaultConfig: { operation: 'find' },
     configFields: [
       { key: 'operation', label: 'Operation', type: 'select', options: [
@@ -1687,7 +2405,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'Microsoft SQL Server',
     category: 'database',
     icon: 'Database',
-    description: 'Query SQL Server database',
+    description: 'SQL Server',
     defaultConfig: { operation: 'select' },
     configFields: [
       { key: 'server', label: 'Server', type: 'text', placeholder: 'server.database.windows.net', required: true },
@@ -1709,7 +2427,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'SQLite',
     category: 'database',
     icon: 'Database',
-    description: 'Query SQLite database',
+    description: 'SQLite',
     defaultConfig: { operation: 'select' },
     configFields: [
       { key: 'databasePath', label: 'Database Path', type: 'text', placeholder: '/path/to/database.db', required: true },
@@ -1728,7 +2446,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'Snowflake',
     category: 'database',
     icon: 'Database',
-    description: 'Query Snowflake warehouse',
+    description: 'Snowflake',
     defaultConfig: { operation: 'select', warehouse: '', database: '', schema: 'PUBLIC' },
     configFields: [
       { key: 'account', label: 'Account', type: 'text', placeholder: 'xy12345', required: true, helpText: 'Snowflake account identifier' },
@@ -1778,7 +2496,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'Read Binary File',
     category: 'storage',
     icon: 'FileText',
-    description: 'Read file from filesystem',
+    description: 'Read file',
     defaultConfig: { maxSize: 10485760 },
     configFields: [
       { key: 'filePath', label: 'File Path', type: 'text', placeholder: '/path/to/file.txt', required: true },
@@ -1790,7 +2508,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'AWS S3',
     category: 'storage',
     icon: 'Cloud',
-    description: 'Read/write files to/from AWS S3',
+    description: 'AWS S3',
     defaultConfig: { operation: 'get', region: 'us-east-1' },
     configFields: [
       { key: 'accessKeyId', label: 'Access Key ID', type: 'text', placeholder: 'AKIA...', required: true },
@@ -1813,7 +2531,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'FTP',
     category: 'storage',
     icon: 'Folder',
-    description: 'FTP file operations',
+    description: 'FTP',
     defaultConfig: { operation: 'get', port: 21 },
     configFields: [
       { key: 'host', label: 'Host', type: 'text', placeholder: 'ftp.example.com', required: true },
@@ -1835,7 +2553,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'SFTP',
     category: 'storage',
     icon: 'Lock',
-    description: 'SFTP secure file operations',
+    description: 'SFTP',
     defaultConfig: { operation: 'get', port: 22 },
     configFields: [
       { key: 'host', label: 'Host', type: 'text', placeholder: 'sftp.example.com', required: true },
@@ -1858,7 +2576,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'Dropbox',
     category: 'storage',
     icon: 'Cloud',
-    description: 'Read/write files to/from Dropbox',
+    description: 'Dropbox',
     defaultConfig: { operation: 'read' },
     configFields: [
       { key: 'accessToken', label: 'Access Token', type: 'text', placeholder: 'Your Dropbox access token', required: true, helpText: 'How to get Dropbox Access Token: 1) Go to dropbox.com/developers 2) Sign in and go to App Console 3) Create a new app or select existing 4) Go to Permissions tab and set required scopes 5) Go to Settings → OAuth 2 → Generate access token 6) Copy the token 7) Paste it here securely' },
@@ -1877,7 +2595,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'OneDrive',
     category: 'storage',
     icon: 'Cloud',
-    description: 'Read/write files to/from OneDrive',
+    description: 'OneDrive',
     defaultConfig: { operation: 'read' },
     configFields: [
       { key: 'accessToken', label: 'Access Token', type: 'text', placeholder: 'Your Microsoft access token', required: true, helpText: 'How to get Microsoft OneDrive Access Token: 1) Go to portal.azure.com 2) Register an app in Azure Active Directory 3) Add Microsoft Graph API permissions (Files.ReadWrite) 4) Use OAuth 2.0 flow to get access token 5) Or use Microsoft Graph Explorer to generate token 6) Copy the token 7) Paste it here securely' },
@@ -1898,7 +2616,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'Box',
     category: 'storage',
     icon: 'Cloud',
-    description: 'Read/write files to/from Box',
+    description: 'Box',
     defaultConfig: { operation: 'read' },
     configFields: [
       { key: 'accessToken', label: 'Access Token', type: 'text', placeholder: 'Your Box access token', required: true, helpText: 'How to get Box Access Token: 1) Go to developer.box.com 2) Sign in and create a new app 3) Configure OAuth 2.0 settings 4) Use OAuth 2.0 flow to authorize 5) Get access token from response 6) Copy the token 7) Paste it here securely' },
@@ -1919,7 +2637,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'MinIO',
     category: 'storage',
     icon: 'Database',
-    description: 'Read/write files to/from MinIO',
+    description: 'MinIO',
     defaultConfig: { operation: 'get', port: 9000 },
     configFields: [
       { key: 'endpoint', label: 'Endpoint', type: 'text', placeholder: 'localhost:9000', required: true },
@@ -1942,11 +2660,88 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'Write Binary File',
     category: 'storage',
     icon: 'FileOutput',
-    description: 'Write file to filesystem',
+    description: 'Write file',
     defaultConfig: {},
     configFields: [
       { key: 'filePath', label: 'File Path', type: 'text', placeholder: '/path/to/file.txt', required: true },
       { key: 'content', label: 'Content (Base64)', type: 'textarea', placeholder: 'SGVsbG8gV29ybGQ=', required: true, helpText: 'Base64 encoded content' },
+    ],
+  },
+  {
+    type: 'document_ocr',
+    label: 'Document OCR',
+    category: 'storage',
+    icon: 'FileText',
+    description: 'Document OCR',
+    defaultConfig: { 
+      language: 'auto',
+      detectLayout: true,
+      confidenceRequired: false
+    },
+    configFields: [
+      { key: 'file', label: 'File (JSON)', type: 'json', placeholder: '{"name": "document.pdf", "type": "pdf", "binary": "base64..."}', required: true, helpText: 'File object with name, type (image/pdf), and binary (base64)' },
+      { key: 'language', label: 'Language', type: 'text', placeholder: 'auto', defaultValue: 'auto', helpText: 'Language code (e.g., "en", "es") or "auto" for detection' },
+      { key: 'detectLayout', label: 'Detect Layout', type: 'boolean', defaultValue: true, helpText: 'Detect text blocks, lines, and tables' },
+      { key: 'confidenceRequired', label: 'Require Confidence', type: 'boolean', defaultValue: false, helpText: 'Only return text blocks above confidence threshold' },
+    ],
+  },
+  {
+    type: 'resume_parser',
+    label: 'Resume Parser',
+    category: 'storage',
+    icon: 'FileText',
+    description: 'Resume parser',
+    defaultConfig: { 
+      normalizeSkills: true,
+      experienceCalculation: true
+    },
+    configFields: [
+      { key: 'file', label: 'File (JSON)', type: 'json', placeholder: '{"name": "resume.pdf", "type": "pdf", "binary": "base64..."}', required: true, helpText: 'File object with name, type (pdf/docx/image), and binary (base64)' },
+      { key: 'normalizeSkills', label: 'Normalize Skills', type: 'boolean', defaultValue: true, helpText: 'Normalize job titles and skills to standard formats' },
+      { key: 'experienceCalculation', label: 'Calculate Experience', type: 'boolean', defaultValue: true, helpText: 'Calculate total years of experience' },
+    ],
+  },
+  {
+    type: 'invoice_parser',
+    label: 'Invoice Parser',
+    category: 'storage',
+    icon: 'FileText',
+    description: 'Invoice parser',
+    defaultConfig: { 
+      currencyNormalization: true,
+      taxDetection: true
+    },
+    configFields: [
+      { key: 'file', label: 'File (JSON)', type: 'json', placeholder: '{"name": "invoice.pdf", "type": "pdf", "binary": "base64..."}', required: true, helpText: 'File object with name, type (pdf/image), and binary (base64)' },
+      { key: 'currencyNormalization', label: 'Normalize Currency', type: 'boolean', defaultValue: true, helpText: 'Normalize currency values to standard format' },
+      { key: 'taxDetection', label: 'Detect Tax', type: 'boolean', defaultValue: true, helpText: 'Detect and extract tax information' },
+    ],
+  },
+  {
+    type: 'document_classifier',
+    label: 'Document Classifier',
+    category: 'storage',
+    icon: 'FileText',
+    description: 'Document classifier',
+    defaultConfig: { 
+      availableClasses: [],
+      confidenceThreshold: 0.7
+    },
+    configFields: [
+      { key: 'text', label: 'Text Content', type: 'textarea', placeholder: 'Document text to classify', required: true, helpText: 'Text content of the document to classify' },
+      { key: 'availableClasses', label: 'Available Classes (JSON Array)', type: 'json', placeholder: '["invoice", "resume", "contract", "report"]', required: true, helpText: 'Array of possible document types' },
+      { key: 'confidenceThreshold', label: 'Confidence Threshold', type: 'number', defaultValue: 0.7, helpText: 'Minimum confidence score (0-1) for classification' },
+    ],
+  },
+  {
+    type: 'file_metadata_extractor',
+    label: 'File Metadata Extractor',
+    category: 'storage',
+    icon: 'FileText',
+    description: 'Metadata extractor',
+    defaultConfig: {},
+    configFields: [
+      { key: 'file', label: 'File (JSON)', type: 'json', placeholder: '{"name": "file.pdf", "type": "application/pdf", "size": 1024, "binary": "base64..."}', required: true, helpText: 'File object with name, type, size, and binary (base64)' },
     ],
   },
   // ============================================
@@ -1957,7 +2752,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'Date & Time',
     category: 'utility',
     icon: 'Clock',
-    description: 'Manipulate dates and times with timezone support',
+    description: 'Date time',
     defaultConfig: { operation: 'format', timezone: 'UTC' },
     configFields: [
       { key: 'operation', label: 'Operation', type: 'select', options: [
@@ -1996,7 +2791,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'Math',
     category: 'utility',
     icon: 'Calculator',
-    description: 'Deterministic mathematical operations with precision control',
+    description: 'Math operations',
     defaultConfig: { operation: 'add', precision: 10 },
     configFields: [
       { key: 'operation', label: 'Operation', type: 'select', options: [
@@ -2026,7 +2821,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'Crypto',
     category: 'utility',
     icon: 'Lock',
-    description: 'Secure cryptographic operations',
+    description: 'Crypto operations',
     defaultConfig: { operation: 'hash', algorithm: 'SHA-256' },
     configFields: [
       { key: 'operation', label: 'Operation', type: 'select', options: [
@@ -2053,7 +2848,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'HTML Extract',
     category: 'utility',
     icon: 'Code',
-    description: 'Safely extract structured data from HTML',
+    description: 'HTML extract',
     defaultConfig: { sanitize: true, stripScripts: true },
     configFields: [
       { key: 'html', label: 'HTML Content', type: 'textarea', placeholder: '<html>...</html>', helpText: 'Leave empty to use input' },
@@ -2069,7 +2864,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'XML',
     category: 'utility',
     icon: 'FileText',
-    description: 'Secure XML parsing and manipulation',
+    description: 'XML parser',
     defaultConfig: { operation: 'parse', safeMode: true },
     configFields: [
       { key: 'operation', label: 'Operation', type: 'select', options: [
@@ -2088,7 +2883,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'RSS Feed Read',
     category: 'utility',
     icon: 'Rss',
-    description: 'Safely consume and normalize RSS/Atom feeds',
+    description: 'RSS feed',
     defaultConfig: { maxItems: 10, detectDuplicates: true },
     configFields: [
       { key: 'feedUrl', label: 'Feed URL', type: 'text', placeholder: 'https://example.com/feed.xml', required: true },
@@ -2102,7 +2897,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'PDF',
     category: 'utility',
     icon: 'FileText',
-    description: 'Binary-safe PDF document processing',
+    description: 'PDF processor',
     defaultConfig: { operation: 'extractText' },
     configFields: [
       { key: 'operation', label: 'Operation', type: 'select', options: [
@@ -2118,7 +2913,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'Image Manipulation',
     category: 'utility',
     icon: 'Image',
-    description: 'Efficient and safe image processing',
+    description: 'Image manipulation',
     defaultConfig: { operation: 'resize' },
     configFields: [
       { key: 'operation', label: 'Operation', type: 'select', options: [
@@ -2149,7 +2944,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'HubSpot',
     category: 'crm',
     icon: 'Zap',
-    description: 'HubSpot CRM operations',
+    description: 'HubSpot',
     defaultConfig: {
       resource: 'contact',
       operation: 'get',
@@ -2265,7 +3060,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'Salesforce',
     category: 'crm',
     icon: 'Cloud',
-    description: 'Salesforce CRM operations',
+    description: 'Salesforce',
     defaultConfig: {
       resource: 'Contact',
       operation: 'query',
@@ -2391,7 +3186,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'Zoho CRM',
     category: 'crm',
     icon: 'Database',
-    description: 'Zoho CRM operations',
+    description: 'Zoho CRM',
     defaultConfig: {
       module: 'Contacts',
       operation: 'get',
@@ -2518,7 +3313,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'Pipedrive',
     category: 'crm',
     icon: 'TrendingUp',
-    description: 'Pipedrive CRM operations',
+    description: 'Pipedrive',
     defaultConfig: {
       resource: 'person',
       operation: 'get',
@@ -2624,7 +3419,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'Freshdesk',
     category: 'crm',
     icon: 'Headphones',
-    description: 'Freshdesk support operations',
+    description: 'Freshdesk',
     defaultConfig: {
       resource: 'ticket',
       operation: 'list',
@@ -2720,7 +3515,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'Intercom',
     category: 'crm',
     icon: 'MessageCircle',
-    description: 'Intercom conversational CRM',
+    description: 'Intercom',
     defaultConfig: {
       resource: 'contact',
       operation: 'get',
@@ -2808,7 +3603,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'Mailchimp',
     category: 'crm',
     icon: 'Mail',
-    description: 'Mailchimp email marketing',
+    description: 'Mailchimp',
     defaultConfig: {
       resource: 'audience',
       operation: 'list',
@@ -2912,7 +3707,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'ActiveCampaign',
     category: 'crm',
     icon: 'Zap',
-    description: 'ActiveCampaign automation CRM',
+    description: 'ActiveCampaign',
     defaultConfig: {
       resource: 'contact',
       operation: 'get',
@@ -3013,6 +3808,77 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
       },
     ],
   },
+  {
+    type: 'crm_lead_router',
+    label: 'CRM Lead Router',
+    category: 'crm',
+    icon: 'GitBranch',
+    description: 'Lead router',
+    defaultConfig: { 
+      fallbackOwner: ''
+    },
+    configFields: [
+      { key: 'lead', label: 'Lead (JSON)', type: 'json', placeholder: '{"id": "lead_123", "name": "John Doe", "email": "john@example.com", "source": "website", "location": "US", "industry": "Tech", "companySize": 100, "score": 75}', required: true, helpText: 'Lead object with id, name, email, source, location, industry, companySize, and optional score' },
+      { key: 'routingRules', label: 'Routing Rules (JSON Array)', type: 'json', placeholder: '[{"condition": "location === \'US\'", "assignTo": "us_team"}, {"condition": "score > 80", "assignTo": "premium_owner"}]', required: true, helpText: 'Array of routing rules with condition (expression) and assignTo (owner/team ID)' },
+      { key: 'fallbackOwner', label: 'Fallback Owner', type: 'text', placeholder: 'default_owner', required: true, helpText: 'Owner or team ID to assign if no routing rule matches' },
+    ],
+  },
+  {
+    type: 'crm_ticket_prioritizer',
+    label: 'CRM Ticket Prioritizer',
+    category: 'crm',
+    icon: 'Target',
+    description: 'Ticket prioritizer',
+    defaultConfig: { 
+      priorityMatrix: {}
+    },
+    configFields: [
+      { key: 'ticket', label: 'Ticket (JSON)', type: 'json', placeholder: '{"id": "ticket_123", "category": "technical", "customerTier": "premium", "impact": "high", "urgency": "high", "createdAt": "2024-01-01T12:00:00Z"}', required: true, helpText: 'Ticket object with id, category, customerTier (free/standard/premium), impact (low/medium/high), urgency (low/medium/high), and createdAt' },
+      { key: 'priorityMatrix', label: 'Priority Matrix (JSON)', type: 'json', placeholder: '{"critical": {"impact": "high", "urgency": "high"}, "high": {"impact": "high", "urgency": "medium"}}', defaultValue: {}, helpText: 'Optional custom priority matrix (uses default if not provided)' },
+    ],
+  },
+  {
+    type: 'crm_sla_monitor',
+    label: 'CRM SLA Monitor',
+    category: 'crm',
+    icon: 'Timer',
+    description: 'SLA monitor',
+    defaultConfig: { 
+      slaPolicies: {
+        low: 1440,
+        medium: 480,
+        high: 120,
+        critical: 30
+      }
+    },
+    configFields: [
+      { key: 'ticketId', label: 'Ticket ID', type: 'text', placeholder: 'ticket_123', required: true },
+      { key: 'priority', label: 'Priority', type: 'select', options: [
+        { label: 'Low', value: 'low' },
+        { label: 'Medium', value: 'medium' },
+        { label: 'High', value: 'high' },
+        { label: 'Critical', value: 'critical' }
+      ], defaultValue: 'medium', required: true },
+      { key: 'createdAt', label: 'Created At (ISO string)', type: 'text', placeholder: '2024-01-01T12:00:00Z', required: true, helpText: 'Ticket creation timestamp in ISO 8601 format' },
+      { key: 'lastResponseAt', label: 'Last Response At (ISO string)', type: 'text', placeholder: '2024-01-01T12:30:00Z', helpText: 'Last response timestamp (optional, defaults to createdAt if not provided)' },
+      { key: 'slaPolicies', label: 'SLA Policies (JSON)', type: 'json', placeholder: '{"low": 1440, "medium": 480, "high": 120, "critical": 30}', defaultValue: { low: 1440, medium: 480, high: 120, critical: 30 }, helpText: 'SLA policies in minutes for each priority level' },
+    ],
+  },
+  {
+    type: 'crm_duplicate_detector',
+    label: 'CRM Duplicate Detector',
+    category: 'crm',
+    icon: 'Filter',
+    description: 'Duplicate detector',
+    defaultConfig: { 
+      matchThreshold: 0.8
+    },
+    configFields: [
+      { key: 'record', label: 'Record (JSON)', type: 'json', placeholder: '{"id": "new_record", "email": "john@example.com", "phone": "+1234567890", "company": "Acme Inc"}', required: true, helpText: 'Record to check for duplicates with id, email, phone, and company (at least one required)' },
+      { key: 'existingRecords', label: 'Existing Records (JSON Array)', type: 'json', placeholder: '[{"id": "rec_1", "email": "john@example.com", "phone": null, "company": "Acme"}, {"id": "rec_2", "email": null, "phone": "+1234567890", "company": null}]', required: true, helpText: 'Array of existing records to compare against' },
+      { key: 'matchThreshold', label: 'Match Threshold', type: 'number', defaultValue: 0.8, helpText: 'Similarity score threshold (0-1) to consider a match. Default: 0.8' },
+    ],
+  },
 
   // ============================================
   // 11. DEVOPS NODES (9/9)
@@ -3022,7 +3888,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'GitHub',
     category: 'devops',
     icon: 'GitBranch',
-    description: 'GitHub API integration',
+    description: 'GitHub',
     defaultConfig: {
       operation: 'get_repo',
       token: '',
@@ -3238,7 +4104,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'GitLab',
     category: 'devops',
     icon: 'GitBranch',
-    description: 'GitLab API integration',
+    description: 'GitLab',
     defaultConfig: {
       operation: 'get_project',
       token: '',
@@ -3442,7 +4308,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'Bitbucket',
     category: 'devops',
     icon: 'GitBranch',
-    description: 'Bitbucket API integration',
+    description: 'Bitbucket',
     defaultConfig: {
       operation: 'get_repo',
       username: '',
@@ -3599,7 +4465,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'Jenkins',
     category: 'devops',
     icon: 'Box',
-    description: 'Jenkins CI/CD operations',
+    description: 'Jenkins',
     defaultConfig: {
       operation: 'get_job',
       baseUrl: '',
@@ -3693,7 +4559,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'Docker',
     category: 'devops',
     icon: 'Box',
-    description: 'Docker container management',
+    description: 'Docker',
     defaultConfig: {
       operation: 'list_containers',
       host: '',
@@ -3809,7 +4675,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'Kubernetes',
     category: 'devops',
     icon: 'Box',
-    description: 'Kubernetes orchestration',
+    description: 'Kubernetes',
     defaultConfig: {
       operation: 'list_pods',
       apiServer: '',
@@ -3889,7 +4755,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'PagerDuty',
     category: 'devops',
     icon: 'Bell',
-    description: 'PagerDuty incident management',
+    description: 'PagerDuty',
     defaultConfig: {
       operation: 'list_incidents',
       apiKey: '',
@@ -4001,7 +4867,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'Datadog',
     category: 'devops',
     icon: 'Activity',
-    description: 'Datadog monitoring & metrics',
+    description: 'Datadog',
     defaultConfig: {
       operation: 'query_metrics',
       apiKey: '',
@@ -4159,7 +5025,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'Sentry',
     category: 'devops',
     icon: 'AlertCircle',
-    description: 'Sentry error tracking',
+    description: 'Sentry',
     defaultConfig: {
       operation: 'list_issues',
       token: '',
@@ -4259,6 +5125,67 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
       },
     ],
   },
+  {
+    type: 'alert_correlation_engine',
+    label: 'Alert Correlation Engine',
+    category: 'devops',
+    icon: 'AlertCircle',
+    description: 'Alert correlation',
+    defaultConfig: { 
+      correlationWindowMinutes: 5,
+      correlationRules: {}
+    },
+    configFields: [
+      { key: 'alerts', label: 'Alerts (JSON Array)', type: 'json', placeholder: '[{"alertId": "alert_1", "source": "monitoring", "service": "api", "severity": "high", "message": "High CPU", "timestamp": "2024-01-15T12:00:00Z"}]', required: true, helpText: 'Array of alerts with alertId, source, service, severity (low/medium/high/critical), message, and timestamp' },
+      { key: 'correlationWindowMinutes', label: 'Correlation Window (minutes)', type: 'number', defaultValue: 5, helpText: 'Time window in minutes to group related alerts' },
+      { key: 'correlationRules', label: 'Correlation Rules (JSON)', type: 'json', placeholder: '{"groupByService": true, "groupByPattern": true}', defaultValue: {}, helpText: 'Optional correlation rules for grouping alerts' },
+    ],
+  },
+  {
+    type: 'incident_classifier',
+    label: 'Incident Classifier',
+    category: 'devops',
+    icon: 'Target',
+    description: 'Incident classifier',
+    defaultConfig: { 
+      classificationRules: {}
+    },
+    configFields: [
+      { key: 'incident', label: 'Incident (JSON)', type: 'json', placeholder: '{"incidentId": "inc_123", "service": "api", "symptoms": ["High CPU", "Slow response"], "affectedUsers": 1000, "alerts": ["alert_1", "alert_2"]}', required: true, helpText: 'Incident object with incidentId, service, symptoms array, affectedUsers number, and alerts array' },
+      { key: 'classificationRules', label: 'Classification Rules (JSON)', type: 'json', placeholder: '{"severityThresholds": {"sev1": 10000, "sev2": 1000}, "impactThresholds": {"high": 1000}}', defaultValue: {}, helpText: 'Optional custom classification rules' },
+    ],
+  },
+  {
+    type: 'auto_remediation_planner',
+    label: 'Auto-Remediation Planner',
+    category: 'devops',
+    icon: 'Repeat',
+    description: 'Remediation planner',
+    defaultConfig: { 
+      automationLevel: 'suggest'
+    },
+    configFields: [
+      { key: 'incident', label: 'Incident (JSON)', type: 'json', placeholder: '{"incidentId": "inc_123", "service": "api", "rootCause": "High traffic"}', required: true, helpText: 'Incident object with incidentId, service, and optional rootCause' },
+      { key: 'runbooks', label: 'Runbooks (JSON Array)', type: 'json', placeholder: '[{"service": "api", "issuePattern": "High CPU", "steps": ["Restart service", "Scale up"]}]', required: true, helpText: 'Array of runbooks with service, issuePattern, and steps array' },
+      { key: 'automationLevel', label: 'Automation Level', type: 'select', options: [
+        { label: 'Suggest Only', value: 'suggest' },
+        { label: 'Execute Automatically', value: 'execute' }
+      ], defaultValue: 'suggest', required: true, helpText: 'Whether to suggest or execute remediation steps' },
+    ],
+  },
+  {
+    type: 'postmortem_generator',
+    label: 'Postmortem Generator',
+    category: 'devops',
+    icon: 'FileText',
+    description: 'Postmortem generator',
+    defaultConfig: {},
+    configFields: [
+      { key: 'incident', label: 'Incident (JSON)', type: 'json', placeholder: '{"incidentId": "inc_123", "service": "api", "severity": "sev1", "startTime": "2024-01-15T12:00:00Z", "endTime": "2024-01-15T13:00:00Z", "rootCause": "Database overload", "resolution": "Scaled database"}', required: true, helpText: 'Incident object with incidentId, service, severity, startTime, endTime, rootCause, and resolution' },
+      { key: 'timeline', label: 'Timeline (JSON Array)', type: 'json', placeholder: '[{"timestamp": "2024-01-15T12:00:00Z", "event": "Incident detected"}, {"timestamp": "2024-01-15T13:00:00Z", "event": "Incident resolved"}]', required: true, helpText: 'Array of timeline events with timestamp and event description' },
+      { key: 'actionItems', label: 'Action Items (JSON Array)', type: 'json', placeholder: '["Implement auto-scaling", "Add monitoring", "Update runbooks"]', defaultValue: [], helpText: 'Array of action items to prevent future incidents' },
+    ],
+  },
 
   // ============================================
   // 11. SOCIAL MEDIA NODES (6/6)
@@ -4268,7 +5195,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'Twitter / X',
     category: 'social_media',
     icon: 'MessageSquare',
-    description: 'Twitter / X API operations',
+    description: 'Twitter',
     defaultConfig: {
       operation: 'create_tweet',
       apiKey: '',
@@ -4379,7 +5306,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'Facebook',
     category: 'social_media',
     icon: 'MessageSquare',
-    description: 'Facebook Page API operations',
+    description: 'Facebook',
     defaultConfig: {
       operation: 'create_post',
       accessToken: '',
@@ -4496,7 +5423,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'Instagram',
     category: 'social_media',
     icon: 'Image',
-    description: 'Instagram Business API operations',
+    description: 'Instagram',
     defaultConfig: {
       operation: 'create_image_post',
       accessToken: '',
@@ -4610,7 +5537,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'LinkedIn',
     category: 'social_media',
     icon: 'Users',
-    description: 'LinkedIn API operations',
+    description: 'LinkedIn',
     defaultConfig: {
       operation: 'create_post',
       accessToken: '',
@@ -4703,7 +5630,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'YouTube',
     category: 'social_media',
     icon: 'Play',
-    description: 'YouTube Data API operations',
+    description: 'YouTube',
     defaultConfig: {
       operation: 'upload_video',
       apiKey: '',
@@ -4831,7 +5758,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'Reddit',
     category: 'social_media',
     icon: 'MessageSquare',
-    description: 'Reddit API operations',
+    description: 'Reddit',
     defaultConfig: {
       operation: 'create_post',
       clientId: '',
@@ -4982,7 +5909,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'Notion',
     category: 'productivity',
     icon: 'FileText',
-    description: 'Notion workspace operations',
+    description: 'Notion',
     defaultConfig: {
       operation: 'create_page',
       apiKey: '',
@@ -5084,7 +6011,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'Airtable',
     category: 'productivity',
     icon: 'Table',
-    description: 'Airtable base operations',
+    description: 'Airtable',
     defaultConfig: {
       operation: 'create_record',
       apiKey: '',
@@ -5189,7 +6116,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'ClickUp',
     category: 'productivity',
     icon: 'CheckCircle',
-    description: 'ClickUp workspace operations',
+    description: 'ClickUp',
     defaultConfig: {
       operation: 'create_task',
       apiKey: '',
@@ -5330,7 +6257,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'Trello',
     category: 'productivity',
     icon: 'Layers',
-    description: 'Trello board operations',
+    description: 'Trello',
     defaultConfig: {
       operation: 'create_card',
       apiKey: '',
@@ -5451,7 +6378,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'Asana',
     category: 'productivity',
     icon: 'Target',
-    description: 'Asana workspace operations',
+    description: 'Asana',
     defaultConfig: {
       operation: 'create_task',
       accessToken: '',
@@ -5562,7 +6489,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'Jira',
     category: 'productivity',
     icon: 'AlertCircle',
-    description: 'Jira project operations',
+    description: 'Jira',
     defaultConfig: {
       operation: 'create_issue',
       apiToken: '',
@@ -5710,7 +6637,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'Monday.com',
     category: 'productivity',
     icon: 'Calendar',
-    description: 'Monday.com board operations',
+    description: 'Monday.com',
     defaultConfig: {
       operation: 'create_item',
       apiToken: '',
@@ -5814,7 +6741,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'Todoist',
     category: 'productivity',
     icon: 'ListChecks',
-    description: 'Todoist task operations',
+    description: 'Todoist',
     defaultConfig: {
       operation: 'create_task',
       apiToken: '',
@@ -5918,6 +6845,77 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
       },
     ],
   },
+  {
+    type: 'knowledge_base_search',
+    label: 'Knowledge Base Search',
+    category: 'productivity',
+    icon: 'FileText',
+    description: 'Knowledge search',
+    defaultConfig: { 
+      topK: 5,
+      filters: null
+    },
+    configFields: [
+      { key: 'query', label: 'Search Query', type: 'text', placeholder: 'how to reset password', required: true, helpText: 'Search query to find relevant documentation' },
+      { key: 'knowledgeSources', label: 'Knowledge Sources (JSON Array)', type: 'json', placeholder: '[{"sourceId": "wiki_1", "type": "wiki"}, {"sourceId": "doc_1", "type": "doc"}]', required: true, helpText: 'Array of knowledge sources with sourceId and type (wiki/doc/pdf/faq)' },
+      { key: 'topK', label: 'Top K Results', type: 'number', defaultValue: 5, helpText: 'Number of top results to return' },
+      { key: 'filters', label: 'Filters (JSON)', type: 'json', placeholder: '{"category": "technical", "language": "en"}', defaultValue: null, helpText: 'Optional filters to apply to search results' },
+    ],
+  },
+  {
+    type: 'onboarding_flow_generator',
+    label: 'Onboarding Flow Generator',
+    category: 'productivity',
+    icon: 'Users',
+    description: 'Onboarding generator',
+    defaultConfig: { 
+      companyPolicies: []
+    },
+    configFields: [
+      { key: 'role', label: 'Role', type: 'text', placeholder: 'Software Engineer', required: true, helpText: 'Job role/title of the new employee' },
+      { key: 'department', label: 'Department', type: 'text', placeholder: 'Engineering', required: true, helpText: 'Department name' },
+      { key: 'location', label: 'Location', type: 'text', placeholder: 'US', required: true, helpText: 'Office location or country' },
+      { key: 'startDate', label: 'Start Date (ISO)', type: 'text', placeholder: '2024-01-15', required: true, helpText: 'Employee start date in ISO format (YYYY-MM-DD)' },
+      { key: 'companyPolicies', label: 'Company Policies (JSON Array)', type: 'json', placeholder: '["policy_1", "policy_2"]', defaultValue: [], helpText: 'Array of applicable company policy IDs' },
+    ],
+  },
+  {
+    type: 'policy_sync_node',
+    label: 'Policy Sync Node',
+    category: 'productivity',
+    icon: 'Repeat',
+    description: 'Policy sync',
+    defaultConfig: { 
+      version: '1.0.0'
+    },
+    configFields: [
+      { key: 'policyId', label: 'Policy ID', type: 'text', placeholder: 'policy_123', required: true, helpText: 'Unique identifier for the policy' },
+      { key: 'policyContent', label: 'Policy Content', type: 'textarea', placeholder: 'Policy text content...', required: true, helpText: 'Policy content to sync' },
+      { key: 'sourceSystem', label: 'Source System', type: 'text', placeholder: 'hr_system', required: true, helpText: 'Source system identifier' },
+      { key: 'targetSystems', label: 'Target Systems (JSON Array)', type: 'json', placeholder: '["wiki", "intranet", "policy_portal"]', required: true, helpText: 'Array of target system identifiers to sync to' },
+      { key: 'version', label: 'Version', type: 'text', placeholder: '1.0.0', defaultValue: '1.0.0', required: true, helpText: 'Policy version number' },
+    ],
+  },
+  {
+    type: 'employee_faq_indexer',
+    label: 'Employee FAQ Indexer',
+    category: 'productivity',
+    icon: 'FileText',
+    description: 'FAQ indexer',
+    defaultConfig: { 
+      indexMode: 'create',
+      language: 'en'
+    },
+    configFields: [
+      { key: 'faqItems', label: 'FAQ Items (JSON Array)', type: 'json', placeholder: '[{"question": "How do I request time off?", "answer": "Use the HR portal...", "category": "HR"}]', required: true, helpText: 'Array of FAQ items with question, answer, and category' },
+      { key: 'indexMode', label: 'Index Mode', type: 'select', options: [
+        { label: 'Create', value: 'create' },
+        { label: 'Update', value: 'update' },
+        { label: 'Delete', value: 'delete' }
+      ], defaultValue: 'create', required: true, helpText: 'Operation to perform on the index' },
+      { key: 'language', label: 'Language', type: 'text', placeholder: 'en', defaultValue: 'en', helpText: 'Language code for indexing (e.g., en, es, fr)' },
+    ],
+  },
   // ============================================
   // AUTHENTICATION & IDENTITY NODES
   // ============================================
@@ -5926,7 +6924,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'OAuth2',
     category: 'authentication',
     icon: 'Lock',
-    description: 'OAuth2 authentication and token management',
+    description: 'OAuth2',
     defaultConfig: {
       operation: 'get_access_token',
       grantType: 'authorization_code',
@@ -6031,7 +7029,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'JWT',
     category: 'authentication',
     icon: 'Key',
-    description: 'JSON Web Token generation and verification',
+    description: 'JWT',
     defaultConfig: {
       operation: 'sign',
       algorithm: 'HS256',
@@ -6101,7 +7099,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'LDAP',
     category: 'authentication',
     icon: 'Users',
-    description: 'LDAP authentication and directory operations',
+    description: 'LDAP',
     defaultConfig: {
       operation: 'authenticate',
     },
@@ -6189,7 +7187,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'Okta',
     category: 'authentication',
     icon: 'Shield',
-    description: 'Okta SSO and identity management',
+    description: 'Okta',
     defaultConfig: {
       operation: 'get_user',
     },
@@ -6261,7 +7259,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'Auth0',
     category: 'authentication',
     icon: 'Shield',
-    description: 'Auth0 identity and access management',
+    description: 'Auth0',
     defaultConfig: {
       operation: 'get_user',
     },
@@ -6340,7 +7338,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'Keycloak',
     category: 'authentication',
     icon: 'Shield',
-    description: 'Keycloak identity and access management',
+    description: 'Keycloak',
     defaultConfig: {
       operation: 'get_token',
     },
@@ -6426,7 +7424,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'Stripe',
     category: 'payment',
     icon: 'CreditCard',
-    description: 'Stripe payment processing',
+    description: 'Stripe',
     defaultConfig: {
       operation: 'create_payment',
     },
@@ -6506,7 +7504,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'Razorpay',
     category: 'payment',
     icon: 'CreditCard',
-    description: 'Razorpay payment gateway',
+    description: 'Razorpay',
     defaultConfig: {
       operation: 'create_order',
     },
@@ -6585,7 +7583,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'PayPal',
     category: 'payment',
     icon: 'CreditCard',
-    description: 'PayPal payment processing',
+    description: 'PayPal',
     defaultConfig: {
       operation: 'create_order',
     },
@@ -6661,7 +7659,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'QuickBooks',
     category: 'payment',
     icon: 'FileText',
-    description: 'QuickBooks accounting and finance',
+    description: 'QuickBooks',
     defaultConfig: {
       operation: 'get_invoice',
     },
@@ -6737,7 +7735,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'Xero',
     category: 'payment',
     icon: 'FileText',
-    description: 'Xero accounting and finance',
+    description: 'Xero',
     defaultConfig: {
       operation: 'get_invoice',
     },
@@ -6795,6 +7793,90 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
       },
     ],
   },
+  {
+    type: 'expense_categorizer',
+    label: 'Expense Categorizer',
+    category: 'payment',
+    icon: 'Tag',
+    description: 'Expense categorizer',
+    defaultConfig: { 
+      defaultCategory: 'Uncategorized'
+    },
+    configFields: [
+      { key: 'expense', label: 'Expense (JSON)', type: 'json', placeholder: '{"id": "exp_123", "description": "Office supplies", "amount": 50.00, "currency": "USD", "merchant": "Staples", "date": "2024-01-15"}', required: true, helpText: 'Expense object with id, description, amount, currency, merchant (optional), and date' },
+      { key: 'categoryRules', label: 'Category Rules (JSON Array)', type: 'json', placeholder: '[{"keywords": ["office", "supplies"], "category": "Office Supplies"}, {"keywords": ["travel", "hotel"], "category": "Travel"}]', required: true, helpText: 'Array of category rules with keywords array and category name' },
+      { key: 'defaultCategory', label: 'Default Category', type: 'text', placeholder: 'Uncategorized', defaultValue: 'Uncategorized', required: true, helpText: 'Category to assign if no rule matches' },
+    ],
+  },
+  {
+    type: 'payment_reminder_engine',
+    label: 'Payment Reminder Engine',
+    category: 'payment',
+    icon: 'Bell',
+    description: 'Payment reminder',
+    defaultConfig: { 
+      reminderSchedule: []
+    },
+    configFields: [
+      { key: 'invoiceId', label: 'Invoice ID', type: 'text', placeholder: 'inv_123', required: true },
+      { key: 'recipient', label: 'Recipient', type: 'text', placeholder: 'customer@example.com', required: true, helpText: 'Email address or user ID of invoice recipient' },
+      { key: 'amount', label: 'Amount', type: 'number', placeholder: '100.00', required: true },
+      { key: 'currency', label: 'Currency', type: 'text', placeholder: 'USD', defaultValue: 'USD', required: true },
+      { key: 'dueDate', label: 'Due Date (ISO)', type: 'text', placeholder: '2024-01-31', required: true, helpText: 'Invoice due date in ISO format (YYYY-MM-DD)' },
+      { key: 'reminderSchedule', label: 'Reminder Schedule (JSON Array)', type: 'json', placeholder: '[{"daysBeforeOrAfterDue": -7, "message": "Payment due in 7 days"}, {"daysBeforeOrAfterDue": 0, "message": "Payment due today"}]', required: true, helpText: 'Array of reminders with daysBeforeOrAfterDue (negative = before, positive = after) and message' },
+    ],
+  },
+  {
+    type: 'audit_trail_generator',
+    label: 'Audit Trail Generator',
+    category: 'payment',
+    icon: 'FileText',
+    description: 'Audit trail',
+    defaultConfig: {},
+    configFields: [
+      { key: 'entityType', label: 'Entity Type', type: 'select', options: [
+        { label: 'Expense', value: 'expense' },
+        { label: 'Invoice', value: 'invoice' },
+        { label: 'Payment', value: 'payment' },
+        { label: 'Refund', value: 'refund' }
+      ], defaultValue: 'expense', required: true },
+      { key: 'entityId', label: 'Entity ID', type: 'text', placeholder: 'exp_123', required: true, helpText: 'Unique identifier of the entity being audited' },
+      { key: 'action', label: 'Action', type: 'text', placeholder: 'created', required: true, helpText: 'Action performed (e.g., created, updated, deleted, approved)' },
+      { key: 'performedBy', label: 'Performed By', type: 'text', placeholder: 'user_123', required: true, helpText: 'User ID or identifier of who performed the action' },
+      { key: 'timestamp', label: 'Timestamp (ISO)', type: 'text', placeholder: '2024-01-15T12:00:00Z', helpText: 'Action timestamp in ISO format (defaults to current time if not provided)' },
+      { key: 'beforeState', label: 'Before State (JSON)', type: 'json', placeholder: '{"amount": 100, "status": "pending"}', defaultValue: null, helpText: 'State of entity before the action (optional)' },
+      { key: 'afterState', label: 'After State (JSON)', type: 'json', placeholder: '{"amount": 100, "status": "approved"}', defaultValue: null, helpText: 'State of entity after the action (optional)' },
+    ],
+  },
+  {
+    type: 'tax_rule_engine',
+    label: 'Tax Rule Engine',
+    category: 'payment',
+    icon: 'Calculator',
+    description: 'Tax engine',
+    defaultConfig: { 
+      taxRules: []
+    },
+    configFields: [
+      { key: 'transaction', label: 'Transaction (JSON)', type: 'json', placeholder: '{"amount": 100.00, "currency": "USD", "location": "US-CA", "category": "services", "date": "2024-01-15"}', required: true, helpText: 'Transaction object with amount, currency, location, category, and date' },
+      { key: 'taxRules', label: 'Tax Rules (JSON Array)', type: 'json', placeholder: '[{"location": "US-CA", "category": "services", "rate": 0.08}, {"location": "US-NY", "category": "services", "rate": 0.04}]', required: true, helpText: 'Array of tax rules with location, category, and rate (as decimal, e.g., 0.08 for 8%)' },
+    ],
+  },
+  {
+    type: 'fraud_detection_node',
+    label: 'Fraud Detection Node',
+    category: 'payment',
+    icon: 'Shield',
+    description: 'Fraud detection',
+    defaultConfig: { 
+      riskThreshold: 0.7
+    },
+    configFields: [
+      { key: 'transaction', label: 'Transaction (JSON)', type: 'json', placeholder: '{"id": "txn_123", "amount": 1000.00, "currency": "USD", "merchant": "Unknown", "location": "US", "timestamp": "2024-01-15T12:00:00Z"}', required: true, helpText: 'Transaction object with id, amount, currency, merchant, location, and timestamp' },
+      { key: 'historicalPatterns', label: 'Historical Patterns (JSON)', type: 'json', placeholder: '{"averageAmount": 50, "commonMerchants": ["Merchant1"], "commonLocations": ["US"]}', defaultValue: {}, helpText: 'Historical transaction patterns for comparison (optional)' },
+      { key: 'riskThreshold', label: 'Risk Threshold', type: 'number', defaultValue: 0.7, helpText: 'Risk score threshold (0-1) above which transaction is flagged. Default: 0.7' },
+    ],
+  },
   // ============================================
   // E-COMMERCE NODES
   // ============================================
@@ -6803,7 +7885,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'Shopify',
     category: 'ecommerce',
     icon: 'ShoppingCart',
-    description: 'Shopify e-commerce operations',
+    description: 'Shopify',
     defaultConfig: {
       operation: 'get_product',
     },
@@ -6878,7 +7960,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'WooCommerce',
     category: 'ecommerce',
     icon: 'ShoppingCart',
-    description: 'WooCommerce store operations',
+    description: 'WooCommerce',
     defaultConfig: {
       operation: 'get_product',
     },
@@ -6960,7 +8042,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'Magento',
     category: 'ecommerce',
     icon: 'ShoppingCart',
-    description: 'Magento e-commerce operations',
+    description: 'Magento',
     defaultConfig: {
       operation: 'get_product',
     },
@@ -7023,7 +8105,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'BigCommerce',
     category: 'ecommerce',
     icon: 'ShoppingCart',
-    description: 'BigCommerce store operations',
+    description: 'BigCommerce',
     defaultConfig: {
       operation: 'get_product',
     },
@@ -7098,7 +8180,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'Google Analytics',
     category: 'analytics',
     icon: 'BarChart',
-    description: 'Google Analytics data and reporting',
+    description: 'Google Analytics',
     defaultConfig: {
       operation: 'get_report',
     },
@@ -7172,7 +8254,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'Mixpanel',
     category: 'analytics',
     icon: 'TrendingUp',
-    description: 'Mixpanel analytics and event tracking',
+    description: 'Mixpanel',
     defaultConfig: {
       operation: 'track_event',
     },
@@ -7240,7 +8322,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'Segment',
     category: 'analytics',
     icon: 'TrendingUp',
-    description: 'Segment analytics and data routing',
+    description: 'Segment',
     defaultConfig: {
       operation: 'track',
     },
@@ -7314,7 +8396,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'Amplitude',
     category: 'analytics',
     icon: 'TrendingUp',
-    description: 'Amplitude analytics and product analytics',
+    description: 'Amplitude',
     defaultConfig: {
       operation: 'track',
     },
@@ -7381,7 +8463,7 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
     label: 'Elasticsearch',
     category: 'analytics',
     icon: 'Database',
-    description: 'Elasticsearch search and analytics',
+    description: 'Elasticsearch',
     defaultConfig: {
       operation: 'search',
     },
@@ -7457,6 +8539,330 @@ export const NODE_TYPES: NodeTypeDefinition[] = [
         type: 'textarea',
         placeholder: '{"index": {"_index": "my-index", "_id": "1"}}\n{"field": "value"}\n',
         helpText: 'Bulk operation body (NDJSON format)',
+      },
+    ],
+  },
+  // ============================================
+  // ANALYTICS & GOVERNANCE NODES
+  // ============================================
+  {
+    type: 'agent_performance_tracker',
+    label: 'Agent Performance Tracker',
+    category: 'analytics',
+    icon: 'Activity',
+    description: 'Performance tracker',
+    defaultConfig: {
+      agentName: '',
+      task: '',
+      expectedThresholdMs: 5000,
+    },
+    configFields: [
+      {
+        key: 'agentName',
+        label: 'Agent Name',
+        type: 'text',
+        placeholder: 'agent-name',
+        required: true,
+        helpText: 'Name/ID of the agent being tracked',
+      },
+      {
+        key: 'task',
+        label: 'Task Description',
+        type: 'text',
+        placeholder: 'Task description',
+        required: true,
+        helpText: 'Description of the task being executed',
+      },
+      {
+        key: 'expectedThresholdMs',
+        label: 'Expected Threshold (ms)',
+        type: 'number',
+        placeholder: '5000',
+        defaultValue: 5000,
+        helpText: 'Expected maximum execution time in milliseconds. Exceeding this will flag as anomaly.',
+      },
+      {
+        key: 'trackStartTime',
+        label: 'Track Start Time',
+        type: 'checkbox',
+        defaultValue: true,
+        helpText: 'Automatically track start timestamp',
+      },
+      {
+        key: 'trackEndTime',
+        label: 'Track End Time',
+        type: 'checkbox',
+        defaultValue: true,
+        helpText: 'Automatically track end timestamp',
+      },
+    ],
+  },
+  {
+    type: 'cost_monitor',
+    label: 'Cost Monitor (Token / API)',
+    category: 'analytics',
+    icon: 'DollarSign',
+    description: 'Cost monitor',
+    defaultConfig: {
+      model: 'gpt-4',
+      costThresholdUsd: 100.0,
+    },
+    configFields: [
+      {
+        key: 'model',
+        label: 'Model',
+        type: 'text',
+        placeholder: 'gpt-4',
+        required: true,
+        helpText: 'AI model used (e.g., gpt-4, gpt-3.5-turbo, claude-3, gemini-pro)',
+      },
+      {
+        key: 'promptTokens',
+        label: 'Prompt Tokens',
+        type: 'number',
+        placeholder: '0',
+        defaultValue: 0,
+        helpText: 'Number of prompt tokens used',
+      },
+      {
+        key: 'completionTokens',
+        label: 'Completion Tokens',
+        type: 'number',
+        placeholder: '0',
+        defaultValue: 0,
+        helpText: 'Number of completion tokens used',
+      },
+      {
+        key: 'costThresholdUsd',
+        label: 'Cost Threshold (USD)',
+        type: 'number',
+        placeholder: '100.0',
+        defaultValue: 100.0,
+        helpText: 'Maximum cost threshold. Alerts if exceeded.',
+      },
+      {
+        key: 'pricingModel',
+        label: 'Pricing Model (JSON)',
+        type: 'json',
+        placeholder: '{"promptPer1k": 0.03, "completionPer1k": 0.06}',
+        helpText: 'Custom pricing model. If not provided, uses default model pricing.',
+      },
+    ],
+  },
+  {
+    type: 'accuracy_evaluator',
+    label: 'Accuracy Evaluator',
+    category: 'analytics',
+    icon: 'CheckCircle2',
+    description: 'Accuracy evaluator',
+    defaultConfig: {
+      minConfidenceScore: 70,
+    },
+    configFields: [
+      {
+        key: 'taskSummary',
+        label: 'Task Summary',
+        type: 'text',
+        placeholder: 'Task description',
+        required: true,
+        helpText: 'Summary of the task that was performed',
+      },
+      {
+        key: 'expectedOutput',
+        label: 'Expected Output (JSON)',
+        type: 'json',
+        placeholder: '{"field": "expected value"}',
+        helpText: 'Expected output structure or sample (optional, for comparison)',
+      },
+      {
+        key: 'constraints',
+        label: 'Constraints (JSON array)',
+        type: 'json',
+        placeholder: '["must be numeric", "must be between 0-100"]',
+        helpText: 'Array of constraints that the output must satisfy',
+      },
+      {
+        key: 'minConfidenceScore',
+        label: 'Minimum Confidence Score',
+        type: 'number',
+        placeholder: '70',
+        defaultValue: 70,
+        helpText: 'Minimum confidence score (0-100) for acceptable accuracy',
+      },
+      {
+        key: 'checkFactualCorrectness',
+        label: 'Check Factual Correctness',
+        type: 'checkbox',
+        defaultValue: true,
+        helpText: 'Evaluate factual correctness of the output',
+      },
+      {
+        key: 'checkCompleteness',
+        label: 'Check Completeness',
+        type: 'checkbox',
+        defaultValue: true,
+        helpText: 'Evaluate if output is complete',
+      },
+      {
+        key: 'checkInstructionAdherence',
+        label: 'Check Instruction Adherence',
+        type: 'checkbox',
+        defaultValue: true,
+        helpText: 'Evaluate if output follows instructions',
+      },
+    ],
+  },
+  {
+    type: 'feedback_loop_collector',
+    label: 'Feedback Loop Collector',
+    category: 'analytics',
+    icon: 'MessageSquare',
+    description: 'Feedback collector',
+    defaultConfig: {
+      feedbackType: 'neutral',
+      priorityLevel: 'medium',
+    },
+    configFields: [
+      {
+        key: 'feedbackSource',
+        label: 'Feedback Source',
+        type: 'select',
+        options: [
+          { label: 'User Input', value: 'user_input' },
+          { label: 'Downstream Validation', value: 'downstream_validation' },
+          { label: 'System Failure', value: 'system_failure' },
+          { label: 'External API', value: 'external_api' },
+        ],
+        defaultValue: 'user_input',
+        required: true,
+        helpText: 'Source of the feedback',
+      },
+      {
+        key: 'feedbackType',
+        label: 'Feedback Type',
+        type: 'select',
+        options: [
+          { label: 'Positive', value: 'positive' },
+          { label: 'Negative', value: 'negative' },
+          { label: 'Neutral', value: 'neutral' },
+        ],
+        defaultValue: 'neutral',
+        required: true,
+        helpText: 'Classification of feedback sentiment',
+      },
+      {
+        key: 'feedbackSummary',
+        label: 'Feedback Summary',
+        type: 'textarea',
+        placeholder: 'Feedback description',
+        required: true,
+        helpText: 'Summary of the feedback received',
+      },
+      {
+        key: 'actionItems',
+        label: 'Action Items (JSON array)',
+        type: 'json',
+        placeholder: '["Improve error handling", "Update prompt template"]',
+        helpText: 'Array of actionable improvement points extracted from feedback',
+      },
+      {
+        key: 'priorityLevel',
+        label: 'Priority Level',
+        type: 'select',
+        options: [
+          { label: 'Low', value: 'LOW' },
+          { label: 'Medium', value: 'MEDIUM' },
+          { label: 'High', value: 'HIGH' },
+        ],
+        defaultValue: 'MEDIUM',
+        required: true,
+        helpText: 'Priority level of the feedback',
+      },
+      {
+        key: 'metadata',
+        label: 'Metadata (JSON)',
+        type: 'json',
+        placeholder: '{"workflowId": "wf-123", "nodeId": "node-456"}',
+        helpText: 'Additional metadata about the feedback context',
+      },
+    ],
+  },
+  {
+    type: 'compliance_log_writer',
+    label: 'Compliance Log Writer',
+    category: 'analytics',
+    icon: 'FileCheck',
+    description: 'Compliance logger',
+    defaultConfig: {
+      complianceStatus: 'COMPLIANT',
+    },
+    configFields: [
+      {
+        key: 'workflowId',
+        label: 'Workflow ID',
+        type: 'text',
+        placeholder: 'workflow-id',
+        required: true,
+        helpText: 'Identifier of the workflow',
+      },
+      {
+        key: 'agentId',
+        label: 'Agent ID',
+        type: 'text',
+        placeholder: 'agent-id',
+        required: true,
+        helpText: 'Identifier of the agent performing the action',
+      },
+      {
+        key: 'action',
+        label: 'Action Performed',
+        type: 'text',
+        placeholder: 'Action description',
+        required: true,
+        helpText: 'Description of the action being logged',
+      },
+      {
+        key: 'inputMetadata',
+        label: 'Input Metadata (JSON)',
+        type: 'json',
+        placeholder: '{"dataType": "text", "length": 100}',
+        required: true,
+        helpText: 'Metadata about input (DO NOT include sensitive content)',
+      },
+      {
+        key: 'outputMetadata',
+        label: 'Output Metadata (JSON)',
+        type: 'json',
+        placeholder: '{"dataType": "json", "recordCount": 5}',
+        required: true,
+        helpText: 'Metadata about output (DO NOT include sensitive content)',
+      },
+      {
+        key: 'complianceStatus',
+        label: 'Compliance Status',
+        type: 'select',
+        options: [
+          { label: 'Compliant', value: 'COMPLIANT' },
+          { label: 'Warning', value: 'WARNING' },
+          { label: 'Violation', value: 'VIOLATION' },
+        ],
+        defaultValue: 'COMPLIANT',
+        required: true,
+        helpText: 'Compliance status of the action',
+      },
+      {
+        key: 'notes',
+        label: 'Notes',
+        type: 'textarea',
+        placeholder: 'Additional notes',
+        helpText: 'Additional notes about the compliance status or action',
+      },
+      {
+        key: 'ensureImmutability',
+        label: 'Ensure Immutability',
+        type: 'checkbox',
+        defaultValue: true,
+        helpText: 'Ensure log entry is immutable and append-only',
       },
     ],
   },

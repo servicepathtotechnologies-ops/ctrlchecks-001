@@ -680,43 +680,107 @@ export class AutonomousWorkflowAgent {
 
   /**
    * STEP 1: Analyze user request and generate clarifying questions
-   */
-  /**
-   * STEP 1: Analyze user request and generate clarifying questions
+   * Updated to ask contextual questions only for nodes that will be used
    */
   async analyzeRequest(userGoal: string): Promise<AnalysisResult> {
-    console.log('[AGENT] Analyzing request and generating questions...');
+    console.log('[AGENT] Analyzing request and generating contextual questions...');
 
     try {
       // First, get a basic summary using the existing method
       const basicSummary = await this.phase0_SummarizeAndClarify(userGoal);
 
-      // Now generate questions and options
-      const prompt = `You are an expert workflow consultant.
-      USER GOAL: "${userGoal}"
-      CLARIFIED GOAL: "${basicSummary}"
-      
-      Your task is to:
-      1. condensed the user goal into a 30-40 word summary.
-      2. Generate 3-4 multiple-choice questions to clarify ambiguities or user preferences.
-         - Questions should focus on: Timing (when?), Channels (Instagram/Slack/Email?), Content Type (what data?), Frequency.
-         - Provide 3-4 realistic options for each question.
-      
-      Respond with JSON:
-      {
-        "summary": "30-40 word summary of the user's request",
-        "questions": [
-          {
-            "id": "q1",
-            "text": "The question text?",
-            "options": ["Option 1", "Option 2", "Option 3"]
-          }
-        ],
-        "predictedStepCount": 5
-      }`;
+      // Get all available node types for reference
+      const allNodeTypes = [
+        // Triggers
+        'manual_trigger', 'webhook', 'schedule', 'chat_trigger', 'error_trigger', 'interval', 'workflow_trigger', 'form',
+        // AI
+        'openai_gpt', 'anthropic_claude', 'google_gemini', 'text_summarizer', 'sentiment_analyzer', 'ai_agent', 'memory', 'llm_chain', 'azure_openai', 'hugging_face', 'cohere', 'ollama', 'embeddings', 'vector_store', 'chat_model', 'workflow_generator_agent', 'node_selector_agent', 'prompt_synthesizer', 'multi_agent_coordinator', 'agent_role_assigner', 'agent_voting_consensus', 'execution_explainer', 'workflow_summary_generator',
+        // Logic
+        'if_else', 'switch', 'loop', 'wait', 'error_handler', 'filter', 'merge', 'noop', 'split_in_batches', 'stop_and_error', 'human_approval', 'escalation_router', 'fallback_router', 'retry_with_backoff', 'timeout_guard', 'circuit_breaker', 'workflow_state_manager', 'execution_context_store', 'session_manager',
+        // Data
+        'javascript', 'json_parser', 'csv_processor', 'text_formatter', 'merge_data', 'set_variable', 'aggregate', 'edit_fields', 'execute_command', 'function', 'function_item', 'item_lists', 'limit', 'rename_keys', 'set', 'sort', 'date_time', 'math', 'crypto', 'html_extract', 'xml', 'rss_feed_read', 'pdf', 'image_manipulation',
+        // Database
+        'database_read', 'database_write', 'postgresql', 'supabase', 'mysql', 'mongodb', 'redis', 'mssql', 'sqlite', 'snowflake', 'timescaledb', 'elasticsearch',
+        // Storage
+        'read_binary_file', 'write_binary_file', 'aws_s3', 'ftp', 'sftp', 'dropbox', 'onedrive', 'box', 'minio', 'document_ocr', 'resume_parser', 'invoice_parser', 'document_classifier', 'file_metadata_extractor',
+        // HTTP
+        'http_request', 'graphql', 'respond_to_webhook', 'http_post',
+        // Output
+        'slack_message', 'slack_webhook', 'discord_webhook', 'microsoft_teams', 'telegram', 'whatsapp_cloud', 'twilio', 'log_output', 'email_sequence_sender', 'auto_followup_sender', 'human_handoff_notification', 'approval_request_sender', 'reminder_scheduler',
+        // Google
+        'google_sheets', 'google_doc', 'google_drive', 'google_calendar', 'google_gmail', 'google_bigquery', 'google_tasks', 'google_contacts', 'google_analytics',
+        // CRM
+        'hubspot', 'salesforce', 'zoho_crm', 'pipedrive', 'freshdesk', 'intercom', 'mailchimp', 'activecampaign', 'crm_lead_router', 'crm_ticket_prioritizer', 'crm_sla_monitor', 'crm_duplicate_detector',
+        // DevOps
+        'github', 'gitlab', 'bitbucket', 'jenkins', 'docker', 'kubernetes', 'pagerduty', 'datadog', 'alert_correlation_engine', 'incident_classifier', 'auto_remediation_planner', 'postmortem_generator',
+        // Ecommerce
+        'shopify', 'woocommerce', 'stripe', 'paypal', 'bigcommerce',
+        // Analytics
+        'google_analytics', 'mixpanel', 'segment', 'amplitude', 'agent_performance_tracker', 'cost_monitor', 'accuracy_evaluator', 'feedback_loop_collector', 'compliance_log_writer',
+        // Auth
+        'oauth2', 'jwt', 'api_key_auth',
+        // Payment
+        'stripe', 'paypal', 'razorpay', 'expense_categorizer', 'payment_reminder_engine', 'audit_trail_generator', 'tax_rule_engine', 'fraud_detection_node',
+        // Productivity
+        'notion', 'trello', 'asana', 'jira', 'linear', 'clickup', 'knowledge_base_search', 'onboarding_flow_generator', 'policy_sync', 'employee_faq_indexer',
+      ];
+
+      // Generate contextual questions based on the user's prompt and likely nodes
+      const prompt = `You are an expert workflow consultant. Your task is to analyze the user's goal and generate ONLY relevant, contextual questions.
+
+USER GOAL: "${userGoal}"
+CLARIFIED GOAL: "${basicSummary}"
+
+AVAILABLE NODE TYPES: ${allNodeTypes.join(', ')}
+
+INSTRUCTIONS:
+1. Analyze the user's goal to identify which specific nodes will likely be needed.
+2. For each identified node, determine what configuration information might be missing or unclear.
+3. Generate 2-4 contextual questions that are:
+   - Directly related to the user's specific goal
+   - Only about nodes that will actually be used in this workflow
+   - Focused on missing configuration details (not generic preferences)
+   - NOT generic "out of box" questions
+   - NOT about nodes that aren't relevant to this workflow
+
+QUESTION GUIDELINES:
+- If the goal mentions "Slack", ask about Slack webhook URL or channel (only if not already specified)
+- If the goal mentions "email", ask about recipient email or email service (only if not already specified)
+- If the goal mentions "schedule", ask about specific time or frequency (only if not already specified)
+- If the goal mentions "database", ask about table name or connection details (only if not already specified)
+- If the goal mentions "API", ask about API endpoint or authentication (only if not already specified)
+- If the goal mentions "form", ask about form fields (only if not already specified)
+- If the goal mentions "AI/LLM", ask about model preference or API key (only if not already specified)
+- If the goal mentions "Google Sheets", ask about spreadsheet URL or sheet name (only if not already specified)
+- If the goal mentions "CRM", ask about which CRM platform (only if not already specified)
+- If the goal mentions "payment", ask about payment gateway (only if not already specified)
+- If the goal mentions "file/document", ask about file location or format (only if not already specified)
+
+DO NOT ask:
+- Generic questions about timing if timing is already clear
+- Questions about channels if the channel is already specified
+- Questions about nodes that won't be used in this workflow
+- Questions that are irrelevant to the user's specific goal
+- Questions about features not mentioned in the goal
+
+If the user's goal is clear and complete, return an empty questions array.
+
+Respond with JSON:
+{
+  "summary": "30-40 word summary of the user's request",
+  "questions": [
+    {
+      "id": "q1",
+      "text": "Contextual question specific to the user's goal and missing configuration",
+      "options": ["Option 1", "Option 2", "Option 3", "Option 4"]
+    }
+  ],
+  "predictedStepCount": 5,
+  "identifiedNodes": ["node_type_1", "node_type_2"]
+}`;
 
       const messages: LLMMessage[] = [
-        { role: 'system', content: 'You are a helpful workflow consultant. Return valid JSON only.' },
+        { role: 'system', content: 'You are a helpful workflow consultant. Analyze the user goal, identify relevant nodes, and generate ONLY contextual questions about missing configuration for those specific nodes. Return valid JSON only.' },
         { role: 'user', content: prompt }
       ];
 
@@ -753,9 +817,28 @@ export class AutonomousWorkflowAgent {
         };
       }
 
+      // Validate that questions are contextual and not generic
+      const validatedQuestions = (result.questions || []).filter((q: any) => {
+        if (!q.text || !q.options || !Array.isArray(q.options)) return false;
+        // Filter out generic questions
+        const textLower = q.text.toLowerCase();
+        const genericPatterns = [
+          'what would you like',
+          'how would you like',
+          'do you want',
+          'would you like',
+          'any preference',
+          'any specific',
+        ];
+        // Only include if it's not a generic question
+        return !genericPatterns.some(pattern => textLower.includes(pattern));
+      });
+
+      console.log(`[AGENT] Generated ${validatedQuestions.length} contextual questions for nodes: ${(result.identifiedNodes || []).join(', ') || 'none identified'}`);
+
       return {
         summary: result.summary || basicSummary,
-        questions: result.questions || [],
+        questions: validatedQuestions,
         clarifiedPromptPreview: basicSummary,
         predictedStepCount: result.predictedStepCount || 5
       };
