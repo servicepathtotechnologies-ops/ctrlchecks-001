@@ -2,8 +2,9 @@ import { useEffect, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/lib/auth";
 import { useRole } from "@/hooks/useRole";
+import { useTheme } from "@/hooks/useTheme";
 import { supabase } from "@/integrations/supabase/client";
-import { Zap, Plus, Play, CheckCircle, XCircle, FolderOpen, LayoutTemplate, History, Settings, MoreHorizontal, Copy, Trash2, Clock, Bot, Workflow, MessageSquare, Sparkles, Wrench, ArrowLeft } from "lucide-react";
+import { Zap, Plus, Play, FolderOpen, LayoutTemplate, History, Settings, MoreHorizontal, Copy, Trash2, Clock, Bot, Workflow, MessageSquare, Sparkles, Wrench, ArrowLeft, Sun, Moon, Activity } from "lucide-react";
 import GoogleConnectionStatus from "@/components/GoogleConnectionStatus";
 import MultimodalButton from "@/components/multimodal/MultimodalButton";
 import { Button } from "@/components/ui/button";
@@ -28,16 +29,17 @@ type Workflow = Tables<'workflows'> & {
 export default function Dashboard() {
   const { user, loading, signOut } = useAuth();
   const { canAccessAdmin } = useRole();
+  const { theme, toggleTheme } = useTheme();
   const navigate = useNavigate();
   const [workflows, setWorkflows] = useState<Workflow[]>([]);
   const [workflowsLoading, setWorkflowsLoading] = useState(true);
   const [stats, setStats] = useState({
     total: 0,
     executionsToday: 0,
-    successRate: 100,
-    failed: 0,
+    active: 0,
   });
   const [showCreateOptions, setShowCreateOptions] = useState(false);
+  const [filterActive, setFilterActive] = useState(false);
 
   const detectWorkflowType = (nodes: Json): 'chatbot' | 'agent' | 'automation' => {
     if (!Array.isArray(nodes)) return 'automation';
@@ -60,9 +62,16 @@ export default function Dashboard() {
 
   const loadWorkflows = useCallback(async () => {
     try {
-      const { data: workflowsData, error: workflowsError } = await supabase
+      let query = supabase
         .from('workflows')
-        .select('*')
+        .select('*');
+
+      // Filter by active status if filterActive is true
+      if (filterActive) {
+        query = query.eq('status', 'active');
+      }
+
+      const { data: workflowsData, error: workflowsError } = await query
         .order('updated_at', { ascending: false })
         .limit(6); // Show latest 6 workflows on dashboard
 
@@ -169,7 +178,7 @@ export default function Dashboard() {
     } finally {
       setWorkflowsLoading(false);
     }
-  }, []);
+  }, [filterActive]);
 
   const loadStats = useCallback(async () => {
     try {
@@ -186,21 +195,16 @@ export default function Dashboard() {
         .select('*', { count: 'exact', head: true })
         .gte('started_at', today.toISOString());
 
-      // Success rate and failed
-      const { data: allExecutions } = await supabase
-        .from('executions')
-        .select('status');
-
-      const totalExecutions = allExecutions?.length || 0;
-      const successful = allExecutions?.filter(e => e.status === 'completed').length || 0;
-      const failed = allExecutions?.filter(e => e.status === 'failed').length || 0;
-      const successRate = totalExecutions > 0 ? Math.round((successful / totalExecutions) * 100) : 100;
+      // Active workflows
+      const { count: activeCount } = await supabase
+        .from('workflows')
+        .select('*', { count: 'exact', head: true })
+        .eq('status', 'active');
 
       setStats({
         total: totalCount || 0,
         executionsToday: todayCount || 0,
-        successRate,
-        failed,
+        active: activeCount || 0,
       });
     } catch (error) {
       console.error('Error loading stats:', error);
@@ -330,6 +334,19 @@ export default function Dashboard() {
           </div>
           <div className="flex items-center gap-3">
             <GoogleConnectionStatus />
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={toggleTheme}
+              className="rounded-full"
+              title={theme === "light" ? "Switch to dark mode" : "Switch to light mode"}
+            >
+              {theme === "light" ? (
+                <Moon className="h-5 w-5" />
+              ) : (
+                <Sun className="h-5 w-5" />
+              )}
+            </Button>
             <Button 
               variant="ghost" 
               size="sm" 
@@ -386,29 +403,59 @@ export default function Dashboard() {
         </div>
 
         {/* Stats */}
-        <div className="grid gap-4 md:grid-cols-4 mb-8">
-          {[
-            { label: "Total Workflows", value: stats.total.toString(), icon: Zap, color: "text-primary" },
-            { label: "Executions Today", value: stats.executionsToday.toString(), icon: Play, color: "text-secondary" },
-            { label: "Success Rate", value: `${stats.successRate}%`, icon: CheckCircle, color: "text-success" },
-            { label: "Failed", value: stats.failed.toString(), icon: XCircle, color: "text-destructive" },
-          ].map((stat) => (
-            <Card key={stat.label}>
-              <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground">{stat.label}</CardTitle>
-                <stat.icon className={`h-4 w-4 ${stat.color}`} />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{stat.value}</div>
-              </CardContent>
-            </Card>
-          ))}
+        <div className="grid gap-4 md:grid-cols-3 mb-8">
+          <Card 
+            className="cursor-pointer transition-all hover:border-primary/50 hover:shadow-md"
+            onClick={() => navigate('/workflows')}
+          >
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">Total Workflows</CardTitle>
+              <Zap className="h-4 w-4 text-primary" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{stats.total}</div>
+            </CardContent>
+          </Card>
+
+          <Card 
+            className="cursor-pointer transition-all hover:border-primary/50 hover:shadow-md"
+            onClick={() => navigate('/executions')}
+          >
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">Executions Today</CardTitle>
+              <Play className="h-4 w-4 text-secondary" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{stats.executionsToday}</div>
+            </CardContent>
+          </Card>
+
+          <Card 
+            className={`cursor-pointer transition-all hover:shadow-md ${filterActive ? 'border-primary bg-primary/5' : 'hover:border-primary/50'}`}
+            onClick={() => {
+              setFilterActive(!filterActive);
+              setWorkflowsLoading(true);
+            }}
+          >
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">Active Workflows</CardTitle>
+              <Activity className={`h-4 w-4 ${filterActive ? 'text-primary' : 'text-success'}`} />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{stats.active}</div>
+              {filterActive && (
+                <p className="text-xs text-muted-foreground mt-1">Click to show all</p>
+              )}
+            </CardContent>
+          </Card>
         </div>
 
         {/* Workflows Section */}
         <div className="mb-8">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-2xl font-bold">Your Workflows</h2>
+            <h2 className="text-2xl font-bold">
+              {filterActive ? 'Active Workflows' : 'Your Workflows'}
+            </h2>
             {workflows.length > 0 && (
               <Button variant="outline" onClick={() => navigate('/workflows')}>
                 View All

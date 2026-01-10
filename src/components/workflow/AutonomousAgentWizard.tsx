@@ -2,7 +2,7 @@ import { useNavigate } from 'react-router-dom';
 import { useState } from 'react';
 import {
     Bot, ArrowRight, AlertCircle,
-    Settings2, CheckCircle2, Play, RefreshCw, Layers, Sparkles, Loader2, Check
+    Settings2, CheckCircle2, Play, RefreshCw, Layers, Sparkles, Loader2, Check, Sun, Moon
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -17,6 +17,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useWorkflowStore } from '@/stores/workflowStore';
 import { motion, AnimatePresence } from 'framer-motion';
 import { validateAndFixWorkflow } from '@/lib/workflowValidation';
+import { useTheme } from '@/hooks/useTheme';
 
 type WizardStep = 'idle' | 'analyzing' | 'questioning' | 'refining' | 'confirmation' | 'building' | 'complete';
 
@@ -53,9 +54,41 @@ export function AutonomousAgentWizard() {
     const [requirementValues, setRequirementValues] = useState<Record<string, string>>({});
     const [buildingLogs, setBuildingLogs] = useState<string[]>([]);
     const [generatedWorkflowId, setGeneratedWorkflowId] = useState<string | null>(null);
+    const [progress, setProgress] = useState(0);
+    const [currentPhase, setCurrentPhase] = useState<string>('');
+    const [isComplete, setIsComplete] = useState(false);
     const { toast } = useToast();
     const { setNodes, setEdges } = useWorkflowStore();
+    const { theme, toggleTheme } = useTheme();
     const navigate = useNavigate();
+
+    // Map backend phases to progress ranges
+    const getProgressForPhase = (phase: string): number => {
+        const phaseMap: Record<string, number> = {
+            'understand': 15,      // 0-30% range
+            'planning': 50,        // 30-70% range
+            'construction': 80,    // 70-95% range
+            'validation': 92,      // 95-99% range
+            'verification': 97,    // 95-99% range
+            'healing': 85,         // Recovery phase
+            'learning': 98,        // Final cleanup
+        };
+        return phaseMap[phase] || 0;
+    };
+
+    // Map phases to user-friendly descriptions
+    const getPhaseDescription = (phase: string): string => {
+        const descriptions: Record<string, string> = {
+            'understand': 'Analyzing user prompt',
+            'planning': 'Designing workflow structure',
+            'construction': 'Finalizing nodes and connections',
+            'validation': 'Validating consistency',
+            'verification': 'Running final checks',
+            'healing': 'Resolving issues',
+            'learning': 'Finalizing workflow',
+        };
+        return descriptions[phase] || 'Processing...';
+    };
 
     const handleAnalyze = async () => {
         if (!prompt.trim()) return;
@@ -107,55 +140,219 @@ export function AutonomousAgentWizard() {
 
     const handleBuild = async () => {
         setStep('building');
+        setProgress(0);
+        setIsComplete(false);
+        setCurrentPhase('');
         setBuildingLogs(['Initializing Autonomous Agent...', 'Loading Node Library...', 'Synthesizing Requirements...']);
-
-        setTimeout(() => setBuildingLogs(prev => [...prev, 'Constructing Workflow Graph...']), 1500);
-        setTimeout(() => setBuildingLogs(prev => [...prev, 'Validating Node Connections...']), 3000);
+        
+        // Fallback: Gradually increase progress if backend doesn't send updates
+        let fallbackProgressInterval: NodeJS.Timeout | null = null;
+        const startFallbackProgress = () => {
+            fallbackProgressInterval = setInterval(() => {
+                setProgress(prev => {
+                    // Cap at 95% until completion
+                    if (prev >= 95) return prev;
+                    // Gradually increase, slower as we approach 95%
+                    const increment = prev < 30 ? 2 : prev < 70 ? 1.5 : 0.5;
+                    return Math.min(95, prev + increment);
+                });
+            }, 500);
+        };
+        
+        const stopFallbackProgress = () => {
+            if (fallbackProgressInterval) {
+                clearInterval(fallbackProgressInterval);
+                fallbackProgressInterval = null;
+            }
+        };
 
         try {
             const config = { ...requirementValues };
+            
+            // Get Supabase URL and session token
+            const { data: { session } } = await supabase.auth.getSession();
+            const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+            
+            if (!supabaseUrl) {
+                throw new Error('Supabase URL not configured');
+            }
 
-            const { data, error } = await supabase.functions.invoke('generate-workflow', {
-                body: {
+            // Use streaming mode to get real-time progress
+            const response = await fetch(`${supabaseUrl}/functions/v1/generate-workflow`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${session?.access_token || ''}`,
+                    'x-stream-progress': 'true',
+                },
+                body: JSON.stringify({
                     prompt: refinement?.refinedPrompt,
                     mode: 'create',
                     config: config
-                }
+                })
             });
 
-            if (error) throw error;
+            if (!response.ok) {
+                const error = await response.json();
+                throw new Error(error.error || error.message || 'Failed to generate workflow');
+            }
 
-            // Save to DB
-            const { data: { user } } = await supabase.auth.getUser();
-            const workflowData = {
-                name: analysis?.summary.substring(0, 50) || 'AI Generated Workflow',
-                nodes: data.nodes,
-                edges: data.edges,
-                user_id: user?.id,
-                updated_at: new Date().toISOString(),
-            };
-
-            const { data: savedWorkflow, error: saveError } = await supabase
-                .from('workflows')
-                .insert(workflowData)
-                .select()
-                .single();
-
-            if (saveError) throw saveError;
-
-            setGeneratedWorkflowId(savedWorkflow.id);
+            const reader = response.body?.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+            let finalData: any = null;
             
-            // Normalize nodes to include label, category, icon, etc.
-            const normalized = validateAndFixWorkflow(data);
-            setNodes(normalized.nodes);
-            setEdges(normalized.edges);
+            // Start fallback progress if streaming doesn't provide updates
+            startFallbackProgress();
 
-            setTimeout(() => {
-                setBuildingLogs(prev => [...prev, 'Workflow Generated Successfully!', 'Verifying Logic...']);
-                setStep('complete');
-            }, 4000);
+            if (reader) {
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+
+                    buffer += decoder.decode(value, { stream: true });
+                    const lines = buffer.split('\n');
+                    buffer = lines.pop() || '';
+
+                    for (const line of lines) {
+                        if (!line.trim()) continue;
+
+                        try {
+                            const update = JSON.parse(line);
+                            
+                            // Handle progress updates
+                            if (update.current_phase) {
+                                // Stop fallback progress when we get real updates
+                                stopFallbackProgress();
+                                
+                                setCurrentPhase(update.current_phase);
+                                
+                                // Use backend progress_percentage if available, otherwise calculate from phase
+                                let actualProgress = 0;
+                                if (update.progress_percentage !== undefined) {
+                                    actualProgress = Math.min(99, Math.max(0, update.progress_percentage));
+                                } else {
+                                    actualProgress = Math.min(99, getProgressForPhase(update.current_phase));
+                                }
+                                
+                                setProgress(prev => Math.max(prev, actualProgress));
+                                
+                                const phaseDesc = getPhaseDescription(update.current_phase);
+                                setBuildingLogs(prev => {
+                                    if (prev.includes(phaseDesc)) return prev;
+                                    return [...prev, phaseDesc];
+                                });
+                            }
+                            
+                            // Handle completion
+                            if (update.status === 'completed' || (update.nodes && update.edges)) {
+                                // Stop fallback progress
+                                stopFallbackProgress();
+                                
+                                finalData = update;
+                                setProgress(100);
+                                setIsComplete(true);
+                                setBuildingLogs(prev => [...prev, 'Workflow Generated Successfully!']);
+                                
+                                // Normalize and save immediately
+                                const { data: { user } } = await supabase.auth.getUser();
+                                const normalized = validateAndFixWorkflow({ nodes: update.nodes, edges: update.edges });
+                                
+                                const workflowData = {
+                                    name: analysis?.summary.substring(0, 50) || 'AI Generated Workflow',
+                                    nodes: normalized.nodes,
+                                    edges: normalized.edges,
+                                    user_id: user?.id,
+                                    updated_at: new Date().toISOString(),
+                                };
+
+                                const { data: savedWorkflow, error: saveError } = await supabase
+                                    .from('workflows')
+                                    .insert(workflowData)
+                                    .select()
+                                    .single();
+
+                                if (saveError) throw saveError;
+
+                                setGeneratedWorkflowId(savedWorkflow.id);
+                                setNodes(normalized.nodes);
+                                setEdges(normalized.edges);
+                                
+                                // Immediately show completion
+                                setStep('complete');
+                                return;
+                            }
+                            
+                            // Handle errors
+                            if (update.status === 'error') {
+                                throw new Error(update.error || 'Workflow generation failed');
+                            }
+                        } catch (parseErr) {
+                            // Skip malformed JSON lines (might be partial data)
+                            console.warn('Failed to parse progress update:', line);
+                        }
+                    }
+                }
+            }
+
+            // If we didn't get completion via stream, check if we have final data
+            // (Backend might send final workflow data without explicit completion status)
+            if (!finalData) {
+                // Fallback: If streaming didn't work, use regular invoke
+                const { data, error } = await supabase.functions.invoke('generate-workflow', {
+                    body: {
+                        prompt: refinement?.refinedPrompt,
+                        mode: 'create',
+                        config: requirementValues
+                    }
+                });
+
+                if (error) throw error;
+                
+                finalData = data;
+                
+                // Show progress completion immediately
+                setProgress(100);
+                setIsComplete(true);
+                setBuildingLogs(prev => [...prev, 'Workflow Generated Successfully!']);
+            }
+
+            // Save workflow to database
+            if (finalData && finalData.nodes && finalData.edges) {
+                const { data: { user } } = await supabase.auth.getUser();
+                const normalized = validateAndFixWorkflow({ nodes: finalData.nodes, edges: finalData.edges });
+                
+                const workflowData = {
+                    name: analysis?.summary.substring(0, 50) || 'AI Generated Workflow',
+                    nodes: normalized.nodes,
+                    edges: normalized.edges,
+                    user_id: user?.id,
+                    updated_at: new Date().toISOString(),
+                };
+
+                const { data: savedWorkflow, error: saveError } = await supabase
+                    .from('workflows')
+                    .insert(workflowData)
+                    .select()
+                    .single();
+
+                if (saveError) throw saveError;
+
+                setGeneratedWorkflowId(savedWorkflow.id);
+                setNodes(normalized.nodes);
+                setEdges(normalized.edges);
+            }
+            
+            // Stop fallback progress and show completion when 100% is reached
+            stopFallbackProgress();
+            setProgress(100);
+            setIsComplete(true);
+            setStep('complete');
 
         } catch (err: any) {
+            // Clean up fallback progress on error
+            stopFallbackProgress();
+            
             console.error(err);
             toast({ title: 'Build Failed', description: err.message, variant: 'destructive' });
             setStep('confirmation');
@@ -170,33 +367,49 @@ export function AutonomousAgentWizard() {
         setAnswers({});
         setBuildingLogs([]);
         setGeneratedWorkflowId(null);
+        setProgress(0);
+        setCurrentPhase('');
+        setIsComplete(false);
     };
 
     return (
-        <div className="fixed inset-0 z-50 bg-[#0F1117] text-slate-100 font-sans flex flex-col">
+        <div className="fixed inset-0 z-50 bg-background text-foreground font-sans flex flex-col">
             {/* Header */}
-            <div className="p-6 border-b border-slate-800 bg-[#161922] flex justify-between items-center shrink-0">
+            <div className="p-6 border-b border-border bg-card flex justify-between items-center shrink-0">
                 <div className="flex items-center gap-3">
-                    <div className="h-10 w-10 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-glow">
+                    <div className="h-10 w-10 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-lg">
                         <Bot className="h-6 w-6 text-white" />
                     </div>
                     <div>
                         <h2 className="text-lg font-semibold bg-gradient-to-r from-indigo-400 to-purple-400 bg-clip-text text-transparent">
                             Autonomous Workflow Agent
                         </h2>
-                        <p className="text-xs text-slate-400">Multi-Agent System • v2.5</p>
+                        <p className="text-xs text-muted-foreground">Multi-Agent System • v2.5</p>
                     </div>
                 </div>
                 <div className="flex items-center gap-4">
-                    <Badge variant="outline" className="bg-slate-900 border-slate-700 text-slate-400 h-8 px-3">
+                    <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={toggleTheme}
+                        className="rounded-full"
+                        title={theme === "light" ? "Switch to dark mode" : "Switch to light mode"}
+                    >
+                        {theme === "light" ? (
+                            <Moon className="h-5 w-5" />
+                        ) : (
+                            <Sun className="h-5 w-5" />
+                        )}
+                    </Button>
+                    <Badge variant="outline" className="h-8 px-3">
                         {step === 'idle' ? 'Ready' : step === 'complete' ? 'Completed' : 'Processing'}
                     </Badge>
-                    <Button variant="ghost" className="text-slate-400 hover:text-white" onClick={() => navigate('/workflows')}>Close</Button>
+                    <Button variant="ghost" onClick={() => navigate('/workflows')}>Close</Button>
                 </div>
             </div>
 
             {/* Content */}
-            <div className="flex-1 overflow-y-auto p-6 bg-slate-950/50">
+            <div className="flex-1 overflow-y-auto p-6 bg-background/50">
                 <AnimatePresence mode="wait">
 
                     {/* STEP 1: IDLE */}
@@ -206,14 +419,14 @@ export function AutonomousAgentWizard() {
                             className="flex flex-col gap-6 max-w-2xl mx-auto mt-10"
                         >
                             <div className="text-center space-y-2">
-                                <h3 className="text-3xl font-bold bg-gradient-to-br from-white to-slate-400 bg-clip-text text-transparent">What would you like to automate?</h3>
-                                <p className="text-slate-400 text-lg">Describe your task in natural language. The agents will handle the rest.</p>
+                                <h3 className="text-3xl font-bold bg-gradient-to-br from-foreground to-muted-foreground bg-clip-text text-transparent">What would you like to automate?</h3>
+                                <p className="text-muted-foreground text-lg">Describe your task in natural language. The agents will handle the rest.</p>
                             </div>
                             <div className="relative group">
                                 <div className="absolute -inset-1 bg-gradient-to-r from-indigo-500 to-purple-600 rounded-lg blur opacity-25 group-hover:opacity-50 transition duration-1000 group-hover:duration-200"></div>
                                 <Textarea
                                     placeholder="e.g. Post to Instagram every morning at 9 AM with a tech tip..."
-                                    className="relative min-h-[150px] bg-slate-900 border-slate-700 resize-none p-6 text-lg focus-visible:ring-indigo-500 rounded-lg shadow-xl"
+                                    className="relative min-h-[150px] bg-card border-border resize-none p-6 text-lg focus-visible:ring-indigo-500 rounded-lg shadow-xl"
                                     value={prompt}
                                     onChange={(e) => setPrompt(e.target.value)}
                                 />
@@ -228,7 +441,7 @@ export function AutonomousAgentWizard() {
 
                             <div className="grid grid-cols-3 gap-4 mt-8">
                                 {['Social Media Automation', 'Data Syncing', 'Report Generation'].map((i) => (
-                                    <div key={i} className="p-4 rounded-lg border border-slate-800 bg-slate-900/30 hover:bg-slate-800/50 cursor-pointer transition-all hover:border-indigo-500/50 hover:scale-[1.02] text-center text-sm text-slate-400" onClick={() => setPrompt(`Create a workflow for ${i.toLowerCase()}`)}>
+                                    <div key={i} className="p-4 rounded-lg border border-border bg-card/30 hover:bg-muted/50 cursor-pointer transition-all hover:border-indigo-500/50 hover:scale-[1.02] text-center text-sm text-muted-foreground" onClick={() => setPrompt(`Create a workflow for ${i.toLowerCase()}`)}>
                                         {i}
                                     </div>
                                 ))}
@@ -248,7 +461,7 @@ export function AutonomousAgentWizard() {
                             </div>
                             <div className="text-center space-y-2">
                                 <h3 className="text-xl font-medium">Analyzing Requirements...</h3>
-                                <p className="text-slate-500 text-sm max-w-md mx-auto">
+                                <p className="text-muted-foreground text-sm max-w-md mx-auto">
                                     Decomposing your request into logical steps and identifying necessary integrations.
                                 </p>
                             </div>
@@ -261,7 +474,7 @@ export function AutonomousAgentWizard() {
                             initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}
                             className="flex flex-col gap-6 max-w-3xl mx-auto pb-10"
                         >
-                            <Card className="bg-slate-900 border-slate-800 shadow-xl overflow-hidden">
+                            <Card className="shadow-xl overflow-hidden">
                                 <div className="h-1 w-full bg-gradient-to-r from-indigo-500 to-purple-500" />
                                 <CardHeader>
                                     <CardTitle className="flex items-center gap-2 text-indigo-400">
@@ -269,7 +482,7 @@ export function AutonomousAgentWizard() {
                                     </CardTitle>
                                 </CardHeader>
                                 <CardContent>
-                                    <p className="text-slate-300 leading-relaxed text-lg">{analysis.summary}</p>
+                                    <p className="text-foreground leading-relaxed text-lg">{analysis.summary}</p>
                                 </CardContent>
                             </Card>
 
@@ -280,9 +493,9 @@ export function AutonomousAgentWizard() {
                                 </h3>
                                 <div className="grid gap-4">
                                     {analysis.questions.map((q) => (
-                                        <Card key={q.id} className="bg-slate-900/50 border-slate-800 hover:border-slate-700 transition-colors">
+                                        <Card key={q.id} className="hover:border-border transition-colors">
                                             <CardHeader className="pb-3">
-                                                <CardTitle className="text-base text-slate-200">{q.text}</CardTitle>
+                                                <CardTitle className="text-base">{q.text}</CardTitle>
                                             </CardHeader>
                                             <CardContent>
                                                 <RadioGroup
@@ -291,9 +504,9 @@ export function AutonomousAgentWizard() {
                                                     className="grid grid-cols-1 md:grid-cols-2 gap-3"
                                                 >
                                                     {q.options.map((opt) => (
-                                                        <div key={opt} className={`group flex items-center space-x-2 border p-3 rounded-md transition-all cursor-pointer ${answers[q.id] === opt ? 'border-indigo-500 bg-indigo-500/10' : 'border-slate-800 hover:border-slate-700'}`}>
-                                                            <RadioGroupItem value={opt} id={`${q.id}-${opt}`} className="border-slate-500 text-indigo-500" />
-                                                            <Label htmlFor={`${q.id}-${opt}`} className="cursor-pointer flex-1 text-slate-300 group-hover:text-white transition-colors">{opt}</Label>
+                                                        <div key={opt} className={`group flex items-center space-x-2 border p-3 rounded-md transition-all cursor-pointer ${answers[q.id] === opt ? 'border-indigo-500 bg-indigo-500/10' : 'border-border hover:bg-muted'}`}>
+                                                            <RadioGroupItem value={opt} id={`${q.id}-${opt}`} className="text-indigo-500" />
+                                                            <Label htmlFor={`${q.id}-${opt}`} className="cursor-pointer flex-1 transition-colors">{opt}</Label>
                                                         </div>
                                                     ))}
                                                 </RadioGroup>
@@ -328,20 +541,20 @@ export function AutonomousAgentWizard() {
                         >
                             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                                 <div className="lg:col-span-2 space-y-6">
-                                    <Card className="bg-slate-900 border-indigo-500/30 shadow-lg">
+                                    <Card className="border-indigo-500/30 shadow-lg">
                                         <CardHeader>
                                             <CardTitle className="text-indigo-400">Final Execution Plan</CardTitle>
                                             <CardDescription>Based on your requirements</CardDescription>
                                         </CardHeader>
                                         <CardContent>
-                                            <div className="bg-black/40 p-6 rounded-md text-sm text-slate-300 font-mono whitespace-pre-wrap leading-relaxed border border-white/5">
+                                            <div className="bg-muted/40 p-6 rounded-md text-sm text-foreground font-mono whitespace-pre-wrap leading-relaxed border border-border">
                                                 {refinement.refinedPrompt}
                                             </div>
                                         </CardContent>
                                     </Card>
 
                                     {refinement.requirements.length > 0 && (
-                                        <Card className="bg-slate-900 border-amber-500/20 shadow-lg">
+                                        <Card className="border-amber-500/20 shadow-lg">
                                             <CardHeader>
                                                 <CardTitle className="text-amber-400 flex items-center gap-2">
                                                     <Settings2 className="h-5 w-5" /> Logic Config
@@ -349,11 +562,11 @@ export function AutonomousAgentWizard() {
                                             </CardHeader>
                                             <CardContent className="space-y-6">
                                                 <RadioGroup value={requirementsMode} onValueChange={(v: any) => setRequirementsMode(v)} className="flex flex-wrap gap-4 p-1">
-                                                    <div className={`flex items-center space-x-2 px-4 py-3 rounded-lg border transition-all cursor-pointer ${requirementsMode === 'ai' ? 'bg-indigo-500/20 border-indigo-500' : 'bg-slate-950 border-slate-800'}`}>
+                                                    <div className={`flex items-center space-x-2 px-4 py-3 rounded-lg border transition-all cursor-pointer ${requirementsMode === 'ai' ? 'bg-indigo-500/20 border-indigo-500' : 'bg-muted/30 border-border'}`}>
                                                         <RadioGroupItem value="ai" id="mode-ai" className="text-indigo-500" />
                                                         <Label htmlFor="mode-ai" className="cursor-pointer font-medium">Let AI handle everything (Auto)</Label>
                                                     </div>
-                                                    <div className={`flex items-center space-x-2 px-4 py-3 rounded-lg border transition-all cursor-pointer ${requirementsMode === 'manual' ? 'bg-indigo-500/20 border-indigo-500' : 'bg-slate-950 border-slate-800'}`}>
+                                                    <div className={`flex items-center space-x-2 px-4 py-3 rounded-lg border transition-all cursor-pointer ${requirementsMode === 'manual' ? 'bg-indigo-500/20 border-indigo-500' : 'bg-muted/30 border-border'}`}>
                                                         <RadioGroupItem value="manual" id="mode-manual" className="text-indigo-500" />
                                                         <Label htmlFor="mode-manual" className="cursor-pointer font-medium">I'll Configure (Manual)</Label>
                                                     </div>
@@ -363,10 +576,10 @@ export function AutonomousAgentWizard() {
                                                     <div className="grid gap-4 animate-in fade-in slide-in-from-bottom-2">
                                                         {refinement.requirements.map(req => (
                                                             <div key={req.key} className="gap-2 grid">
-                                                                <Label className="text-slate-300">{req.label}</Label>
+                                                                <Label>{req.label}</Label>
                                                                 <Input
                                                                     placeholder={req.description}
-                                                                    className="bg-slate-950 border-slate-700 h-10"
+                                                                    className="h-10"
                                                                     value={requirementValues[req.key] || ''}
                                                                     onChange={(e) => setRequirementValues({ ...requirementValues, [req.key]: e.target.value })}
                                                                 />
@@ -384,7 +597,7 @@ export function AutonomousAgentWizard() {
                                         <h4 className="font-semibold text-green-400 mb-2 flex items-center gap-2">
                                             <CheckCircle2 className="h-5 w-5" /> Ready to Build
                                         </h4>
-                                        <p className="text-sm text-slate-400 leading-relaxed">
+                                        <p className="text-sm text-muted-foreground leading-relaxed">
                                             The agent has all necessary information.
                                             {requirementsMode === 'ai' ? ' Credentials and URLs will be inferred or set to intelligent defaults.' : ' Using provided configuration.'}
                                         </p>
@@ -404,22 +617,29 @@ export function AutonomousAgentWizard() {
                             className="flex flex-col items-center justify-center h-[60vh] max-w-2xl mx-auto w-full gap-8"
                         >
                             <div className="w-full space-y-4">
-                                <div className="flex justify-between text-sm font-medium text-slate-400">
-                                    <span>Workflow Generation Progress</span>
-                                    <span className="text-indigo-400">{Math.min(100, buildingLogs.length * 25)}%</span>
+                                <div className="flex justify-between items-center text-sm font-medium">
+                                    <div className="flex flex-col gap-1">
+                                        <span className="text-foreground">Workflow Generation Progress</span>
+                                        {currentPhase && (
+                                            <span className="text-xs text-muted-foreground">{getPhaseDescription(currentPhase)}</span>
+                                        )}
+                                    </div>
+                                    <span className="text-indigo-400 font-semibold">
+                                        {isComplete ? '100%' : `${Math.min(99, progress)}%`}
+                                    </span>
                                 </div>
-                                <div className="h-3 w-full bg-slate-800 rounded-full overflow-hidden shadow-inner">
+                                <div className="h-3 w-full bg-muted rounded-full overflow-hidden shadow-inner">
                                     <motion.div
                                         className="h-full bg-gradient-to-r from-indigo-500 to-purple-500"
                                         initial={{ width: "0%" }}
-                                        animate={{ width: `${Math.min(100, buildingLogs.length * 25)}%` }}
-                                        transition={{ duration: 0.5 }}
+                                        animate={{ width: `${isComplete ? 100 : Math.min(99, progress)}%` }}
+                                        transition={{ duration: 0.3, ease: "linear" }}
                                     />
                                 </div>
                             </div>
 
-                            <Card className="w-full bg-black/40 border-slate-800 font-mono text-xs h-80 overflow-hidden flex flex-col shadow-2xl">
-                                <div className="p-3 border-b border-slate-800 text-slate-500 bg-slate-900/50 flex items-center gap-2">
+                            <Card className="w-full bg-card/40 border-border font-mono text-xs h-80 overflow-hidden flex flex-col shadow-2xl">
+                                <div className="p-3 border-b border-border text-muted-foreground bg-muted/50 flex items-center gap-2">
                                     <div className="flex gap-1.5">
                                         <div className="w-2.5 h-2.5 rounded-full bg-red-500/20" />
                                         <div className="w-2.5 h-2.5 rounded-full bg-yellow-500/20" />
@@ -434,10 +654,10 @@ export function AutonomousAgentWizard() {
                                                 key={i}
                                                 initial={{ opacity: 0, x: -10 }}
                                                 animate={{ opacity: 1, x: 0 }}
-                                                className="flex items-start gap-3 border-l-2 border-slate-800 pl-3 py-0.5"
+                                                className="flex items-start gap-3 border-l-2 border-border pl-3 py-0.5"
                                             >
-                                                <span className="text-slate-600 shrink-0">[{new Date().toLocaleTimeString()}]</span>
-                                                <span className={log.includes('Success') ? 'text-green-400' : 'text-slate-300'}>{log}</span>
+                                                <span className="text-muted-foreground shrink-0">[{new Date().toLocaleTimeString()}]</span>
+                                                <span className={log.includes('Success') ? 'text-green-400' : 'text-foreground'}>{log}</span>
                                             </motion.div>
                                         ))}
                                         <div className="pl-3 animate-pulse text-indigo-400">_</div>
@@ -458,18 +678,22 @@ export function AutonomousAgentWizard() {
                                 <Check className="h-16 w-16 text-green-500 relative z-10" />
                             </div>
                             <div>
-                                <h2 className="text-4xl font-bold text-white mb-4">Workflow Created!</h2>
-                                <p className="text-slate-400 max-w-md mx-auto text-lg">
+                                <h2 className="text-4xl font-bold text-foreground mb-2">✅ Workflow Ready</h2>
+                                <p className="text-muted-foreground max-w-md mx-auto text-lg">
                                     Your autonomous agent has successfully built and validated the workflow.
                                 </p>
                             </div>
                             <div className="flex gap-4 mt-4">
-                                <Button variant="outline" onClick={reset} className="border-slate-700 hover:bg-slate-800 h-12 px-6">
+                                <Button 
+                                    onClick={reset} 
+                                    className="bg-card border-2 border-border text-foreground hover:bg-muted hover:border-border/80 h-12 px-6 font-semibold transition-all shadow-lg"
+                                >
                                     <RefreshCw className="mr-2 h-4 w-4" /> Create Another
                                 </Button>
                                 <Button
                                     onClick={() => generatedWorkflowId && navigate(`/workflow/${generatedWorkflowId}`)}
-                                    className="bg-white text-black hover:bg-slate-200 h-12 px-8 font-semibold shadow-xl shadow-white/10"
+                                    className="bg-primary text-primary-foreground hover:bg-primary/90 h-12 px-8 font-semibold shadow-xl shadow-primary/10 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                                    disabled={!generatedWorkflowId}
                                 >
                                     View Workflow <ArrowRight className="ml-2 h-4 w-4" />
                                 </Button>
