@@ -1,5 +1,5 @@
 import { useWorkflowStore } from '@/stores/workflowStore';
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { getNodeDefinition, ConfigField } from './nodeTypes';
 import { NODE_USAGE_GUIDES } from './nodeUsageGuides';
 import { Input } from '@/components/ui/input';
@@ -14,16 +14,19 @@ import NodeUsageCard from './NodeUsageCard';
 import GoogleSheetsSettings from './GoogleSheetsSettings';
 import FormNodeSettings from './FormNodeSettings';
 import { supabase } from '@/integrations/supabase/client';
-import { Copy, ExternalLink } from 'lucide-react';
+import { Copy, ExternalLink, Bot, Send, Loader2, Sparkles } from 'lucide-react';
 import {
-  Trash2, X, Play, Webhook, Clock, Globe, Brain, Sparkles, Gem, Link,
+  Trash2, X, Play, Webhook, Clock, Globe, Brain, Gem, Link,
   GitBranch, GitMerge, Repeat, Timer, ShieldAlert, Code, Braces, Table,
-  Type, Combine, Send, Mail, MessageSquare, Database, Box, FileText, Heart,
+  Type, Combine, Mail, MessageSquare, Database, Box, FileText, Heart,
   Filter, Variable, Hash, MessageCircle, DatabaseZap, FileOutput, HelpCircle,
   XCircle, Layers, Edit, Edit3, Tag, Code2, ListChecks, ArrowUpDown, List, Terminal,
   Calculator, Lock, Rss, Target
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { cn } from '@/lib/utils';
+import { validateAndFixWorkflow } from '@/lib/workflowValidation';
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 
 const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
   Play, Webhook, Clock, Globe, Brain, Sparkles, Gem, Link, GitBranch,
@@ -38,9 +41,21 @@ interface PropertiesPanelProps {
   onClose?: () => void;
 }
 
+interface Message {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  timestamp: Date;
+}
+
+type ViewMode = 'properties' | 'ai-editor';
+
 export default function PropertiesPanel({ onClose }: PropertiesPanelProps) {
-  const { selectedNode, selectNode, updateNodeConfig, deleteSelectedNode, workflowId } = useWorkflowStore();
+  const { selectedNode, selectNode, updateNodeConfig, deleteSelectedNode, workflowId, nodes, edges, setNodes, setEdges } = useWorkflowStore();
   const { toast } = useToast();
+
+  // View mode state - default to properties
+  const [viewMode, setViewMode] = useState<ViewMode>('properties');
 
   // Resizable sidebar state
   const [width, setWidth] = useState(400); // Increased default width from 320px (w-80) to 400px
@@ -53,12 +68,180 @@ export default function PropertiesPanel({ onClose }: PropertiesPanelProps) {
   const [isWorkflowActive, setIsWorkflowActive] = useState(false);
   const [isSavingActivation, setIsSavingActivation] = useState(false);
 
+  // AI Editor state
+  const [aiMessages, setAiMessages] = useState<Message[]>([
+    {
+      id: 'welcome',
+      role: 'assistant',
+      content: 'Hi! I can help you edit this workflow. Try saying "Add a Slack node after success" or "Change the trigger to a schedule".',
+      timestamp: new Date(),
+    }
+  ]);
+  const [aiInput, setAiInput] = useState('');
+  const [isAiLoading, setIsAiLoading] = useState(false);
+  const aiScrollAreaRef = useRef<HTMLDivElement>(null);
+
   // Load workflow status when form node is selected
   useEffect(() => {
     if (selectedNode?.data.type === 'form' && workflowId) {
       loadWorkflowStatus();
     }
   }, [selectedNode?.data.type, workflowId]);
+
+  // Auto-scroll AI messages
+  useEffect(() => {
+    if (aiScrollAreaRef.current && viewMode === 'ai-editor') {
+      const scrollContainer = aiScrollAreaRef.current.querySelector('[data-radix-scroll-area-viewport]');
+      if (scrollContainer) {
+        scrollContainer.scrollTop = scrollContainer.scrollHeight;
+      }
+    }
+  }, [aiMessages, viewMode]);
+
+  // AI Editor send handler
+  const handleAiSend = async () => {
+    if (!aiInput.trim() || isAiLoading) return;
+
+    const userMessage: Message = {
+      id: Date.now().toString(),
+      role: 'user',
+      content: aiInput,
+      timestamp: new Date(),
+    };
+
+    setAiMessages(prev => [...prev, userMessage]);
+    setAiInput('');
+    setIsAiLoading(true);
+
+    try {
+      const currentWorkflow = {
+        nodes: nodes.map(n => {
+          const cleanedNode: any = {
+            id: n.id,
+            type: n.type || n.data?.type,
+            position: n.position,
+            data: {
+              type: n.type || n.data?.type,
+              label: n.data?.label || n.type || 'Node',
+            }
+          };
+          
+          if (n.data?.config) {
+            cleanedNode.config = {};
+            for (const [key, value] of Object.entries(n.data.config)) {
+              if (value !== null && value !== undefined) {
+                if (typeof value === 'object') {
+                  cleanedNode.config[key] = JSON.stringify(value);
+                } else {
+                  cleanedNode.config[key] = String(value);
+                }
+              }
+            }
+          }
+          
+          return cleanedNode;
+        }),
+        edges: edges.map(e => ({
+          id: e.id,
+          source: e.source,
+          target: e.target,
+          sourceHandle: e.sourceHandle || undefined,
+          targetHandle: e.targetHandle || undefined,
+        }))
+      };
+
+      if (!Array.isArray(currentWorkflow.nodes) || currentWorkflow.nodes.length === 0) {
+        throw new Error('Current workflow has no nodes. Please add at least one node before using AI edit.');
+      }
+
+      let executionHistory: any[] = [];
+      try {
+        if (workflowId) {
+          const { data: executions } = await supabase
+            .from('executions')
+            .select('id, status, error, logs, output, started_at')
+            .eq('workflow_id', workflowId)
+            .eq('status', 'failed')
+            .order('started_at', { ascending: false })
+            .limit(3);
+          
+          if (executions && executions.length > 0) {
+            executionHistory = executions.map(exec => ({
+              id: exec.id,
+              status: exec.status,
+              error: exec.error,
+              logs: exec.logs,
+              output: exec.output,
+              started_at: exec.started_at,
+            }));
+          }
+        }
+      } catch (execError) {
+        console.warn('Failed to fetch execution history:', execError);
+      }
+
+      const { data, error } = await supabase.functions.invoke('generate-workflow', {
+        body: {
+          prompt: userMessage.content.trim(),
+          mode: 'edit',
+          currentWorkflow: currentWorkflow,
+          executionHistory: executionHistory.length > 0 ? executionHistory : undefined,
+        },
+      });
+
+      if (error) {
+        const errorDetails = error.message || error.error || 'Unknown error';
+        throw new Error(`AI Edit Error: ${errorDetails}`);
+      }
+
+      if (data && data.nodes && data.edges) {
+        const validated = validateAndFixWorkflow(data);
+        
+        setNodes(validated.nodes);
+        setEdges(validated.edges);
+
+        const explanation = data.explanation || `I've updated the workflow based on your request.`;
+        const historyNote = executionHistory.length > 0 
+          ? '\n\n💡 Used execution history to help debug and fix issues.' 
+          : '';
+        
+        setAiMessages(prev => [...prev, {
+          id: Date.now().toString(),
+          role: 'assistant',
+          content: explanation + historyNote,
+          timestamp: new Date(),
+        }]);
+      } else {
+        throw new Error('Invalid response format');
+      }
+
+    } catch (error: any) {
+      console.error('AI Edit Error:', error);
+      
+      let errorMessage = 'Sorry, I encountered an error while processing your request.';
+      if (error?.message) {
+        errorMessage = `Error: ${error.message}`;
+      } else if (error?.error) {
+        errorMessage = `Error: ${error.error}`;
+      } else if (typeof error === 'string') {
+        errorMessage = `Error: ${error}`;
+      }
+      
+      setAiMessages(prev => [...prev, {
+        id: Date.now().toString(),
+        role: 'assistant',
+        content: errorMessage + ' Please try again or check the console for details.',
+        timestamp: new Date(),
+      }]);
+      toast({
+        title: 'Error',
+        description: errorMessage,
+        variant: 'destructive',
+      });
+    } finally {
+      setIsAiLoading(false);
+    }
+  };
 
   const loadWorkflowStatus = async () => {
     if (!workflowId) return;
@@ -165,39 +348,151 @@ export default function PropertiesPanel({ onClose }: PropertiesPanelProps) {
     };
   }, [resize, stopResizing]);
 
+  // Render AI Editor view
+  const renderAIEditor = () => (
+    <div className="flex-1 flex flex-col overflow-hidden">
+      <ScrollArea className="flex-1 px-4 py-3" ref={aiScrollAreaRef}>
+        <div className="space-y-3">
+          {aiMessages.map((msg) => (
+            <div
+              key={msg.id}
+              className={cn(
+                "flex flex-col gap-1 max-w-[85%]",
+                msg.role === 'user' ? "ml-auto items-end" : "mr-auto items-start"
+              )}
+            >
+              <div
+                className={cn(
+                  "px-3 py-2 rounded-sm text-xs leading-relaxed",
+                  msg.role === 'user'
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-muted/60 text-foreground/90 border border-border/40"
+                )}
+              >
+                {msg.content}
+              </div>
+              <span className="text-[10px] text-muted-foreground/60">
+                {msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+              </span>
+            </div>
+          ))}
+          {isAiLoading && (
+            <div className="flex flex-col gap-1 mr-auto items-start max-w-[85%]">
+              <div className="bg-muted/60 text-foreground/70 px-3 py-2 rounded-sm border border-border/40 flex items-center gap-2">
+                <Loader2 className="h-3 w-3 text-muted-foreground/60 animate-spin" />
+                <span className="text-xs">Processing...</span>
+              </div>
+            </div>
+          )}
+        </div>
+      </ScrollArea>
+
+      <div className="px-4 py-3 border-t border-border/40 bg-background">
+        <div className="flex gap-2">
+          <Input
+            placeholder="Describe your change..."
+            value={aiInput}
+            onChange={(e) => setAiInput(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleAiSend()}
+            disabled={isAiLoading}
+            className="flex-1 h-8 text-xs border-border/60 focus-visible:ring-1 focus-visible:ring-ring/50"
+          />
+          <Button 
+            size="icon" 
+            onClick={handleAiSend} 
+            disabled={isAiLoading || !aiInput.trim()}
+            className="h-8 w-8"
+          >
+            {isAiLoading ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Send className="h-3.5 w-3.5" />
+            )}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+
+  // Render empty state (no node selected) - show toggle buttons and appropriate view
   if (!selectedNode) {
     return (
       <div
-        className="border-l border-border bg-card h-full flex flex-col transition-all duration-75 relative"
+        className="relative bg-background h-full flex flex-col transition-all duration-150 relative border-l border-border/60"
         style={{ width: width, flexShrink: 0 }}
       >
         {/* Resize Handle */}
         <div
-          className="absolute left-0 top-0 bottom-0 w-1 cursor-ew-resize hover:bg-primary/50 transition-colors z-50"
+          className="absolute left-0 top-0 bottom-0 w-1 cursor-ew-resize hover:bg-border transition-colors duration-150 z-40"
           onMouseDown={startResizing}
         />
 
-        {/* Header with Close Button */}
-        <div className="p-4 border-b border-border flex items-center justify-between">
-          <h2 className="font-semibold text-sm">Node Properties</h2>
-          {onClose && (
-            <button
-              onClick={onClose}
-              className="h-6 w-6 flex items-center justify-center rounded hover:bg-muted transition-colors"
-              title="Close Properties Panel"
+        {/* Header with Professional Segmented Toggle */}
+        <div className="px-4 py-3 border-b border-border/40">
+          <div className="flex items-center justify-between gap-3">
+            <ToggleGroup
+              type="single"
+              value={viewMode}
+              onValueChange={(value) => value && setViewMode(value as ViewMode)}
+              className="justify-start flex-1"
             >
-              <X className="h-4 w-4 text-muted-foreground" />
-            </button>
-          )}
-        </div>
-
-        <div className="flex-1 flex items-center justify-center p-6">
-          <div className="text-center text-muted-foreground">
-            <HelpCircle className="h-8 w-8 mx-auto mb-3 opacity-50" />
-            <p className="text-sm font-medium">No node selected</p>
-            <p className="text-xs mt-1">Click on a node to view its properties and usage guide</p>
+              <ToggleGroupItem
+                value="properties"
+                aria-label="Node Properties"
+                className={cn(
+                  "h-7 px-3 text-xs font-medium border-0",
+                  "data-[state=on]:bg-muted/60 data-[state=on]:text-foreground",
+                  "data-[state=off]:text-muted-foreground/70",
+                  "hover:bg-muted/40 transition-colors duration-150",
+                  "rounded-sm"
+                )}
+              >
+                Properties
+              </ToggleGroupItem>
+              <ToggleGroupItem
+                value="ai-editor"
+                aria-label="AI Editor"
+                className={cn(
+                  "h-7 px-3 text-xs font-medium border-0",
+                  "data-[state=on]:bg-muted/60 data-[state=on]:text-foreground",
+                  "data-[state=off]:text-muted-foreground/70",
+                  "hover:bg-muted/40 transition-colors duration-150",
+                  "rounded-sm"
+                )}
+              >
+                AI Editor
+              </ToggleGroupItem>
+            </ToggleGroup>
+            {onClose && (
+              <button
+                onClick={onClose}
+                className={cn(
+                  "h-6 w-6 flex items-center justify-center rounded-sm flex-shrink-0",
+                  "text-muted-foreground/60 hover:text-foreground/80",
+                  "hover:bg-muted/40 transition-colors duration-150"
+                )}
+                title="Close panel"
+                aria-label="Close panel"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
           </div>
         </div>
+
+        {viewMode === 'properties' ? (
+          <div className="flex-1 flex items-center justify-center p-6">
+            <div className="text-center text-muted-foreground/70">
+              <HelpCircle className="h-7 w-7 mx-auto mb-3 opacity-40" />
+              <p className="text-xs font-medium text-foreground/70">No node selected</p>
+              <p className="text-xs mt-1.5 text-muted-foreground/60">
+                Click on a node to view its properties
+              </p>
+            </div>
+          </div>
+        ) : (
+          renderAIEditor()
+        )}
       </div>
     );
   }
@@ -303,7 +598,7 @@ export default function PropertiesPanel({ onClose }: PropertiesPanelProps) {
             value={value as string}
             onChange={(e) => handleConfigChange(field.key, e.target.value)}
             placeholder={field.placeholder}
-            className="h-9"
+            className="h-8 text-xs border-border/60 focus-visible:ring-1 focus-visible:ring-ring/50"
             onMouseDown={handleInputMouseDown}
             onFocus={(e) => e.stopPropagation()}
           />
@@ -317,7 +612,7 @@ export default function PropertiesPanel({ onClose }: PropertiesPanelProps) {
             value={value as string}
             onChange={(e) => handleConfigChange(field.key, e.target.value)}
             placeholder={field.placeholder || '09:00'}
-            className="h-9"
+            className="h-8 text-xs border-border/60 focus-visible:ring-1 focus-visible:ring-ring/50"
             onMouseDown={handleInputMouseDown}
             onFocus={(e) => e.stopPropagation()}
           />
@@ -331,7 +626,7 @@ export default function PropertiesPanel({ onClose }: PropertiesPanelProps) {
             value={typeof value === 'string' ? value : JSON.stringify(value, null, 2)}
             onChange={(e) => handleConfigChange(field.key, e.target.value)}
             placeholder={field.placeholder}
-            className="min-h-[100px] font-mono text-xs"
+            className="min-h-[100px] font-mono text-xs border-border/60 focus-visible:ring-1 focus-visible:ring-ring/50"
             onMouseDown={handleInputMouseDown}
             onFocus={(e) => e.stopPropagation()}
           />
@@ -345,7 +640,7 @@ export default function PropertiesPanel({ onClose }: PropertiesPanelProps) {
             value={value as number}
             onChange={(e) => handleConfigChange(field.key, parseFloat(e.target.value))}
             placeholder={field.placeholder}
-            className="h-9"
+            className="h-8 text-xs border-border/60 focus-visible:ring-1 focus-visible:ring-ring/50"
             onMouseDown={handleInputMouseDown}
             onFocus={(e) => e.stopPropagation()}
           />
@@ -357,7 +652,7 @@ export default function PropertiesPanel({ onClose }: PropertiesPanelProps) {
             value={value as string}
             onValueChange={(val) => handleConfigChange(field.key, val)}
           >
-            <SelectTrigger className="h-9">
+            <SelectTrigger className="h-8 text-xs border-border/60 focus:ring-1 focus:ring-ring/50">
               <SelectValue placeholder={`Select ${field.label.toLowerCase()}`} />
             </SelectTrigger>
             <SelectContent>
@@ -386,55 +681,104 @@ export default function PropertiesPanel({ onClose }: PropertiesPanelProps) {
 
   return (
     <div
-      className="border-l border-border bg-card h-full flex flex-col relative transition-all duration-75"
+      className="relative bg-background h-full flex flex-col transition-all duration-150 border-l border-border/60"
       style={{ width: width, flexShrink: 0 }}
     >
       {/* Resize Handle */}
       <div
-        className={`absolute left-0 top-0 bottom-0 w-1 cursor-ew-resize hover:bg-primary/50 transition-colors z-50 ${isResizing ? 'bg-primary' : ''}`}
+        className={cn(
+          "absolute left-0 top-0 bottom-0 w-1 cursor-ew-resize transition-colors duration-150 z-40",
+          isResizing ? 'bg-border' : 'hover:bg-border'
+        )}
         onMouseDown={startResizing}
       />
 
-      <div className="p-4 border-b border-border flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <IconComponent className="h-4 w-4 text-primary" />
-          <h2 className="font-semibold text-sm">Node Properties</h2>
-        </div>
+      {/* Header with Professional Segmented Toggle */}
+      <div className="px-4 py-3 border-b border-border/40 flex items-center justify-between gap-3">
+        <ToggleGroup
+          type="single"
+          value={viewMode}
+          onValueChange={(value) => value && setViewMode(value as ViewMode)}
+          className="justify-start flex-1"
+        >
+          <ToggleGroupItem
+            value="properties"
+            aria-label="Node Properties"
+            className={cn(
+              "h-7 px-3 text-xs font-medium border-0",
+              "data-[state=on]:bg-muted/60 data-[state=on]:text-foreground",
+              "data-[state=off]:text-muted-foreground/70",
+              "hover:bg-muted/40 transition-colors duration-150",
+              "rounded-sm"
+            )}
+          >
+            Properties
+          </ToggleGroupItem>
+          <ToggleGroupItem
+            value="ai-editor"
+            aria-label="AI Editor"
+            className={cn(
+              "h-7 px-3 text-xs font-medium border-0",
+              "data-[state=on]:bg-muted/60 data-[state=on]:text-foreground",
+              "data-[state=off]:text-muted-foreground/70",
+              "hover:bg-muted/40 transition-colors duration-150",
+              "rounded-sm"
+            )}
+          >
+            AI Editor
+          </ToggleGroupItem>
+        </ToggleGroup>
         <div className="flex items-center gap-1">
-          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => selectNode(null)} title="Deselect Node">
-            <X className="h-4 w-4" />
-          </Button>
+          {viewMode === 'properties' && (
+            <button
+              onClick={() => selectNode(null)}
+              className="h-6 w-6 flex items-center justify-center rounded-sm hover:bg-muted/50 transition-colors duration-150"
+              title="Deselect node"
+              aria-label="Deselect node"
+            >
+              <X className="h-3.5 w-3.5 text-muted-foreground/70" />
+            </button>
+          )}
           {onClose && (
             <button
               onClick={onClose}
-              className="h-8 w-8 flex items-center justify-center rounded hover:bg-muted transition-colors"
-              title="Close Properties Panel"
+              className={cn(
+                "h-6 w-6 flex items-center justify-center rounded-sm flex-shrink-0",
+                "text-muted-foreground/60 hover:text-foreground/80",
+                "hover:bg-muted/40 transition-colors duration-150"
+              )}
+              title="Close panel"
+              aria-label="Close panel"
             >
-              <X className="h-4 w-4 text-muted-foreground" />
+              <X className="h-3.5 w-3.5" />
             </button>
           )}
         </div>
       </div>
 
-      <ScrollArea className="flex-1">
-        <div className="p-4 space-y-6">
+      {viewMode === 'properties' ? (
+        <>
+          <ScrollArea className="flex-1">
+            <div className="px-4 py-4 space-y-5">
           {/* Usage Guide Card - For All Nodes */}
           {NODE_USAGE_GUIDES[selectedNode.data.type] && (
-            <NodeUsageCard
-              guide={NODE_USAGE_GUIDES[selectedNode.data.type]}
-              nodeLabel={selectedNode.data.label}
-            />
+            <div className="mb-1">
+              <NodeUsageCard
+                guide={NODE_USAGE_GUIDES[selectedNode.data.type]}
+                nodeLabel={selectedNode.data.label}
+              />
+            </div>
           )}
 
           {/* Node Info */}
           <div className="space-y-3">
             <div>
-              <Label className="text-xs text-muted-foreground">Type</Label>
-              <p className="text-sm font-medium">{selectedNode.data.label || selectedNode.data.type || 'Unknown'}</p>
+              <Label className="text-xs font-medium text-muted-foreground/70">Type</Label>
+              <p className="text-xs font-medium text-foreground/90 mt-1">{selectedNode.data.label || selectedNode.data.type || 'Unknown'}</p>
             </div>
             <div>
-              <Label className="text-xs text-muted-foreground">Description</Label>
-              <p className="text-sm text-muted-foreground">{nodeDefinition?.description || 'No description available'}</p>
+              <Label className="text-xs font-medium text-muted-foreground/70">Description</Label>
+              <p className="text-xs text-muted-foreground/70 mt-1 leading-relaxed">{nodeDefinition?.description || 'No description available'}</p>
             </div>
           </div>
 
@@ -444,17 +788,17 @@ export default function PropertiesPanel({ onClose }: PropertiesPanelProps) {
               {/* Form Settings for Form Nodes - Show prominently at the top */}
               {selectedNode.data.type === 'form' && (
                 <div className="space-y-4">
-                  <h3 className="text-xs font-semibold uppercase text-muted-foreground tracking-wide">
+                  <h3 className="text-xs font-medium uppercase text-muted-foreground/70 tracking-wide">
                     Form Settings
                   </h3>
                   
                   {/* Activation Toggle */}
-                  <div className="flex items-center justify-between p-4 border rounded-lg bg-card">
+                  <div className="flex items-center justify-between p-3 border border-border/40 rounded-sm bg-muted/20">
                     <div className="space-y-0.5 flex-1">
-                      <Label htmlFor="form-activation" className="text-base font-semibold">
+                      <Label htmlFor="form-activation" className="text-xs font-medium text-foreground/90">
                         Activate Workflow
                       </Label>
-                      <p className="text-sm text-muted-foreground">
+                      <p className="text-xs text-muted-foreground/70 mt-1 leading-relaxed">
                         {isWorkflowActive 
                           ? "Workflow is active and waiting for form submissions"
                           : "Activate to start accepting form submissions"}
@@ -465,16 +809,17 @@ export default function PropertiesPanel({ onClose }: PropertiesPanelProps) {
                       checked={isWorkflowActive}
                       onCheckedChange={handleToggleActivation}
                       disabled={isSavingActivation || !workflowId}
+                      className="ml-3"
                     />
                   </div>
 
                   {/* Form URL Display */}
-                  <div className="space-y-3 p-4 bg-gradient-to-br from-blue-50 to-purple-50 dark:from-blue-950/30 dark:to-purple-950/30 rounded-lg border-2 border-blue-200 dark:border-blue-800">
-                    <div className="space-y-3">
+                  <div className="space-y-3 p-3 bg-muted/30 rounded-sm border border-border/40">
+                    <div className="space-y-2.5">
                       <div className="flex items-center gap-2">
-                        <Label className="text-sm font-semibold text-foreground">🔗 Form URL</Label>
+                        <Label className="text-xs font-medium text-foreground/90">Form URL</Label>
                         {!workflowId && (
-                          <span className="text-xs text-orange-600 dark:text-orange-400 font-medium">
+                          <span className="text-xs text-muted-foreground/70 font-medium">
                             (Save workflow first)
                           </span>
                         )}
@@ -482,15 +827,15 @@ export default function PropertiesPanel({ onClose }: PropertiesPanelProps) {
                       {workflowId ? (
                         <>
                           <div className="flex gap-2 items-center">
-                            <div className="flex-1 min-w-0 p-3 border-2 border-blue-300 dark:border-blue-700 rounded-md bg-background">
-                              <code className="text-xs font-mono break-all whitespace-normal text-foreground">
+                            <div className="flex-1 min-w-0 p-2 border border-border/40 rounded-sm bg-background">
+                              <code className="text-xs font-mono break-all whitespace-normal text-foreground/80">
                                 {`${window.location.origin}/form/${workflowId}/${selectedNode.id}`}
                               </code>
                             </div>
                             <Button
                               variant="outline"
                               size="icon"
-                              className="h-9 w-9 flex-shrink-0 border-blue-300 dark:border-blue-700 hover:bg-blue-100 dark:hover:bg-blue-900"
+                              className="h-8 w-8 flex-shrink-0 border-border/60 hover:bg-muted/60"
                               onClick={(e) => {
                                 e.stopPropagation();
                                 const url = `${window.location.origin}/form/${workflowId}/${selectedNode.id}`;
@@ -502,12 +847,12 @@ export default function PropertiesPanel({ onClose }: PropertiesPanelProps) {
                               }}
                               title="Copy form URL"
                             >
-                              <Copy className="h-4 w-4" />
+                              <Copy className="h-3.5 w-3.5" />
                             </Button>
                             <Button
                               variant="outline"
                               size="icon"
-                              className="h-9 w-9 flex-shrink-0 border-blue-300 dark:border-blue-700 hover:bg-blue-100 dark:hover:bg-blue-900"
+                              className="h-8 w-8 flex-shrink-0 border-border/60 hover:bg-muted/60"
                               onClick={(e) => {
                                 e.stopPropagation();
                                 const url = `${window.location.origin}/form/${workflowId}/${selectedNode.id}`;
@@ -515,21 +860,21 @@ export default function PropertiesPanel({ onClose }: PropertiesPanelProps) {
                               }}
                               title="Open form in new tab"
                             >
-                              <ExternalLink className="h-4 w-4" />
+                              <ExternalLink className="h-3.5 w-3.5" />
                             </Button>
                           </div>
-                          <p className="text-xs text-muted-foreground">
+                          <p className="text-xs text-muted-foreground/70 leading-relaxed">
                             Share this URL with users to collect form submissions. Submissions will automatically trigger your workflow.
                           </p>
-                          <div className="p-3 bg-blue-500/10 border border-blue-500/20 rounded-lg">
-                            <p className="text-xs text-blue-600 dark:text-blue-400">
-                              <strong>Note:</strong> The workflow must be saved and active for the form to work. Users can access this URL directly in their browser to fill out and submit the form.
+                          <div className="p-2.5 bg-muted/40 border border-border/40 rounded-sm">
+                            <p className="text-xs text-muted-foreground/80 leading-relaxed">
+                              <strong className="font-medium">Note:</strong> The workflow must be saved and active for the form to work. Users can access this URL directly in their browser to fill out and submit the form.
                             </p>
                           </div>
-                        </>
+                        </> 
                       ) : (
-                        <div className="p-3 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded text-xs text-yellow-700 dark:text-yellow-300">
-                          <strong>⚠️ Save Required:</strong> Please save the workflow first to generate the form link.
+                        <div className="p-2.5 bg-muted/40 border border-border/40 rounded-sm text-xs text-muted-foreground/80">
+                          <strong className="font-medium">Save Required:</strong> Please save the workflow first to generate the form link.
                         </div>
                       )}
                     </div>
@@ -540,7 +885,7 @@ export default function PropertiesPanel({ onClose }: PropertiesPanelProps) {
               {/* Form Node Settings */}
               {selectedNode.data.type === 'form' ? (
                 <div className="space-y-4">
-                  <h3 className="text-xs font-semibold uppercase text-muted-foreground tracking-wide">
+                  <h3 className="text-xs font-medium uppercase text-muted-foreground/70 tracking-wide">
                     Form Configuration
                   </h3>
                   <FormNodeSettings
@@ -564,7 +909,7 @@ export default function PropertiesPanel({ onClose }: PropertiesPanelProps) {
               {/* Custom Google Sheets Settings */}
               {selectedNode.data.type === 'google_sheets' ? (
                 <div className="space-y-4">
-                  <h3 className="text-xs font-semibold uppercase text-muted-foreground tracking-wide">
+                  <h3 className="text-xs font-medium uppercase text-muted-foreground/70 tracking-wide">
                     Configuration
                   </h3>
                   <GoogleSheetsSettings
@@ -576,7 +921,7 @@ export default function PropertiesPanel({ onClose }: PropertiesPanelProps) {
                 </div>
               ) : nodeDefinition.configFields.length > 0 ? (
                 <div className="space-y-4">
-                  <h3 className="text-xs font-semibold uppercase text-muted-foreground tracking-wide">
+                  <h3 className="text-xs font-medium uppercase text-muted-foreground/70 tracking-wide">
                     Configuration
                   </h3>
                   {nodeDefinition.configFields.map((field) => {
@@ -587,14 +932,14 @@ export default function PropertiesPanel({ onClose }: PropertiesPanelProps) {
                     return (
                       <div key={field.key} className="space-y-2">
                         {/* Top - Heading */}
-                        <Label htmlFor={field.key} className="text-sm flex items-center gap-1">
+                        <Label htmlFor={field.key} className="text-xs font-medium text-foreground/90 flex items-center gap-1">
                           {field.label}
-                          {field.required && <span className="text-destructive">*</span>}
+                          {field.required && <span className="text-destructive/80">*</span>}
                         </Label>
                         
                         {/* Next - Description (if exists and not a help link) */}
                         {hasDescription && (
-                          <p className="text-xs text-muted-foreground">{field.helpText}</p>
+                          <p className="text-xs text-muted-foreground/70 leading-relaxed">{field.helpText}</p>
                         )}
                         
                         {/* Next - Input Field */}
@@ -606,7 +951,7 @@ export default function PropertiesPanel({ onClose }: PropertiesPanelProps) {
                             <button
                               type="button"
                               onClick={() => setSelectedHelp(helpInfo)}
-                              className="text-xs text-primary hover:underline cursor-pointer flex items-center gap-1 transition-colors"
+                              className="text-xs text-muted-foreground/70 hover:text-foreground/80 cursor-pointer flex items-center gap-1 transition-colors duration-150"
                             >
                               <HelpCircle className="h-3 w-3" />
                               How to get {field.label}?
@@ -622,26 +967,30 @@ export default function PropertiesPanel({ onClose }: PropertiesPanelProps) {
               )}
             </>
           )}
-        </div>
-      </ScrollArea>
+            </div>
+          </ScrollArea>
 
-      <div className="p-4 border-t border-border space-y-2">
-        <Button
-          variant="destructive"
-          size="sm"
-          className="w-full"
-          onClick={(e) => {
-            e.stopPropagation();
-            deleteSelectedNode();
-          }}
-        >
-          <Trash2 className="mr-2 h-4 w-4" />
-          Delete Node
-        </Button>
-        <p className="text-xs text-center text-muted-foreground">
-          Press <kbd className="px-1.5 py-0.5 text-xs font-semibold text-muted-foreground bg-muted rounded border">Del</kbd> or <kbd className="px-1.5 py-0.5 text-xs font-semibold text-muted-foreground bg-muted rounded border">Backspace</kbd> to delete
-        </p>
-      </div>
+          <div className="px-4 py-3 border-t border-border/40 space-y-2">
+            <Button
+              variant="destructive"
+              size="sm"
+              className="w-full h-8 text-xs font-medium"
+              onClick={(e) => {
+                e.stopPropagation();
+                deleteSelectedNode();
+              }}
+            >
+              <Trash2 className="mr-2 h-3.5 w-3.5" />
+              Delete Node
+            </Button>
+            <p className="text-xs text-center text-muted-foreground/60">
+              Press <kbd className="px-1 py-0.5 text-xs font-medium text-muted-foreground bg-muted/60 rounded border border-border/40">Del</kbd> or <kbd className="px-1 py-0.5 text-xs font-medium text-muted-foreground bg-muted/60 rounded border border-border/40">Backspace</kbd> to delete
+            </p>
+          </div>
+        </>
+      ) : (
+        renderAIEditor()
+      )}
 
       {/* Help Sidebar */}
       <Sheet open={!!selectedHelp} onOpenChange={(open) => !open && setSelectedHelp(null)}>
