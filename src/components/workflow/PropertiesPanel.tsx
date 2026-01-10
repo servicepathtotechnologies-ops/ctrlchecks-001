@@ -760,8 +760,8 @@ export default function PropertiesPanel({ onClose }: PropertiesPanelProps) {
         <>
           <ScrollArea className="flex-1">
             <div className="px-4 py-4 space-y-5">
-          {/* Usage Guide Card - Only for Core Logic Nodes */}
-          {nodeDefinition?.category === 'logic' && NODE_USAGE_GUIDES[selectedNode.data.type] && (
+          {/* Usage Guide Card - For All Nodes */}
+          {NODE_USAGE_GUIDES[selectedNode.data.type] && (
             <div className="mb-1">
               <NodeUsageCard
                 guide={NODE_USAGE_GUIDES[selectedNode.data.type]}
