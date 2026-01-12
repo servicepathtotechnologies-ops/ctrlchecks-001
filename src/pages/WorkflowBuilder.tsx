@@ -198,6 +198,17 @@ export default function WorkflowBuilder() {
       return;
     }
 
+    // CRITICAL: Prevent manual execution when schedule is active
+    const { workflowScheduler } = await import('@/lib/workflowScheduler');
+    if (workflowScheduler.isScheduled(workflowId)) {
+      toast({
+        title: 'Schedule is active',
+        description: 'Manual Run is disabled when a schedule is active. The workflow is running automatically.',
+        variant: 'default',
+      });
+      return;
+    }
+
     // Check if workflow has a form trigger node
     const formNode = nodes.find((node: any) => node.data?.type === 'form');
     const testInput: any = {};
@@ -329,7 +340,13 @@ export default function WorkflowBuilder() {
 
     try {
       const { data, error } = await supabase.functions.invoke('execute-workflow', {
-        body: { workflowId, input: testInput },
+        body: { 
+          workflowId, 
+          input: { 
+            ...testInput,
+            _trigger: 'manual' // Clear execution source tracking
+          }
+        },
       });
 
       if (error) throw error;

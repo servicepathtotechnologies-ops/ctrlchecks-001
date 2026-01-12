@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Play, Save, Settings, Upload, Download } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -17,6 +17,7 @@ import ScheduleSettings from './ScheduleSettings';
 import GoogleConnectionStatus from '@/components/GoogleConnectionStatus';
 import { toast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
+import { workflowScheduler } from '@/lib/workflowScheduler';
 
 interface WorkflowHeaderProps {
   onSave: () => void;
@@ -37,7 +38,17 @@ export default function WorkflowHeader({
   const { workflowId, workflowName, setWorkflowName, isDirty, nodes, edges } = useWorkflowStore();
   const [isEditing, setIsEditing] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
+  const [isScheduleActive, setIsScheduleActive] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Check if schedule is active on mount and when workflowId changes
+  useEffect(() => {
+    if (workflowId && workflowId !== 'new') {
+      setIsScheduleActive(workflowScheduler.isScheduled(workflowId));
+    } else {
+      setIsScheduleActive(false);
+    }
+  }, [workflowId]);
 
   const handleImportClick = () => {
     fileInputRef.current?.click();
@@ -209,7 +220,7 @@ export default function WorkflowHeader({
 
       <div className="flex items-center gap-2">
         <GoogleConnectionStatus />
-        <ScheduleSettings workflowId={workflowId} />
+        <ScheduleSettings workflowId={workflowId} onScheduleChange={setIsScheduleActive} />
         <WebhookSettings workflowId={workflowId} />
 
         <Button variant="outline" size="sm" onClick={onSave} disabled={isSaving || !isDirty}>
@@ -217,9 +228,15 @@ export default function WorkflowHeader({
           {isSaving ? 'Saving...' : 'Save'}
         </Button>
 
-        <Button size="sm" className="gradient-primary text-primary-foreground" onClick={onRun} disabled={isRunning}>
+        <Button 
+          size="sm" 
+          className="gradient-primary text-primary-foreground" 
+          onClick={onRun} 
+          disabled={isRunning || isScheduleActive}
+          title={isScheduleActive ? 'Manual Run is disabled when schedule is active' : undefined}
+        >
           <Play className="mr-2 h-4 w-4" />
-          {isRunning ? 'Running...' : 'Run'}
+          {isRunning ? 'Running...' : isScheduleActive ? 'Scheduled' : 'Run'}
         </Button>
 
         <DropdownMenu>
