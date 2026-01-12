@@ -29,6 +29,7 @@ import FormTrigger from "./pages/FormTrigger";
 import MultimodalBuilder from "./pages/MultimodalBuilder";
 import ModelTestingDashboard from "./pages/ModelTestingDashboard";
 import ModelTestPage from "./pages/ModelTestPage";
+import SchedulerInitializer from "./components/workflow/SchedulerInitializer";
 
 // Component to conditionally render Chatbot only on landing page
 const ConditionalChatbot = () => {
@@ -55,6 +56,7 @@ const App = () => (
               v7_relativeSplatPath: true,
             }}
           >
+            <SchedulerInitializer />
             <Routes>
             <Route path="/" element={<Index />} />
             <Route path="/signup" element={<SignUp />} />
