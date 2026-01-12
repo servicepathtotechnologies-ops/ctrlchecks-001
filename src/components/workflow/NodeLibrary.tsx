@@ -90,7 +90,7 @@ export default function NodeLibrary({ onDragStart, onClose }: NodeLibraryProps) 
       </div>
 
       <ScrollArea className="flex-1">
-        <Accordion type="multiple" className="px-2.5 py-2 w-full min-w-0 overflow-hidden" defaultValue={sortedCategories.slice(0, 2).map(c => c.id)}>
+        <Accordion type="multiple" className="px-2.5 py-2 w-full min-w-0 overflow-hidden">
           {sortedCategories.map((category) => {
             const nodes = getNodesByCategory(category.id);
             if (nodes.length === 0) return null;

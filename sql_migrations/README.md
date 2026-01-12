@@ -4,7 +4,7 @@ This folder contains all SQL migration files organized in execution order withou
 
 ## Execution Order
 
-Run these files in order (01 through 08) for a complete database setup:
+Run these files in order (01 through 11) for a complete database setup:
 
 ### 1. `01_database_setup.sql` ⭐ **REQUIRED FIRST**
 - **Purpose**: Complete database schema setup
@@ -70,20 +70,70 @@ Run these files in order (01 through 08) for a complete database setup:
 - **Contains**: Queries to find users and assign admin roles
 - **Usage**: Run after creating user accounts via signup
 - **Not a migration**: Utility script for manual admin setup
+- **Requires**: `01_database_setup.sql`
+
+### 9. `09_comprehensive_templates.sql` (Optional)
+- **Purpose**: Add 30 comprehensive workflow templates with 100% node coverage
+- **Contains**:
+  - Beginner templates (1-10): Teaching core node families
+  - Intermediate templates (11-20): Combining concepts
+  - Advanced templates (21-30): Complex workflows
+  - Covers all 150+ nodes in the platform
+- **Note**: This resets and replaces all existing templates
+- **Optional**: Only run if you want comprehensive template library
+- **Requires**: `01_database_setup.sql`, `05_role_based_templates.sql`
+
+### 10a. `10_advanced_ai_agent_templates.sql` (Optional)
+- **Purpose**: Add production-ready AI agent workflow templates
+- **Contains**:
+  - Customer Support Agent
+  - Sales Assistant Agent
+  - Data Analysis Agent
+  - Content Generation Agent
+  - And other advanced AI agent templates
+- **Note**: These are fully working, production-ready templates
+- **Optional**: Only run if you want advanced AI agent templates
+- **Requires**: `01_database_setup.sql`, `05_role_based_templates.sql`, `02_agent_memory_tables.sql`
+
+### 10b. `10_fix_user_roles_rls.sql` (Required if experiencing 406 errors)
+- **Purpose**: Fix user_roles 406 error by enabling RLS
+- **Contains**:
+  - Enable RLS on user_roles table
+  - Create policy: "Users can view own roles"
+  - Allow both authenticated and anon access for initial signup
+- **When to run**: If you're experiencing 406 errors related to user_roles table
+- **Requires**: `01_database_setup.sql`
+
+### 11. `11_fix_security_issues.sql` (Recommended)
+- **Purpose**: Fix all Supabase security warnings
+- **Contains**:
+  - Enable RLS on form_submissions table
+  - Enable RLS on test_records table (if exists)
+  - Fix RLS policy performance issues on agent_executions
+  - Fix function search_path security issues
+  - Move extensions from public schema where applicable
+- **Recommended**: Run this to resolve security warnings in Supabase dashboard
+- **Requires**: `01_database_setup.sql`, `02_agent_memory_tables.sql`, `04_form_trigger_setup.sql`
 
 ## Quick Start
 
 ### Fresh Database Setup
 ```sql
 -- Run in Supabase SQL Editor in this order:
-1. 01_database_setup.sql
-2. 02_agent_memory_tables.sql
-3. 03_google_oauth_tokens.sql
-4. 04_form_trigger_setup.sql
-5. 05_role_based_templates.sql
-6. 06_update_signup_role_handling.sql
-7. 07_sample_data.sql (optional)
+1. 01_database_setup.sql                    ⭐ REQUIRED FIRST
+2. 02_agent_memory_tables.sql               ⭐ Required
+3. 03_google_oauth_tokens.sql               ⭐ Required
+4. 04_form_trigger_setup.sql                ⭐ Required
+5. 05_role_based_templates.sql              ⭐ Required
+6. 06_update_signup_role_handling.sql       ⭐ Required
+7. 10_fix_user_roles_rls.sql                ⭐ Recommended (fixes 406 errors)
+8. 11_fix_security_issues.sql               ⭐ Recommended (fixes security warnings)
+9. 07_sample_data.sql                       ⚪ Optional (sample templates)
+10. 09_comprehensive_templates.sql          ⚪ Optional (30 comprehensive templates)
+11. 10_advanced_ai_agent_templates.sql      ⚪ Optional (AI agent templates)
 ```
+
+**Note**: Files 10a and 10b have the same number prefix. Run `10_fix_user_roles_rls.sql` for security fixes. Run `10_advanced_ai_agent_templates.sql` only if you want AI agent templates.
 
 ### After Setup
 ```sql
@@ -100,8 +150,21 @@ The following duplicate files were removed:
 - ❌ `form_trigger_setup_part2.sql` (merged into `04_form_trigger_setup.sql`)
 - ❌ `20251207070215_6d88d90b-5112-413a-bf41-753c414177a5.sql` (duplicate of `01_database_setup.sql`)
 
-## Notes
+## Important Notes
 
+### Naming Conflict
+- There are two files numbered "10":
+  - `10_advanced_ai_agent_templates.sql` - Optional AI agent templates
+  - `10_fix_user_roles_rls.sql` - Required security fix
+- Both can be run, but `10_fix_user_roles_rls.sql` should be run earlier if you're experiencing 406 errors
+
+### Template Files
+- **`07_sample_data.sql`**: Basic sample templates (if you want simple examples)
+- **`09_comprehensive_templates.sql`**: 30 comprehensive templates covering all nodes (replaces existing templates)
+- **`10_advanced_ai_agent_templates.sql`**: Production-ready AI agent templates
+- **Note**: `09_comprehensive_templates.sql` will DELETE all existing templates before inserting new ones
+
+### Safety Features
 - All files use `IF NOT EXISTS` where possible for safe re-running
 - Enum additions are handled safely with existence checks
 - RLS policies are created with `DROP POLICY IF EXISTS` for safety
