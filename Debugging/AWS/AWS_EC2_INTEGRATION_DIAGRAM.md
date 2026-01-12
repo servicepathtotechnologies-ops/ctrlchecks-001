@@ -8,7 +8,7 @@
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                         VERCEL FRONTEND                          │
+│                         VERCEL FRONTEND                         │
 │  (React + TypeScript + Vite)                                    │
 │  https://your-app.vercel.app                                    │
 └────────────────────────────┬────────────────────────────────────┘
@@ -20,7 +20,7 @@
 ┌─────────────────────────────────────────────────────────────────┐
 │                    CLOUDFLARE TUNNEL                            │
 │  https://ctrlchecks-abc123.trycloudflare.com                    │
-│  (Public URL - Exposes EC2 to Internet)                        │
+│  (Public URL - Exposes EC2 to Internet)                         │
 └────────────────────────────┬────────────────────────────────────┘
                              │
                              │ HTTP Proxy
@@ -151,8 +151,8 @@ User sees result
 
 | Variable | Value | Purpose |
 |----------|-------|---------|
-| `VITE_PYTHON_BACKEND_URL` | `https://ctrlchecks-abc123.trycloudflare.com` | Backend API URL |
-| `VITE_USE_DIRECT_BACKEND` | `true` | Bypass Edge Functions |
+| `VITE_PYTHON_BACKEND_URL`  | `https://ctrlchecks-abc123.trycloudflare.com` | Backend API URL |
+| `VITE_USE_DIRECT_BACKEND`  | `true` | Bypass Edge Functions |
 
 ### AWS EC2 Security Group
 

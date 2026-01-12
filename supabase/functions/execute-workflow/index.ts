@@ -17427,6 +17427,21 @@ async function executeNode(
       };
     }
 
+    case "log_output": {
+      const inputObj = extractInputObject(input);
+      const message = getStringProperty(config, 'message', '');
+      const level = getStringProperty(config, 'level', 'info') || 'info';
+      
+      // Resolve template variables in the message using replaceTemplates
+      const resolvedMessage = replaceTemplates(message, input);
+      
+      return {
+        input: inputObj,
+        level: level,
+        logged: resolvedMessage
+      };
+    }
+
     default:
       // CRITICAL: If we reach here, the node type is valid but not implemented
       // This should never happen if all node types are properly handled
