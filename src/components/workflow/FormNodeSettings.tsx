@@ -155,8 +155,9 @@ export default function FormNodeSettings({ config, onConfigChange }: FormNodeSet
                   <div className="flex-1 space-y-3">
                     <div className="grid grid-cols-2 gap-2">
                       <div className="space-y-1">
-                        <Label className="text-xs">Label</Label>
+                        <Label htmlFor={`label-${field.id}`} className="text-xs">Label</Label>
                         <Input
+                          id={`label-${field.id}`}
                           value={field.label}
                           onChange={(e) => handleFieldChange(field.id, 'label', e.target.value)}
                           placeholder="Field Label"
@@ -164,12 +165,12 @@ export default function FormNodeSettings({ config, onConfigChange }: FormNodeSet
                         />
                       </div>
                       <div className="space-y-1">
-                        <Label className="text-xs">Type</Label>
+                        <Label htmlFor={`type-${field.id}`} className="text-xs">Type</Label>
                         <Select
                           value={field.type}
                           onValueChange={(value) => handleFieldChange(field.id, 'type', value)}
                         >
-                          <SelectTrigger className="h-8 text-sm">
+                          <SelectTrigger id={`type-${field.id}`} className="h-8 text-sm">
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
@@ -184,8 +185,9 @@ export default function FormNodeSettings({ config, onConfigChange }: FormNodeSet
                     </div>
 
                     <div className="space-y-1">
-                      <Label className="text-xs">Internal Name</Label>
+                      <Label htmlFor={`name-${field.id}`} className="text-xs">Internal Name</Label>
                       <Input
+                        id={`name-${field.id}`}
                         value={field.name}
                         onChange={(e) => handleFieldChange(field.id, 'name', e.target.value)}
                         placeholder="field_name"
@@ -195,8 +197,9 @@ export default function FormNodeSettings({ config, onConfigChange }: FormNodeSet
 
                     {(field.type === 'text' || field.type === 'email' || field.type === 'number' || field.type === 'textarea') && (
                       <div className="space-y-1">
-                        <Label className="text-xs">Placeholder</Label>
+                        <Label htmlFor={`placeholder-${field.id}`} className="text-xs">Placeholder</Label>
                         <Input
+                          id={`placeholder-${field.id}`}
                           value={field.placeholder || ''}
                           onChange={(e) => handleFieldChange(field.id, 'placeholder', e.target.value)}
                           placeholder="Enter placeholder text"
@@ -207,8 +210,9 @@ export default function FormNodeSettings({ config, onConfigChange }: FormNodeSet
 
                     {(field.type === 'select' || field.type === 'radio') && (
                       <div className="space-y-1">
-                        <Label className="text-xs">Options (comma-separated)</Label>
+                        <Label htmlFor={`options-${field.id}`} className="text-xs">Options (comma-separated)</Label>
                         <Input
+                          id={`options-${field.id}`}
                           value={field.options?.map(opt => typeof opt === 'string' ? opt : `${opt.label}:${opt.value}`).join(', ') || ''}
                           onChange={(e) => {
                             const options = e.target.value.split(',').map(opt => {

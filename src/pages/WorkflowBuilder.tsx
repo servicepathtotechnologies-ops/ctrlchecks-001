@@ -13,6 +13,8 @@ import NodeLibrary from '@/components/workflow/NodeLibrary';
 import WorkflowCanvas from '@/components/workflow/WorkflowCanvas';
 import PropertiesPanel from '@/components/workflow/PropertiesPanel';
 import ExecutionConsole from '@/components/workflow/ExecutionConsole';
+import DebugPanel from '@/components/workflow/debug/DebugPanel';
+import { useDebugStore } from '@/stores/debugStore';
 import { Edge } from '@xyflow/react';
 import { Json } from '@/integrations/supabase/types';
 import { validateAndFixWorkflow } from '@/lib/workflowValidation';
@@ -26,6 +28,7 @@ export default function WorkflowBuilder() {
   const [consoleExpanded, setConsoleExpanded] = useState(false);
   const [nodeLibraryOpen, setNodeLibraryOpen] = useState(true);
   const [propertiesPanelOpen, setPropertiesPanelOpen] = useState(true);
+  const { debugNodeId } = useDebugStore();
   const {
     nodes,
     edges,
@@ -438,6 +441,9 @@ export default function WorkflowBuilder() {
           onToggle={() => setConsoleExpanded(!consoleExpanded)}
         />
       </div>
+      
+      {/* Debug Panel Overlay */}
+      {debugNodeId && <DebugPanel />}
     </div>
   );
 }

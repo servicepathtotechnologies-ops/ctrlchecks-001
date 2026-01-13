@@ -27,6 +27,41 @@ import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 import { validateAndFixWorkflow } from '@/lib/workflowValidation';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
+import { useDroppable } from '@dnd-kit/core';
+import { useExpressionDropStore } from '@/stores/expressionDropStore';
+import { resolveExpression, detectExpressionType } from '@/lib/expressionResolver';
+
+// Droppable field wrapper component - MUST be outside PropertiesPanel to avoid hook violations
+interface DroppableFieldWrapperProps {
+  fieldKey: string;
+  children: React.ReactNode;
+  className?: string;
+  debugMode: boolean;
+}
+
+const DroppableFieldWrapper = ({ fieldKey, children, className, debugMode }: DroppableFieldWrapperProps) => {
+  // Hook MUST be called unconditionally - use disabled prop instead of conditional call
+  const { setNodeRef, isOver } = useDroppable({
+    id: `field-${fieldKey}`,
+    disabled: !debugMode,
+  });
+  
+  if (!debugMode) {
+    return <>{children}</>;
+  }
+  
+  return (
+    <div 
+      ref={setNodeRef}
+      className={cn("relative", className, isOver && "ring-2 ring-primary/50 rounded-md")}
+    >
+      {children}
+      {isOver && (
+        <div className="absolute inset-0 bg-primary/10 rounded-md pointer-events-none z-10" />
+      )}
+    </div>
+  );
+};
 
 const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
   Play, Webhook, Clock, Globe, Brain, Sparkles, Gem, Link, GitBranch,
@@ -39,6 +74,8 @@ const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
 
 interface PropertiesPanelProps {
   onClose?: () => void;
+  debugMode?: boolean;
+  debugInputData?: unknown;
 }
 
 interface Message {
@@ -50,9 +87,10 @@ interface Message {
 
 type ViewMode = 'properties' | 'ai-editor';
 
-export default function PropertiesPanel({ onClose }: PropertiesPanelProps) {
+export default function PropertiesPanel({ onClose, debugMode = false, debugInputData }: PropertiesPanelProps) {
   const { selectedNode, selectNode, updateNodeConfig, deleteSelectedNode, workflowId, nodes, edges, setNodes, setEdges } = useWorkflowStore();
   const { toast } = useToast();
+  const { pendingExpression, clearPendingExpression } = useExpressionDropStore();
 
   // View mode state - default to properties
   const [viewMode, setViewMode] = useState<ViewMode>('properties');
@@ -348,6 +386,22 @@ export default function PropertiesPanel({ onClose }: PropertiesPanelProps) {
     };
   }, [resize, stopResizing]);
 
+  // Effect to handle pending expression injection from drag & drop
+  // MUST be before any early returns to follow Rules of Hooks
+  useEffect(() => {
+    if (debugMode && pendingExpression && selectedNode) {
+      const { fieldKey, expression } = pendingExpression;
+      // Check if the field exists in the current node's config
+      const nodeDefinition = getNodeDefinition(selectedNode.data.type);
+      const field = nodeDefinition?.configFields?.find(f => f.key === fieldKey);
+
+      if (field) {
+        updateNodeConfig(selectedNode.id, { [fieldKey]: expression });
+        clearPendingExpression();
+      }
+    }
+  }, [debugMode, pendingExpression, selectedNode, clearPendingExpression, updateNodeConfig]);
+
   // Render AI Editor view
   const renderAIEditor = () => (
     <div className="flex-1 flex flex-col overflow-hidden">
@@ -524,6 +578,7 @@ export default function PropertiesPanel({ onClose }: PropertiesPanelProps) {
     e.stopPropagation();
   };
 
+
   // Parse helpText to extract title and steps
   const parseHelpText = (helpText: string): { title: string; steps: string[] } | null => {
     if (!helpText || !helpText.startsWith('How to get')) {
@@ -588,62 +643,102 @@ export default function PropertiesPanel({ onClose }: PropertiesPanelProps) {
 
   const renderField = (field: ConfigField) => {
     const value = (selectedNode.data.config || {})[field.key] ?? field.defaultValue ?? '';
+    
+    // Check if value is an expression and resolve it in debug mode
+    const isExpression = typeof value === 'string' && value.startsWith('{{$json.');
+    const resolvedValue = debugMode && isExpression && debugInputData
+      ? resolveExpression(value as string, debugInputData)
+      : value;
+    const resolvedType = debugMode && isExpression && debugInputData
+      ? detectExpressionType(value as string, debugInputData)
+      : typeof value;
 
     switch (field.type) {
       case 'text':
       case 'cron':
         return (
-          <Input
-            id={field.key}
-            value={value as string}
-            onChange={(e) => handleConfigChange(field.key, e.target.value)}
-            placeholder={field.placeholder}
-            className="h-8 text-xs border-border/60 focus-visible:ring-1 focus-visible:ring-ring/50"
-            onMouseDown={handleInputMouseDown}
-            onFocus={(e) => e.stopPropagation()}
-          />
+          <DroppableFieldWrapper fieldKey={field.key} debugMode={debugMode}>
+            <div className="relative">
+              <Input
+                id={field.key}
+                value={value as string}
+                onChange={(e) => handleConfigChange(field.key, e.target.value)}
+                placeholder={field.placeholder}
+                className="h-8 text-xs border-border/60 focus-visible:ring-1 focus-visible:ring-ring/50"
+                onMouseDown={handleInputMouseDown}
+                onFocus={(e) => e.stopPropagation()}
+              />
+              {debugMode && isExpression && (
+                <div className="absolute top-0 right-0 bottom-0 flex items-center pr-2 text-xs text-muted-foreground/70 bg-muted/20 rounded-r-md pointer-events-none">
+                  <span className="font-mono text-[10px]">{String(resolvedValue)} ({resolvedType})</span>
+                </div>
+              )}
+            </div>
+          </DroppableFieldWrapper>
         );
 
       case 'time':
         return (
-          <Input
-            id={field.key}
-            type="time"
-            value={value as string}
-            onChange={(e) => handleConfigChange(field.key, e.target.value)}
-            placeholder={field.placeholder || '09:00'}
-            className="h-8 text-xs border-border/60 focus-visible:ring-1 focus-visible:ring-ring/50"
-            onMouseDown={handleInputMouseDown}
-            onFocus={(e) => e.stopPropagation()}
-          />
+          <DroppableFieldWrapper fieldKey={field.key} debugMode={debugMode}>
+            <Input
+              id={field.key}
+              type="time"
+              value={value as string}
+              onChange={(e) => handleConfigChange(field.key, e.target.value)}
+              placeholder={field.placeholder || '09:00'}
+              className="h-8 text-xs border-border/60 focus-visible:ring-1 focus-visible:ring-ring/50"
+              onMouseDown={handleInputMouseDown}
+              onFocus={(e) => e.stopPropagation()}
+            />
+          </DroppableFieldWrapper>
         );
 
       case 'textarea':
       case 'json':
         return (
-          <Textarea
-            id={field.key}
-            value={typeof value === 'string' ? value : JSON.stringify(value, null, 2)}
-            onChange={(e) => handleConfigChange(field.key, e.target.value)}
-            placeholder={field.placeholder}
-            className="min-h-[100px] font-mono text-xs border-border/60 focus-visible:ring-1 focus-visible:ring-ring/50"
-            onMouseDown={handleInputMouseDown}
-            onFocus={(e) => e.stopPropagation()}
-          />
+          <DroppableFieldWrapper fieldKey={field.key} debugMode={debugMode}>
+            <div className="relative">
+              <Textarea
+                id={field.key}
+                value={typeof value === 'string' ? value : JSON.stringify(value, null, 2)}
+                onChange={(e) => handleConfigChange(field.key, e.target.value)}
+                placeholder={field.placeholder}
+                className="min-h-[100px] font-mono text-xs border-border/60 focus-visible:ring-1 focus-visible:ring-ring/50"
+                onMouseDown={handleInputMouseDown}
+                onFocus={(e) => e.stopPropagation()}
+              />
+              {debugMode && isExpression && (
+                <div className="absolute top-2 right-2 text-xs text-muted-foreground/70 bg-muted/20 px-2 py-1 rounded pointer-events-none max-w-[200px]">
+                  <div className="font-mono text-[10px] whitespace-pre-wrap break-words">
+                    {String(resolvedValue)} ({resolvedType})
+                  </div>
+                </div>
+              )}
+            </div>
+          </DroppableFieldWrapper>
         );
 
       case 'number':
         return (
-          <Input
-            id={field.key}
-            type="number"
-            value={value as number}
-            onChange={(e) => handleConfigChange(field.key, parseFloat(e.target.value))}
-            placeholder={field.placeholder}
-            className="h-8 text-xs border-border/60 focus-visible:ring-1 focus-visible:ring-ring/50"
-            onMouseDown={handleInputMouseDown}
-            onFocus={(e) => e.stopPropagation()}
-          />
+          <DroppableFieldWrapper fieldKey={field.key} debugMode={debugMode}>
+            <div className="relative">
+              <Input
+                id={field.key}
+                type="number"
+                value={value as number}
+                onChange={(e) => handleConfigChange(field.key, parseFloat(e.target.value))}
+                placeholder={field.placeholder}
+                className="h-8 text-xs border-border/60 focus-visible:ring-1 focus-visible:ring-ring/50"
+                onMouseDown={handleInputMouseDown}
+                onFocus={(e) => e.stopPropagation()}
+              />
+              {debugMode && isExpression && (
+                <div className="absolute top-0 right-0 bottom-0 flex items-center pr-2 text-xs text-muted-foreground/70 bg-muted/20 rounded-r-md pointer-events-none">
+                  <span className="font-mono text-[10px]">{String(resolvedValue)} ({resolvedType})</span>
+                </div>
+              )}
+            </div>
+          </DroppableFieldWrapper>
         );
 
       case 'select':
