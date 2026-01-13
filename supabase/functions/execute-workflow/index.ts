@@ -6509,6 +6509,10 @@ async function executeNode(
           return [];
         };
         
+        // Declare num1 and num2 outside the if/else to ensure they're in scope
+        let num1: number = 0;
+        let num2: number = 0;
+        
         // Handle array operations (avg, sum)
         if (operation === 'avg' || operation === 'sum') {
           const array = parseArrayValue(value1Template);
@@ -6520,9 +6524,12 @@ async function executeNode(
           } else {
             result = roundToPrecision(array.reduce((sum, val) => sum + val, 0));
           }
+          // For array operations, set num1 to the array length and num2 to 0
+          num1 = array.length;
+          num2 = 0;
         } else {
-          const num1 = getNumericValue(value1Template, input);
-          const num2 = operation !== 'abs' && operation !== 'round' && operation !== 'floor' && operation !== 'ceil' && operation !== 'sqrt' 
+          num1 = getNumericValue(value1Template, input);
+          num2 = operation !== 'abs' && operation !== 'round' && operation !== 'floor' && operation !== 'ceil' && operation !== 'sqrt' 
             ? getNumericValue(value2Template, input) 
             : 0;
           
@@ -17671,8 +17678,60 @@ function replaceTemplates(template: unknown, input: unknown): string {
   console.log(`[TEMPLATE] Replacing templates in: "${templateStr}"`);
   console.log(`[TEMPLATE] Input:`, JSON.stringify(input));
 
-  // First replace {{input.property}} patterns
-  let result = templateStr.replace(/\{\{input\.([\w.]+)\}\}/g, (match, path) => {
+  // First replace {{$json.property}} patterns (n8n-style expressions)
+  let result = templateStr.replace(/\{\{\$json\.([\w.]+)\}\}/g, (match, path) => {
+    console.log(`[TEMPLATE] Replacing $json expression ${match} with path: ${path}`);
+
+    if (input && typeof input === "object" && input !== null) {
+      const inputObj = input as Record<string, unknown>;
+      const keys = path.split('.');
+      let value: unknown = inputObj;
+      let found = true;
+
+      for (const key of keys) {
+        // Always try to parse JSON strings first before accessing properties
+        value = tryParseJson(value);
+        
+        if (value && typeof value === "object" && value !== null) {
+          if (key in value) {
+            value = (value as Record<string, unknown>)[key];
+          } else {
+            console.log(`[TEMPLATE] Key "${key}" not found in object:`, Object.keys(value));
+            found = false;
+            break;
+          }
+        } else {
+          console.log(`[TEMPLATE] Value is not an object after parsing. Type: ${typeof value}, Value:`, value);
+          found = false;
+          break;
+        }
+      }
+
+      if (!found) {
+        console.log(`[TEMPLATE] Failed to find key in $json path "${path}"`);
+        return match; // Return original if not found
+      }
+
+      console.log(`[TEMPLATE] Extracted $json value for "${path}":`, value);
+
+      // Return the value as string
+      if (typeof value === "string") {
+        return value;
+      } else if (value === null || value === undefined) {
+        return String(value);
+      } else if (typeof value === "object") {
+        // For objects and arrays, use JSON.stringify
+        return JSON.stringify(value);
+      } else {
+        return String(value);
+      }
+    }
+
+    return match; // Return original if input is not an object
+  });
+
+  // Then replace {{input.property}} patterns
+  result = result.replace(/\{\{input\.([\w.]+)\}\}/g, (match, path) => {
     console.log(`[TEMPLATE] Replacing ${match} with path: ${path}`);
 
     if (input && typeof input === "object" && input !== null) {

@@ -3,6 +3,7 @@ import { Handle, Position, NodeProps, Node } from '@xyflow/react';
 import { cn } from '@/lib/utils';
 import { NodeData } from '@/stores/workflowStore';
 import { NODE_CATEGORIES } from './nodeTypes';
+import { useDebugStore } from '@/stores/debugStore';
 import {
   Play, Webhook, Clock, Globe, Brain, Sparkles, Gem, Link, GitBranch,
   GitMerge, Repeat, Timer, ShieldAlert, Code, Braces, Table, Type,
@@ -10,7 +11,7 @@ import {
   CheckCircle, XCircle, Loader2,
   FileText, DatabaseZap, Calendar, Users,
   Layers, Edit, Edit3, Tag, Code2, ListChecks,
-  ArrowUpDown, List, Terminal, Calculator, Lock, Rss, Target
+  ArrowUpDown, List, Terminal, Calculator, Lock, Rss, Target, Bug
 } from 'lucide-react';
 
 const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
@@ -24,7 +25,9 @@ const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
 
 type WorkflowNodeProps = Node<NodeData>;
 
-const WorkflowNode = memo(({ data, selected }: NodeProps<WorkflowNodeProps>) => {
+const WorkflowNode = memo(({ data, selected, id }: NodeProps<WorkflowNodeProps>) => {
+  const { openDebug } = useDebugStore();
+  
   // Skip rendering form nodes - they use custom FormTriggerNode component
   if (data?.type === 'form') {
     return null;
@@ -35,6 +38,12 @@ const WorkflowNode = memo(({ data, selected }: NodeProps<WorkflowNodeProps>) => 
     console.warn('[WorkflowNode] Missing data prop');
     return null;
   }
+
+  const handleDebugClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    e.preventDefault();
+    openDebug(id);
+  };
   
   // Ensure required fields exist with fallbacks
   const nodeType = data.type || 'unknown';
@@ -121,6 +130,19 @@ const WorkflowNode = memo(({ data, selected }: NodeProps<WorkflowNodeProps>) => 
           <div className="font-medium text-sm leading-tight break-words hyphens-auto">{nodeLabel}</div>
           <div className="text-xs text-muted-foreground capitalize leading-tight break-words mt-0.5">{nodeCategory}</div>
         </div>
+        <button
+          onClick={handleDebugClick}
+          className={cn(
+            "h-6 w-6 flex items-center justify-center rounded-md flex-shrink-0",
+            "text-muted-foreground/60 hover:text-foreground/80 hover:bg-muted/60",
+            "transition-colors duration-150",
+            "border border-border/40 hover:border-border"
+          )}
+          title="Debug Node"
+          aria-label="Debug Node"
+        >
+          <Bug className="h-3.5 w-3.5" />
+        </button>
       </div>
 
       {isIfElseNode ? (
